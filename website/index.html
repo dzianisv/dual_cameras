@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Dual Cameras: record the front and back camera at once in Flutter (Android & iOS)</title>
 <meta name="description" content="Dual Cameras is an open-source Flutter plugin that records the front and back cameras at the same time, compositing them live on the GPU into a single portrait MP4 and photo. Picture-in-picture, circle, or split. Android and iOS. By Roman Slack.">
-<meta name="keywords" content="Flutter dual camera, record front and back camera simultaneously, both cameras at once, dual camera recording Flutter plugin, picture-in-picture video, composited video, CameraX concurrent camera, AVCaptureMultiCamSession, BeReal style camera, Snapchat dual capture, dual_cameras_recorder, Roman Slack">
+<meta name="keywords" content="Flutter dual camera, record front and back camera simultaneously, both cameras at once, dual camera recording Flutter plugin, picture-in-picture video, composited video, CameraX concurrent camera, AVCaptureMultiCamSession, BeReal style camera, Snapchat dual capture, dual_cameras, Roman Slack">
 <meta name="author" content="Roman Slack">
 <meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1">
 <meta name="theme-color" content="#027DFD">
@@ -62,7 +62,7 @@
       "@type": "SoftwareSourceCode",
       "@id": "https://dualcameras.com/#software",
       "name": "Dual Cameras",
-      "alternateName": "dual_cameras_recorder",
+      "alternateName": "dual_cameras",
       "description": "An open-source Flutter plugin that records the front and back cameras at the same time, compositing them live on the GPU (GLES on Android, Metal on iOS) into a single portrait MP4 and photo, with a real-time preview. Supports picture-in-picture, circle inset, and split layouts.",
       "url": "https://dualcameras.com/",
       "codeRepository": "https://github.com/RomanSlack/dual_cameras",
@@ -73,9 +73,9 @@
       "keywords": "Flutter dual camera, record both cameras simultaneously, picture-in-picture video, composited video, CameraX concurrent camera, AVCaptureMultiCamSession",
       "version": "0.1.0",
       "dateModified": "2026-06-28",
-      "downloadUrl": "https://pub.dev/packages/dual_cameras_recorder",
+      "downloadUrl": "https://pub.dev/packages/dual_cameras",
       "sameAs": [
-        "https://pub.dev/packages/dual_cameras_recorder",
+        "https://pub.dev/packages/dual_cameras",
         "https://github.com/RomanSlack/dual_cameras"
       ],
       "author": { "@id": "https://romanslack.com/#person" },
@@ -88,7 +88,7 @@
       "applicationCategory": "DeveloperApplication",
       "operatingSystem": "Android, iOS",
       "softwareVersion": "0.1.0",
-      "downloadUrl": "https://pub.dev/packages/dual_cameras_recorder",
+      "downloadUrl": "https://pub.dev/packages/dual_cameras",
       "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
       "author": { "@id": "https://romanslack.com/#person" }
     },
@@ -104,7 +104,7 @@
         {
           "@type": "Question",
           "name": "What is the Dual Cameras Flutter plugin?",
-          "acceptedAnswer": { "@type": "Answer", "text": "Dual Cameras (package: dual_cameras_recorder) is an open-source Flutter plugin by Roman Slack that records the front and back cameras simultaneously, composited live on the GPU into one portrait MP4 and photo, with a real-time preview. It supports picture-in-picture, circle inset, and split layouts on Android and iOS." }
+          "acceptedAnswer": { "@type": "Answer", "text": "Dual Cameras (package: dual_cameras) is an open-source Flutter plugin by Roman Slack that records the front and back cameras simultaneously, composited live on the GPU into one portrait MP4 and photo, with a real-time preview. It supports picture-in-picture, circle inset, and split layouts on Android and iOS." }
         },
         {
           "@type": "Question",
@@ -114,7 +114,7 @@
         {
           "@type": "Question",
           "name": "How do I install Dual Cameras?",
-          "acceptedAnswer": { "@type": "Answer", "text": "Run flutter pub add dual_cameras_recorder, add camera and microphone permissions in the host app, then use DualCameraController to initialize, preview, record, and take photos." }
+          "acceptedAnswer": { "@type": "Answer", "text": "Run flutter pub add dual_cameras, add camera and microphone permissions in the host app, then use DualCameraController to initialize, preview, record, and take photos." }
         },
         {
           "@type": "Question",
@@ -366,7 +366,7 @@
       <a href="#install" class="hide-sm">Install</a>
       <a href="#platforms" class="hide-sm">Platforms</a>
       <a href="#faq" class="hide-sm">FAQ</a>
-      <a class="ghlink" href="https://github.com/RomanSlack/dual_cameras" target="_blank" rel="noopener" aria-label="View dual_cameras_recorder on GitHub">
+      <a class="ghlink" href="https://github.com/RomanSlack/dual_cameras" target="_blank" rel="noopener" aria-label="View dual_cameras on GitHub">
         <svg viewBox="0 0 24 24"><path d="M12 .5C5.7.5.5 5.7.5 12c0 5.1 3.3 9.4 7.9 10.9.6.1.8-.2.8-.5v-1.7c-3.2.7-3.9-1.5-3.9-1.5-.5-1.3-1.3-1.7-1.3-1.7-1.1-.7.1-.7.1-.7 1.2.1 1.8 1.2 1.8 1.2 1 1.8 2.8 1.3 3.5 1 .1-.8.4-1.3.7-1.6-2.6-.3-5.3-1.3-5.3-5.7 0-1.3.5-2.3 1.2-3.1-.1-.3-.5-1.5.1-3.1 0 0 1-.3 3.3 1.2a11.5 11.5 0 0 1 6 0C17.3 4.7 18.3 5 18.3 5c.6 1.6.2 2.8.1 3.1.8.8 1.2 1.8 1.2 3.1 0 4.4-2.7 5.4-5.3 5.7.4.4.8 1.1.8 2.2v3.3c0 .3.2.6.8.5 4.6-1.5 7.9-5.8 7.9-10.9C23.5 5.7 18.3.5 12 .5z"/></svg>
         <span>GitHub</span>
       </a>
@@ -383,7 +383,7 @@
       <p class="tagline">Record the <b>front and back cameras at the same time</b>, composited live on the GPU into a single portrait <b>.mp4</b> and photo, with a real-time preview. The BeReal&nbsp;/&nbsp;Snapchat dual capture, as a proper open-source plugin.</p>
 
       <div class="install" id="install">
-        <code class="mono"><span class="dim">$</span> flutter pub add dual_cameras_recorder</code>
+        <code class="mono"><span class="dim">$</span> flutter pub add dual_cameras</code>
         <button class="copy" id="copyBtn" aria-label="Copy install command">
           <svg viewBox="0 0 24 24"><path d="M16 1H4a2 2 0 0 0-2 2v14h2V3h12V1zm3 4H8a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h11a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2zm0 16H8V7h11v14z"/></svg>
           <span id="copyLbl">Copy</span>
@@ -449,7 +449,7 @@
           <td class="yes">✓</td><td class="yes">✓</td><td class="no">✕</td>
         </tr>
         <tr class="me">
-          <td class="mono">dual_cameras_recorder</td>
+          <td class="mono">dual_cameras</td>
           <td class="yes">✓</td><td class="yes">✓</td><td class="yes">✓</td>
         </tr>
       </tbody>
@@ -563,7 +563,7 @@ cam.<span class="f">swapPrimary</span>();              <span class="c">// flip l
       </div>
       <div class="faq-item">
         <h3>What is the Dual Cameras Flutter plugin?</h3>
-        <p>Dual Cameras (package <span class="mono">dual_cameras_recorder</span>) is an open-source Flutter plugin by Roman Slack that records the front and back cameras simultaneously, composited live on the GPU into one portrait MP4 and photo with a real-time preview. It supports picture-in-picture, circle inset, and split layouts on Android and iOS.</p>
+        <p>Dual Cameras (package <span class="mono">dual_cameras</span>) is an open-source Flutter plugin by Roman Slack that records the front and back cameras simultaneously, composited live on the GPU into one portrait MP4 and photo with a real-time preview. It supports picture-in-picture, circle inset, and split layouts on Android and iOS.</p>
       </div>
       <div class="faq-item">
         <h3>Which devices support simultaneous dual-camera recording?</h3>
@@ -571,7 +571,7 @@ cam.<span class="f">swapPrimary</span>();              <span class="c">// flip l
       </div>
       <div class="faq-item">
         <h3>How do I install Dual Cameras?</h3>
-        <p>Run <span class="mono">flutter pub add dual_cameras_recorder</span>, add camera and microphone permissions in the host app, then use <span class="mono">DualCameraController</span> to initialize, preview, record, and take photos.</p>
+        <p>Run <span class="mono">flutter pub add dual_cameras</span>, add camera and microphone permissions in the host app, then use <span class="mono">DualCameraController</span> to initialize, preview, record, and take photos.</p>
       </div>
       <div class="faq-item">
         <h3>Is Dual Cameras free and open source?</h3>
@@ -615,7 +615,7 @@ cam.<span class="f">swapPrimary</span>();              <span class="c">// flip l
   const btn = document.getElementById('copyBtn');
   btn.addEventListener('click', async () => {
     try {
-      await navigator.clipboard.writeText('flutter pub add dual_cameras_recorder');
+      await navigator.clipboard.writeText('flutter pub add dual_cameras');
       const lbl = document.getElementById('copyLbl');
       lbl.textContent = 'Copied';
       setTimeout(() => { lbl.textContent = 'Copy'; }, 1600);
