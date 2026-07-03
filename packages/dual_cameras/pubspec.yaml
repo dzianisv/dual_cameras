@@ -2,7 +2,7 @@ name: dual_cameras
 description: >-
   Record the front and back cameras at the same time, composited live on the GPU
   into a single portrait video and photo, with a real-time preview. Android + iOS.
-version: 0.1.1
+version: 0.1.2
 homepage: https://dualcameras.com
 repository: https://github.com/RomanSlack/dual_cameras/tree/main/packages/dual_cameras
 issue_tracker: https://github.com/RomanSlack/dual_cameras/issues
@@ -30,7 +30,7 @@ dependencies:
     sdk: flutter
   dual_cameras_platform_interface: ^0.1.0
   dual_cameras_android: ^0.1.0
-  dual_cameras_ios: ^0.1.0
+  dual_cameras_ios: ^0.1.1
 
 dev_dependencies:
   flutter_test:

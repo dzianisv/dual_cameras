@@ -103,9 +103,22 @@ final class DualCameraSession: NSObject,
         }
     }
 
-    /// If the committed session is over the hardwareCost budget, cap each
-    /// camera's frame rate (cheapest lever before dropping resolution).
+    /// If the committed session is over the hardwareCost budget, first drop the
+    /// back camera from its crisp hi-res format to the cheap binned one (the front
+    /// is already cheap) — this is what keeps the crisp-back preference safe on
+    /// lower-end devices — then cap frame rate as the final lever.
     private func relieveHardwareCostIfNeeded() {
+        if session.hardwareCost > 1.0, let back = backDevice {
+            let cheap = cheapMultiCamFormat(from: back.formats.filter { $0.isMultiCamSupported })
+            if let cheap = cheap, back.activeFormat != cheap {
+                session.beginConfiguration()
+                if (try? back.lockForConfiguration()) != nil {
+                    back.activeFormat = cheap
+                    back.unlockForConfiguration()
+                }
+                session.commitConfiguration()
+            }
+        }
         var fps: Int32 = 30
         while session.hardwareCost > 1.0 && fps > 15 {
             fps -= 5
@@ -128,9 +141,11 @@ final class DualCameraSession: NSObject,
               session.canAddInput(input) else { return false }
         session.addInputWithNoConnections(input)
 
-        // Pick a multicam-legal, low-cost format (prefer binned, <=720p) and set
-        // it manually — leaving the default risks hardwareCost >= 1.0.
-        if let fmt = bestMultiCamFormat(device), (try? device.lockForConfiguration()) != nil {
+        // Pick a multicam-legal format per role and set it manually — leaving the
+        // default risks hardwareCost >= 1.0. Back gets a crisp hi-res format; front
+        // gets the cheap binned one (see bestMultiCamFormat).
+        if let fmt = bestMultiCamFormat(device, position: position),
+           (try? device.lockForConfiguration()) != nil {
             device.activeFormat = fmt
             device.unlockForConfiguration()
         }
@@ -152,11 +167,41 @@ final class DualCameraSession: NSObject,
         return true
     }
 
-    /// Lowest-cost multicam-supported format: must be multicam-legal; prefer
-    /// binned (lower bandwidth/heat); among those pick the smallest width that is
-    /// still >= 640 (keeps a usable resolution while staying under hardwareCost).
-    private func bestMultiCamFormat(_ device: AVCaptureDevice) -> AVCaptureDevice.Format? {
+    /// Pick a multicam-legal capture format for one camera by its role.
+    ///
+    /// The front camera is only the small PiP inset, so it takes the cheapest
+    /// legal format (binned, smallest) to keep bandwidth/heat down. The back
+    /// camera is the full-frame primary whose sharpness the user actually judges,
+    /// so it takes a CRISP (non-binned) format at ~720p — matching the single-
+    /// camera path (ResolutionPreset.high) instead of the soft binned frame we
+    /// used to pick for both. Binned formats merge 2x2 sensor pixels, so even at
+    /// equal dimensions they read noticeably softer; non-binned reads every pixel.
+    /// If a device can't afford this, relieveHardwareCostIfNeeded() downgrades the
+    /// back to cheapMultiCamFormat before the session would refuse to run.
+    private func bestMultiCamFormat(_ device: AVCaptureDevice,
+                                    position: AVCaptureDevice.Position) -> AVCaptureDevice.Format? {
         let multicam = device.formats.filter { $0.isMultiCamSupported }
+        guard !multicam.isEmpty else { return nil }
+        if position != .back { return cheapMultiCamFormat(from: multicam) }
+
+        func longSide(_ f: AVCaptureDevice.Format) -> Int32 {
+            let d = CMVideoFormatDescriptionGetDimensions(f.formatDescription)
+            return max(d.width, d.height)
+        }
+        let crisp = multicam.filter { !$0.isVideoBinned }
+        let pool = crisp.isEmpty ? multicam : crisp
+        // Smallest format that still clears 720p — matches the single-camera preset
+        // without paying for 4K (which would risk hardwareCost >= 1.0).
+        let hd = pool.filter { longSide($0) >= 1280 }
+        if let pick = hd.min(by: { longSide($0) < longSide($1) }) { return pick }
+        // No 720p-class format available: take the largest the device offers.
+        return pool.max(by: { longSide($0) < longSide($1) })
+    }
+
+    /// Lowest-cost multicam-supported format: prefer binned (lower bandwidth/heat);
+    /// among those pick the smallest width still >= 640 (usable but cheap). Used
+    /// for the front inset, and as the back's fallback when over hardwareCost.
+    private func cheapMultiCamFormat(from multicam: [AVCaptureDevice.Format]) -> AVCaptureDevice.Format? {
         guard !multicam.isEmpty else { return nil }
         func width(_ f: AVCaptureDevice.Format) -> Int32 {
             CMVideoFormatDescriptionGetDimensions(f.formatDescription).width
@@ -226,11 +271,33 @@ final class DualCameraSession: NSObject,
         }
     }
 
-    func stop() {
-        sessionQueue.async {
-            if self.session.isRunning { self.session.stopRunning() }
-        }
+    /// Tear the capture graph down and relinquish the camera + mic devices.
+    ///
+    /// stopRunning() alone is not enough: the AVCaptureMultiCamSession keeps its
+    /// device inputs (both cameras and the mic) held until the session object is
+    /// deallocated, which happens on an indeterminate later ARC pass. While they
+    /// stay held, any *other* AVCaptureSession — e.g. the single-camera `camera`
+    /// plugin used for video notes — fails to acquire the device. So we explicitly
+    /// remove every input/output here to release the hardware immediately, and
+    /// only fire [completion] once that has finished on the session queue, so the
+    /// Dart side can reliably await a full teardown before opening a new session.
+    func stop(completion: (() -> Void)? = nil) {
         NotificationCenter.default.removeObserver(self)
+        sessionQueue.async {
+            NSLog("[DualCamera][native] stop() begin — isRunning=%d inputs=%d outputs=%d",
+                  self.session.isRunning ? 1 : 0,
+                  self.session.inputs.count, self.session.outputs.count)
+            if self.session.isRunning { self.session.stopRunning() }
+            self.session.beginConfiguration()
+            // Removing inputs/outputs also tears down their connections.
+            for input in self.session.inputs { self.session.removeInput(input) }
+            for output in self.session.outputs { self.session.removeOutput(output) }
+            self.session.commitConfiguration()
+            self.backDevice = nil
+            self.frontDevice = nil
+            NSLog("[DualCamera][native] stop() done — camera + mic released")
+            completion?()
+        }
     }
 
     @objc private func thermalChanged() {

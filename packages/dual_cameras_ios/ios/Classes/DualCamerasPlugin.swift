@@ -159,13 +159,25 @@ public final class DualCamerasPlugin: NSObject, FlutterPlugin, DualCameraHostApi
     }
 
     func dispose(completion: @escaping (Result<Void, Error>) -> Void) {
-        session?.stop()
-        session = nil
-        compositor = nil
+        // Release the preview texture immediately on the platform thread.
         if let id = textureId { textureRegistry.unregisterTexture(id) }
         previewTexture = nil
         textureId = nil
-        completion(.success(()))
+        compositor = nil
+
+        // Keep a strong reference so the session stays alive through its async
+        // teardown, then report success only once the camera + mic devices have
+        // actually been relinquished. This lets Dart await a full release before
+        // the next capture session (e.g. a video note) tries to open the camera.
+        let dying = session
+        session = nil
+        guard let dying = dying else {
+            completion(.success(()))
+            return
+        }
+        dying.stop {
+            DispatchQueue.main.async { completion(.success(())) }
+        }
     }
 
     // MARK: - helpers
@@ -192,21 +204,36 @@ public final class DualCamerasPlugin: NSObject, FlutterPlugin, DualCameraHostApi
     }
 
     private func toLayout(_ l: LayoutConfig, width: Int, height: Int) -> CompositeLayout {
-        let scale = CGFloat(l.insetScale)
+        // insetScale is a fraction of the SHORTER side (height in portrait), so a
+        // circle inset is a true square in pixels while a rect inset matches the
+        // canvas aspect. Mirrors the Android path (DualCamerasPlugin.kt
+        // toCompositeLayout) so preview / video / photo stay identical.
+        let scaleH = CGFloat(l.insetScale)
+        let scaleW = l.circleInset
+            ? CGFloat(l.insetScale) * CGFloat(height) / CGFloat(width)
+            : CGFloat(l.insetScale)
         let mx = CGFloat(l.margin) / CGFloat(width)
         let my = CGFloat(l.margin) / CGFloat(height)
         var rect: CGRect
         switch l.insetCorner {
-        case .topLeft: rect = CGRect(x: mx, y: my, width: scale, height: scale)
-        case .topRight: rect = CGRect(x: 1 - mx - scale, y: my, width: scale, height: scale)
-        case .bottomLeft: rect = CGRect(x: mx, y: 1 - my - scale, width: scale, height: scale)
-        case .bottomRight: rect = CGRect(x: 1 - mx - scale, y: 1 - my - scale, width: scale, height: scale)
+        case .topLeft:
+            rect = CGRect(x: mx, y: my, width: scaleW, height: scaleH)
+        case .topRight:
+            rect = CGRect(x: 1 - mx - scaleW, y: my, width: scaleW, height: scaleH)
+        case .bottomLeft:
+            rect = CGRect(x: mx, y: 1 - my - scaleH, width: scaleW, height: scaleH)
+        case .bottomRight:
+            rect = CGRect(x: 1 - mx - scaleW, y: 1 - my - scaleH, width: scaleW, height: scaleH)
         }
+        // A circle is the rounded-rect SDF on a square inset with radius = half
+        // the side; otherwise honor the caller's corner radius.
+        let insetSidePx = Float(scaleH) * Float(height)
+        let cornerRadiusPx = l.circleInset ? insetSidePx / 2 : Float(l.cornerRadius)
         return CompositeLayout(
             pictureInPicture: l.mode == .pictureInPicture,
             primaryFront: l.primary == .front,
             insetRect: rect,
-            cornerRadiusPx: Float(l.cornerRadius),
+            cornerRadiusPx: cornerRadiusPx,
             mirrorFront: l.mirrorFront,
             splitVertical: l.mode == .splitVertical)
     }
