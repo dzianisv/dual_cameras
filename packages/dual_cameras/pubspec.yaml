@@ -2,7 +2,7 @@ name: dual_cameras
 description: >-
   Record the front and back cameras at the same time, composited live on the GPU
   into a single portrait video and photo, with a real-time preview. Android + iOS.
-version: 0.1.0
+version: 0.1.1
 homepage: https://dualcameras.com
 repository: https://github.com/RomanSlack/dual_cameras/tree/main/packages/dual_cameras
 issue_tracker: https://github.com/RomanSlack/dual_cameras/issues

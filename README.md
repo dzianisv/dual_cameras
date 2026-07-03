@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="readme_assets/banner.png" alt="Dual Cameras — record the front and back cameras simultaneously in Flutter, composited into a single portrait video" width="820">
+  <img src="https://raw.githubusercontent.com/RomanSlack/dual_cameras/main/readme_assets/banner.png" alt="Dual Cameras — record the front and back cameras simultaneously in Flutter, composited into a single portrait video" width="820">
 </p>
 
 <h1 align="center">dual_cameras</h1>
