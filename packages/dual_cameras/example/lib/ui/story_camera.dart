@@ -72,10 +72,12 @@ class StoryCamera extends StatelessWidget {
                   borderRadius: BorderRadius.circular(24),
                   child: ColoredBox(color: Colors.black, child: preview),
                 );
-                final controls = SingleChildScrollView(
-                  padding: const EdgeInsets.symmetric(vertical: 12),
-                  child: _controls(context),
-                );
+                final controls = Scrollbar(
+                    thumbVisibility: true,
+                    child: SingleChildScrollView(
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      child: _controls(context),
+                    ));
                 if (compact) {
                   return Row(
                     children: [
@@ -124,6 +126,8 @@ class StoryCamera extends StatelessWidget {
               constraints: const BoxConstraints(minHeight: 48, minWidth: 48),
             ),
             Semantics(
+              key: const Key('capture-control'),
+              onTap: onCapture,
               button: true,
               enabled: onCapture != null,
               label: busy ? 'Please wait' : captureLabel,

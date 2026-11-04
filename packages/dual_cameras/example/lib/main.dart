@@ -115,11 +115,15 @@ class _DemoScreenState extends State<DemoScreen> {
   Future<WhisperModelFiles> _ensureModel() => _modelFuture ??= _loadModel();
 
   void _prepareModel() {
-    _ensureModel().then<void>((_) {}, onError: (Object error, StackTrace stack) {});
+    _ensureModel()
+        .then<void>((_) {}, onError: (Object error, StackTrace stack) {});
   }
 
   Future<WhisperModelFiles> _loadModel() async {
-    _update(() { _modelError = null; _modelProgress = null; });
+    _update(() {
+      _modelError = null;
+      _modelProgress = null;
+    });
     try {
       final model = await _modelManager.ensureModel(onProgress: (progress) {
         final value = progress.clamp(0.0, 1.0).toDouble();
@@ -129,41 +133,56 @@ class _DemoScreenState extends State<DemoScreen> {
           _update(() => _modelProgress = value);
         }
       });
-      _update(() { _modelReady = true; _modelProgress = 1; });
+      _update(() {
+        _modelReady = true;
+        _modelProgress = 1;
+      });
       return model;
     } catch (e) {
-      _modelFuture = null; // Allow an explicit retry or a later caption attempt.
+      _modelFuture =
+          null; // Allow an explicit retry or a later caption attempt.
       _update(() => _modelError = '$e');
       rethrow;
     }
   }
 
   Widget _modelPreparation() {
-    final label = _modelReady ? 'Captions ready · on device'
-        : _modelError != null ? 'Caption model download failed'
-        : 'Preparing captions${_modelProgress == null ? '' : ' · ${(_modelProgress! * 100).floor()}%'}';
+    final label = _modelReady
+        ? 'Captions ready · on device'
+        : _modelError != null
+            ? 'Caption model download failed'
+            : 'Preparing captions${_modelProgress == null ? '' : ' · ${(_modelProgress! * 100).floor()}%'}';
     return Padding(
       padding: const EdgeInsets.only(bottom: 10),
       child: Column(mainAxisSize: MainAxisSize.min, children: [
         Row(children: [
-          Expanded(child: Semantics(
+          Expanded(
+              child: Semantics(
             liveRegion: true,
-            child: Text('$label${_modelReady ? '' : '\nFirst download is about 100 MB'}',
-                maxLines: 2, overflow: TextOverflow.ellipsis,
+            child: Text('$label${_modelReady ? '' : '\nFirst use: ~100 MB'}',
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
                 style: const TextStyle(fontSize: 12, color: Color(0xFFCAC6D5))),
           )),
-          if (_modelError != null) TextButton(
-            onPressed: _prepareModel,
-            child: const Text('Retry'),
-          ),
+          if (_modelError != null)
+            TextButton(
+              onPressed: _prepareModel,
+              child: const Text('Retry'),
+            ),
         ]),
         const SizedBox(height: 6),
         LinearProgressIndicator(
-          value: _modelReady ? 1 : _modelError != null ? (_modelProgress ?? 0) : _modelProgress,
+          value: _modelReady
+              ? 1
+              : _modelError != null
+                  ? (_modelProgress ?? 0)
+                  : _modelProgress,
           minHeight: 3,
           color: _modelError != null ? Colors.orange : null,
           semanticsLabel: label,
-          semanticsValue: _modelProgress == null ? null : '${(_modelProgress! * 100).floor()}%',
+          semanticsValue: _modelProgress == null
+              ? null
+              : '${(_modelProgress! * 100).floor()}%',
         ),
       ]),
     );
@@ -593,7 +612,7 @@ class _DemoScreenState extends State<DemoScreen> {
               title: const Text('Session details'),
               children: [
                 Text(_status),
-        if (_modelError != null) SelectableText(_modelError!),
+                if (_modelError != null) SelectableText(_modelError!),
                 if (_error != null) SelectableText(_error!),
                 if (value.errorMessage != null)
                   SelectableText(value.errorMessage!),
@@ -638,7 +657,7 @@ class _DemoScreenState extends State<DemoScreen> {
         final ready = value.isInitialized && !_busy;
         final status = [
           if (value.errorMessage != null)
-            'Camera error: ${value.errorMessage}'
+            'Camera error. See settings for details.'
           else
             _status,
           if (value.thermal != ThermalLevel.nominal)
@@ -649,15 +668,22 @@ class _DemoScreenState extends State<DemoScreen> {
           preparation: _modelPreparation(),
           preview: DualCameraPreview(
             _controller,
-            placeholder: const Center(
-                child: SingleChildScrollView(
-                  padding: EdgeInsets.all(24),
-              child: Column(mainAxisSize: MainAxisSize.min, children: [
-                Icon(Icons.camera_outlined, size: 44, color: Colors.white54),
-                SizedBox(height: 12),
-                Text('Every story has two sides', textAlign: TextAlign.center),
-              ]),
-            )),
+            placeholder: LayoutBuilder(builder: (context, constraints) {
+              return Center(
+                  child: SingleChildScrollView(
+                primary: false,
+                padding: const EdgeInsets.all(24),
+                child: Column(mainAxisSize: MainAxisSize.min, children: [
+                  const Icon(Icons.camera_outlined,
+                      size: 44, color: Colors.white54),
+                  if (constraints.maxHeight > 240) ...[
+                    const SizedBox(height: 12),
+                    const Text('Every story has two sides',
+                        textAlign: TextAlign.center),
+                  ],
+                ]),
+              ));
+            }),
           ),
           initialized: value.isInitialized,
           recording: value.isRecording,

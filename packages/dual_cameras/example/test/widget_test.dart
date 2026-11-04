@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:ui' as ui;
 
 import 'package:dual_cameras_example/main.dart';
 import 'package:dual_cameras_example/captions/model_manager.dart';
@@ -14,9 +15,11 @@ class FakeModelManager extends ModelManager {
   bool fail = false;
   Completer<WhisperModelFiles>? gate;
   void Function(double)? progress;
-  static const files = WhisperModelFiles(encoder: 'encoder', decoder: 'decoder', tokens: 'tokens');
+  static const files = WhisperModelFiles(
+      encoder: 'encoder', decoder: 'decoder', tokens: 'tokens');
   @override
-  Future<WhisperModelFiles> ensureModel({required void Function(double) onProgress}) async {
+  Future<WhisperModelFiles> ensureModel(
+      {required void Function(double) onProgress}) async {
     calls++;
     progress = onProgress;
     if (fail) throw Exception('Offline');
@@ -43,7 +46,11 @@ class FakeCamera extends DualCamerasPlatform with MockPlatformInterfaceMixin {
       : probeGate!.future;
   @override
   Future<InitResult> initialize(RecordingConfig config) async =>
-      initGate == null ? InitResult(textureId: 42, capabilities: CameraCapabilities(isSupported: true)) : initGate!.future;
+      initGate == null
+          ? InitResult(
+              textureId: 42,
+              capabilities: CameraCapabilities(isSupported: true))
+          : initGate!.future;
   @override
   Future<ExposureCompensationRange> getExposureCompensationRange() async =>
       ExposureCompensationRange(minEv: -2, maxEv: 2, stepEv: .5);
@@ -123,10 +130,12 @@ void main() {
     await tester.pumpAndSettle();
   }
 
-  testWidgets('startup model progress and retry do not block camera capture', (tester) async {
+  testWidgets('startup model progress and retry do not block camera capture',
+      (tester) async {
     model.fail = true;
     await openCamera(tester);
-    expect(find.textContaining('Caption model download failed'), findsOneWidget);
+    expect(
+        find.textContaining('Caption model download failed'), findsOneWidget);
     model.fail = false;
     model.gate = Completer<WhisperModelFiles>();
     await tester.tap(find.text('Retry'));
@@ -141,6 +150,42 @@ void main() {
     model.gate!.complete(FakeModelManager.files);
     await tester.pumpAndSettle();
     expect(find.text('Captions ready · on device'), findsOneWidget);
+  });
+
+  testWidgets(
+      'captions await startup download once and keep saved original on failure',
+      (tester) async {
+    model.gate = Completer<WhisperModelFiles>();
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(
+            const MethodChannel('dual_cameras_example/captions'),
+            (call) async => '/tmp/audio.wav');
+    await tester.pumpWidget(DemoApp(modelManager: model));
+    await tester.pump();
+    await tester.ensureVisible(find.text('Captions off'));
+    await tester.tap(find.text('Captions off'));
+    await tester.pump();
+    await tester.pump(const Duration(seconds: 1));
+    await tester.tap(find.byType(SwitchListTile));
+    await tester.pump();
+    await tester.tap(find.byTooltip('Close Captions'));
+    await tester.pump();
+    await tester.pump(const Duration(seconds: 1));
+    await tester.ensureVisible(find.byTooltip('Open camera'));
+    await tester.tap(find.byTooltip('Open camera'));
+    await tester.pump();
+    await tester.tap(find.byTooltip('Start recording'));
+    await tester.pump();
+    await tester.tap(find.byTooltip('Stop recording'));
+    await tester.pump();
+    expect(galleryCalls.where((call) => call == 'putVideo').length, 1);
+    expect(model.calls, 1);
+    model.gate!.completeError(Exception('Download interrupted'));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('plain video kept'), findsOneWidget);
+    expect(find.text('Retry'), findsOneWidget);
+    expect(galleryCalls.where((call) => call == 'putVideo').length, 1);
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('late model completion after disposal is safe', (tester) async {
@@ -181,6 +226,14 @@ void main() {
   testWidgets('record lock prevents repeat taps and stop saves once',
       (tester) async {
     await openCamera(tester);
+    final semantics = tester.ensureSemantics();
+    expect(
+        tester
+            .getSemantics(find.byKey(const Key('capture-control')))
+            .getSemanticsData()
+            .hasAction(ui.SemanticsAction.tap),
+        isTrue);
+    semantics.dispose();
     fake.startGate = Completer<void>();
     await tester.tap(find.byTooltip('Start recording'));
     await tester.pump();
@@ -245,8 +298,8 @@ void main() {
     await tester.pumpWidget(const SizedBox());
     expect(fake.disposals, 0);
     await tester.runAsync(() async {
-      fake.initGate!.complete(InitResult(textureId: 42,
-          capabilities: CameraCapabilities(isSupported: true)));
+      fake.initGate!.complete(InitResult(
+          textureId: 42, capabilities: CameraCapabilities(isSupported: true)));
       await Future<void>.delayed(Duration.zero);
     });
     await tester.pumpAndSettle();
@@ -291,8 +344,17 @@ void main() {
         await tester.tap(find.byTooltip('Camera settings'));
         await tester.pumpAndSettle();
         await tester.scrollUntilVisible(find.text('Exposure'), 100,
-            scrollable: find.descendant(of: find.byType(ListView), matching: find.byType(Scrollable)).last);
+            scrollable: find
+                .descendant(
+                    of: find.byType(ListView),
+                    matching: find.byType(Scrollable))
+                .last);
+        await tester.pumpAndSettle();
+        await tester.ensureVisible(find.text('Exposure'));
+        await tester.pumpAndSettle();
         await tester.tap(find.text('Exposure'));
+        await tester.pumpAndSettle();
+        expect(find.byType(Slider), findsWidgets);
         await tester.pumpAndSettle();
         await tester.tap(find.byTooltip('Close Camera settings'));
         await tester.pumpAndSettle();
