@@ -4,6 +4,11 @@ import 'package:flutter/services.dart';
 import 'package:gal/gal.dart';
 import 'package:permission_handler/permission_handler.dart';
 
+import 'captions/caption_models.dart';
+import 'captions/caption_pipeline.dart';
+import 'captions/model_manager.dart';
+import 'captions/transcriber.dart';
+
 void main() => runApp(const DemoApp());
 
 class DemoApp extends StatelessWidget {
@@ -39,6 +44,14 @@ class _DemoScreenState extends State<DemoScreen> {
   double _evMax = 2.0;
   double _evStep = 1 / 3;
   bool _evSupported = false;
+
+  // Auto-captions (v0.2.0): on-device STT + karaoke burn-in, OFF by default.
+  bool _captions = false;
+  String? _captionStatus;
+  String? _captionedFile;
+  final CaptionPipeline _captionPipeline = CaptionPipeline();
+  final ModelManager _modelManager = ModelManager();
+  final Transcriber _transcriber = Transcriber();
 
   // Live geometry tuning (debug channel) — to dial in the front/back
   // orientation and fix any stretch directly on the device.
@@ -139,6 +152,68 @@ class _DemoScreenState extends State<DemoScreen> {
       setState(() => _status = '$label ok');
     } catch (e) {
       setState(() => _status = '$label failed: $e');
+    }
+  }
+
+  /// Stop recording, save to gallery, then optionally run the auto-captions
+  /// pipeline (extract audio -> on-device STT -> karaoke burn-in). The
+  /// original uncaptioned mp4 is always kept; the captioned one is a second
+  /// file. Any captions failure falls back to the plain video.
+  Future<void> _stop() async {
+    try {
+      _lastFile = await _controller.stopRecording();
+      await Gal.putVideo(_lastFile!);
+      setState(() {
+        _status = 'stop → gallery ok';
+        _captionStatus = null;
+        _captionedFile = null;
+      });
+    } catch (e) {
+      setState(() => _status = 'stop failed: $e');
+      return;
+    }
+    if (!_captions) return;
+    final mp4 = _lastFile;
+    if (mp4 == null) return;
+    try {
+      setState(() => _captionStatus = 'Extracting audio…');
+      final wav = await _captionPipeline.extractAudio(mp4);
+
+      setState(() => _captionStatus = 'Preparing speech model…');
+      final model = await _modelManager.ensureModel(
+        onProgress: (p) => setState(() => _captionStatus =
+            'Downloading speech model ${(p * 100).toStringAsFixed(0)}%'),
+      );
+
+      setState(() => _captionStatus = 'Transcribing… (on-device)');
+      // Let the progress state paint before the blocking decode.
+      await Future<void>.delayed(const Duration(milliseconds: 150));
+      final List<CaptionWord> words = await _transcriber.transcribe(
+        wavPath: wav,
+        model: model,
+      );
+      if (words.isEmpty) {
+        setState(() =>
+            _captionStatus = 'No speech detected — keeping plain video');
+        return;
+      }
+
+      setState(() =>
+          _captionStatus = 'Burning captions… (${words.length} words)');
+      final captioned = await _captionPipeline.burnCaptions(
+        mp4Path: mp4,
+        words: words,
+      );
+      await Gal.putVideo(captioned);
+      if (!mounted) return;
+      setState(() {
+        _captionedFile = captioned;
+        _captionStatus = 'Captions done — ${words.length} words';
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() =>
+          _captionStatus = 'Captions failed ($e) — plain video kept');
     }
   }
 
@@ -316,13 +391,8 @@ class _DemoScreenState extends State<DemoScreen> {
                           child: const Text('Record'),
                         ),
                         FilledButton(
-                          onPressed: value.isRecording
-                              ? () => _guard(() async {
-                                    _lastFile =
-                                        await _controller.stopRecording();
-                                    await Gal.putVideo(_lastFile!);
-                                  }, 'stop → gallery')
-                              : null,
+                          onPressed:
+                              value.isRecording ? () => _guard(_stop, 'stop') : null,
                           child: const Text('Stop'),
                         ),
                         FilledButton(
@@ -352,6 +422,22 @@ class _DemoScreenState extends State<DemoScreen> {
                       ],
                     ),
                     if (value.isInitialized && _evSupported) _evRow(),
+                    SwitchListTile(
+                      contentPadding: EdgeInsets.zero,
+                      dense: true,
+                      title: const Text('Auto-captions'),
+                      subtitle: const Text(
+                          'On-device STT + karaoke subtitles (alpha)'),
+                      value: _captions,
+                      onChanged: (v) => setState(() => _captions = v),
+                    ),
+                    if (_captionStatus != null)
+                      Text(_captionStatus!,
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(color: Colors.lightBlue)),
+                    if (_captionedFile != null)
+                      Text('Captioned: $_captionedFile',
+                          textAlign: TextAlign.center),
                     if (value.isInitialized) _debugPanel(),
                   ],
                 ),
