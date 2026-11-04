@@ -24,6 +24,9 @@ dev_dependencies:
   flutter_test:
     sdk: flutter
   flutter_lints: ^6.0.0
+  dual_cameras_platform_interface:
+    path: ../../dual_cameras_platform_interface
+  plugin_platform_interface: ^2.1.8
 
 # The federated packages aren't published yet — resolve them locally.
 dependency_overrides:

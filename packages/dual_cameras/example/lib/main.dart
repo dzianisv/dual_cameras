@@ -8,24 +8,41 @@ import 'captions/caption_models.dart';
 import 'captions/caption_pipeline.dart';
 import 'captions/model_manager.dart';
 import 'captions/transcriber.dart';
+import 'ui/story_camera.dart';
 
 void main() => runApp(const DemoApp());
 
 class DemoApp extends StatelessWidget {
-  const DemoApp({super.key});
+  const DemoApp({super.key, this.modelManager});
+
+  final ModelManager? modelManager;
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'dual_cameras',
-      theme: ThemeData.dark(useMaterial3: true),
-      home: const DemoScreen(),
+      title: 'StoryCam',
+      debugShowCheckedModeBanner: false,
+      theme: ThemeData(
+        useMaterial3: true,
+        brightness: Brightness.dark,
+        colorScheme: ColorScheme.fromSeed(
+            seedColor: const Color(0xFFFF526D), brightness: Brightness.dark),
+        outlinedButtonTheme: OutlinedButtonThemeData(
+          style: OutlinedButton.styleFrom(
+            minimumSize: const Size(48, 48),
+            foregroundColor: Colors.white,
+          ),
+        ),
+      ),
+      home: DemoScreen(modelManager: modelManager),
     );
   }
 }
 
 class DemoScreen extends StatefulWidget {
-  const DemoScreen({super.key});
+  const DemoScreen({super.key, this.modelManager});
+
+  final ModelManager? modelManager;
 
   @override
   State<DemoScreen> createState() => _DemoScreenState();
@@ -34,7 +51,18 @@ class DemoScreen extends StatefulWidget {
 class _DemoScreenState extends State<DemoScreen> {
   final DualCameraController _controller = DualCameraController();
   CameraCapabilities? _caps;
-  String _status = 'Probing…';
+  String _status = 'Checking camera support…';
+  String? _error;
+  bool _busy = false;
+  Future<void>? _activeOperation;
+  final ValueNotifier<int> _revision = ValueNotifier(0);
+
+  void _update(VoidCallback change) {
+    if (!mounted) return;
+    setState(change);
+    _revision.value++;
+  }
+
   String? _lastFile;
   bool _circle = true; // Telegram-style: circular selfie inset by default.
 
@@ -53,7 +81,11 @@ class _DemoScreenState extends State<DemoScreen> {
   String? _captionStatus;
   String? _captionedFile;
   final CaptionPipeline _captionPipeline = CaptionPipeline();
-  final ModelManager _modelManager = ModelManager();
+  late final ModelManager _modelManager = widget.modelManager ?? ModelManager();
+  Future<WhisperModelFiles>? _modelFuture;
+  bool _modelReady = false;
+  double? _modelProgress;
+  String? _modelError;
   final Transcriber _transcriber = Transcriber();
 
   // Live geometry tuning (debug channel) — to dial in the front/back
@@ -75,60 +107,119 @@ class _DemoScreenState extends State<DemoScreen> {
   void initState() {
     super.initState();
     _bootstrap();
+    _prepareModel();
+  }
+
+  // Startup and post-recording captions share one future: never download the
+  // same model twice. This task is independent of the camera action lock.
+  Future<WhisperModelFiles> _ensureModel() => _modelFuture ??= _loadModel();
+
+  void _prepareModel() {
+    _ensureModel().then<void>((_) {}, onError: (Object error, StackTrace stack) {});
+  }
+
+  Future<WhisperModelFiles> _loadModel() async {
+    _update(() { _modelError = null; _modelProgress = null; });
+    try {
+      final model = await _modelManager.ensureModel(onProgress: (progress) {
+        final value = progress.clamp(0.0, 1.0).toDouble();
+        // Announce and repaint at whole percentages, not every network chunk.
+        if (_modelProgress == null ||
+            (value * 100).floor() != (_modelProgress! * 100).floor()) {
+          _update(() => _modelProgress = value);
+        }
+      });
+      _update(() { _modelReady = true; _modelProgress = 1; });
+      return model;
+    } catch (e) {
+      _modelFuture = null; // Allow an explicit retry or a later caption attempt.
+      _update(() => _modelError = '$e');
+      rethrow;
+    }
+  }
+
+  Widget _modelPreparation() {
+    final label = _modelReady ? 'Captions ready · on device'
+        : _modelError != null ? 'Caption model download failed'
+        : 'Preparing captions${_modelProgress == null ? '' : ' · ${(_modelProgress! * 100).floor()}%'}';
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Column(mainAxisSize: MainAxisSize.min, children: [
+        Row(children: [
+          Expanded(child: Semantics(
+            liveRegion: true,
+            child: Text('$label${_modelReady ? '' : '\nFirst download is about 100 MB'}',
+                maxLines: 2, overflow: TextOverflow.ellipsis,
+                style: const TextStyle(fontSize: 12, color: Color(0xFFCAC6D5))),
+          )),
+          if (_modelError != null) TextButton(
+            onPressed: _prepareModel,
+            child: const Text('Retry'),
+          ),
+        ]),
+        const SizedBox(height: 6),
+        LinearProgressIndicator(
+          value: _modelReady ? 1 : _modelError != null ? (_modelProgress ?? 0) : _modelProgress,
+          minHeight: 3,
+          color: _modelError != null ? Colors.orange : null,
+          semanticsLabel: label,
+          semanticsValue: _modelProgress == null ? null : '${(_modelProgress! * 100).floor()}%',
+        ),
+      ]),
+    );
   }
 
   Future<void> _bootstrap() async {
-    final caps = await DualCameraController.probeSupport();
-    if (!mounted) return;
-    setState(() {
-      _caps = caps;
-      _status = caps.isSupported
-          ? 'Supported (up to ${caps.maxWidth}×${caps.maxHeight}) — grant permissions to start'
-          : 'Not supported on this device (${caps.reason?.name ?? 'unknown'})';
-    });
-  }
-
-  Future<void> _start() async {
-    final granted = await [Permission.camera, Permission.microphone].request();
-    if (granted.values.any((s) => !s.isGranted)) {
-      setState(() => _status = 'Camera/microphone permission denied');
-      return;
-    }
     try {
-      await _controller.initialize(layout: _layout());
-      final range = await _controller.getExposureCompensationRange();
-      if (!mounted) return;
-      setState(() {
-        _status = 'Initialized';
-        _evSupported = range.minEv < range.maxEv && range.stepEv > 0;
-        if (_evSupported) {
-          _evMin = range.minEv;
-          _evMax = range.maxEv;
-          _evStep = range.stepEv;
-          _ev = 0.0;
-        }
+      final caps = await DualCameraController.probeSupport();
+      _update(() {
+        _caps = caps;
+        _status = caps.isSupported
+            ? 'Two perspectives. One story.'
+            : 'Dual camera is unavailable on this device (${caps.reason?.name ?? 'unknown'}).';
       });
     } catch (e) {
-      setState(() => _status = 'initialize failed: $e');
+      _update(() {
+        _error = '$e';
+        _status = 'Could not check camera support. Retry in settings.';
+      });
     }
   }
 
-  Future<void> _setEv(double v) async {
-    setState(() => _ev = v);
-    try {
-      await _controller.setExposureCompensation(v);
-    } catch (e) {
-      setState(() => _status = 'EV failed: $e');
-    }
-  }
+  Future<void> _start() => _guard(() async {
+        final granted =
+            await [Permission.camera, Permission.microphone].request();
+        if (!mounted) return;
+        if (granted.values.any((s) => !s.isGranted)) {
+          _update(() => _status =
+              'Camera and microphone access required. Allow access in device settings, then try again.');
+          return;
+        }
+        await _controller.initialize(layout: _layout());
+        if (!mounted) return;
+        final range = await _controller.getExposureCompensationRange();
+        _update(() {
+          _status = 'Ready to tell your story';
+          _evSupported = range.minEv < range.maxEv && range.stepEv > 0;
+          if (_evSupported) {
+            _evMin = range.minEv;
+            _evMax = range.maxEv;
+            _evStep = range.stepEv;
+            _ev = 0.0;
+          }
+        });
+      }, 'Open camera');
 
-  String _evLabel(double v) =>
-      '${v >= 0 ? '+' : ''}${v.toStringAsFixed(1)} EV';
+  Future<void> _setEv(double v) => _guard(() async {
+        await _controller.setExposureCompensation(v);
+      }, 'Exposure updated');
 
-  Future<void> _setFilter(VideoFilter f) async {
-    setState(() => _filter = f);
-    await _guard(() => _controller.setFilter(f), 'filter ${f.name}');
-  }
+  String _evLabel(double v) => '${v >= 0 ? '+' : ''}${v.toStringAsFixed(1)} EV';
+
+  Future<void> _setFilter(VideoFilter f) => _guard(() async {
+        await _controller.setFilter(f);
+        _update(() => _filter = f);
+      }, 'Filter updated');
 
   Widget _filterChips() {
     return Wrap(
@@ -136,7 +227,7 @@ class _DemoScreenState extends State<DemoScreen> {
       spacing: 8,
       children: [
         ChoiceChip(
-          label: const Text('None'),
+          label: const Text('Original'),
           selected: _filter == VideoFilter.none,
           onSelected: (_) => _setFilter(VideoFilter.none),
         ),
@@ -152,33 +243,43 @@ class _DemoScreenState extends State<DemoScreen> {
   Widget _evRow() {
     final divisions =
         _evStep > 0 ? ((_evMax - _evMin) / _evStep).round().clamp(1, 48) : null;
-    return Row(
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        const SizedBox(width: 110, child: Text('Exposure')),
-        Expanded(
-          child: Slider(
-            min: _evMin,
-            max: _evMax,
-            divisions: divisions,
-            label: _evLabel(_ev),
-            value: _ev.clamp(_evMin, _evMax).toDouble(),
-            onChanged: _setEv,
-          ),
-        ),
-        SizedBox(
-          width: 64,
-          child: Text(_evLabel(_ev), textAlign: TextAlign.right),
+        Text('Exposure ${_evLabel(_ev)}'),
+        Slider(
+          semanticFormatterCallback: _evLabel,
+          min: _evMin,
+          max: _evMax,
+          divisions: divisions,
+          label: _evLabel(_ev),
+          value: _ev.clamp(_evMin, _evMax).toDouble(),
+          onChanged: (v) => _update(() => _ev = v),
+          onChangeEnd: _setEv,
         ),
       ],
     );
   }
 
-  Future<void> _guard(Future<void> Function() action, String label) async {
+  Future<void> _guard(Future<void> Function() action, String label) {
+    if (_busy || !mounted) return Future<void>.value();
+    _update(() {
+      _busy = true;
+      _error = null;
+    });
+    return _activeOperation = _perform(action, label);
+  }
+
+  Future<void> _perform(Future<void> Function() action, String label) async {
     try {
       await action();
-      setState(() => _status = '$label ok');
     } catch (e) {
-      setState(() => _status = '$label failed: $e');
+      _update(() {
+        _status = '$label failed. See settings for details.';
+        _error = '$e';
+      });
+    } finally {
+      _update(() => _busy = false);
     }
   }
 
@@ -188,59 +289,69 @@ class _DemoScreenState extends State<DemoScreen> {
   /// file. Any captions failure falls back to the plain video.
   Future<void> _stop() async {
     try {
-      _lastFile = await _controller.stopRecording();
-      await Gal.putVideo(_lastFile!);
-      setState(() {
-        _status = 'stop → gallery ok';
+      final file = await _controller.stopRecording();
+      _lastFile = file;
+      await Gal.putVideo(file);
+      if (!mounted) return;
+      _update(() {
+        _status = 'Video saved to gallery';
         _captionStatus = null;
         _captionedFile = null;
       });
     } catch (e) {
-      setState(() => _status = 'stop failed: $e');
+      _update(() {
+        _status = 'Could not save video. See settings for details.';
+        _error = '$e';
+      });
       return;
     }
-    if (!_captions) return;
+    if (!mounted || !_captions) return;
     final mp4 = _lastFile;
     if (mp4 == null) return;
     try {
-      setState(() => _captionStatus = 'Extracting audio…');
+      _update(() => _captionStatus = 'Extracting audio…');
       final wav = await _captionPipeline.extractAudio(mp4);
+      if (!mounted) return;
 
-      setState(() => _captionStatus = 'Preparing speech model…');
-      final model = await _modelManager.ensureModel(
-        onProgress: (p) => setState(() => _captionStatus =
-            'Downloading speech model ${(p * 100).toStringAsFixed(0)}%'),
-      );
+      _update(() => _captionStatus = 'Preparing speech model…');
+      final model = await _ensureModel();
 
-      setState(() => _captionStatus = 'Transcribing… (on-device)');
+      if (!mounted) return;
+      _update(() => _captionStatus = 'Transcribing… (on-device)');
       // Let the progress state paint before the blocking decode.
       await Future<void>.delayed(const Duration(milliseconds: 150));
+      if (!mounted) return;
       final List<CaptionWord> words = await _transcriber.transcribe(
         wavPath: wav,
         model: model,
       );
+      if (!mounted) return;
       if (words.isEmpty) {
-        setState(() =>
-            _captionStatus = 'No speech detected — keeping plain video');
+        _update(
+            () => _captionStatus = 'No speech detected — keeping plain video');
         return;
       }
 
-      setState(() =>
-          _captionStatus = 'Burning captions… (${words.length} words)');
+      _update(
+          () => _captionStatus = 'Burning captions… (${words.length} words)');
       final captioned = await _captionPipeline.burnCaptions(
         mp4Path: mp4,
         words: words,
       );
+      if (!mounted) return;
       await Gal.putVideo(captioned);
       if (!mounted) return;
-      setState(() {
+      _update(() {
         _captionedFile = captioned;
         _captionStatus = 'Captions done — ${words.length} words';
       });
     } catch (e) {
       if (!mounted) return;
-      setState(() =>
-          _captionStatus = 'Captions failed ($e) — plain video kept');
+      _update(() {
+        _captionStatus =
+            'Captions failed — plain video kept. See settings for details.';
+        _error = '$e';
+      });
     }
   }
 
@@ -248,51 +359,61 @@ class _DemoScreenState extends State<DemoScreen> {
 
   Future<void> _setRotation(bool front, int offset) async {
     final norm = _norm(offset);
-    setState(() => front ? _frontOffset = norm : _backOffset = norm);
-    await _debug.invokeMethod('setRotationOffset', {'front': front, 'offset': norm});
+    _update(() => front ? _frontOffset = norm : _backOffset = norm);
+    await _debug
+        .invokeMethod('setRotationOffset', {'front': front, 'offset': norm});
   }
 
   Future<void> _setAspect(bool front, double aspect) async {
-    setState(() => front ? _frontAspect = aspect : _backAspect = aspect);
-    await _debug.invokeMethod('setAspectOverride', {'front': front, 'aspect': aspect});
+    _update(() => front ? _frontAspect = aspect : _backAspect = aspect);
+    await _debug
+        .invokeMethod('setAspectOverride', {'front': front, 'aspect': aspect});
   }
 
   Future<void> _setMirror(bool on) async {
-    setState(() => _mirrorFront = on);
+    _update(() => _mirrorFront = on);
     await _debug.invokeMethod('setMirrorFront', {'on': on});
   }
 
   @override
   void dispose() {
-    _controller.dispose();
+    // Native commands cannot be cancelled. Let the current command finish
+    // before tearing down its session so it cannot publish to a disposed
+    // controller or reopen the camera after disposal.
+    final pending = _activeOperation;
+    if (pending == null) {
+      _controller.dispose();
+    } else {
+      pending.whenComplete(_controller.dispose);
+    }
+    _revision.dispose();
     super.dispose();
   }
 
   Widget _rotationRow(String label, bool front, int offset) {
-    return Row(
+    return Wrap(
+      crossAxisAlignment: WrapCrossAlignment.center,
+      spacing: 4,
       children: [
-        SizedBox(width: 110, child: Text(label)),
+        Text(label),
         IconButton(
+          tooltip: 'Rotate $label left',
           icon: const Icon(Icons.rotate_left),
-          onPressed: () => _setRotation(front, offset - 90),
+          onPressed: () =>
+              _guard(() => _setRotation(front, offset - 90), 'Rotation'),
         ),
-        SizedBox(
-          width: 44,
-          child: Text('$offset°', textAlign: TextAlign.center),
-        ),
+        Text('$offset°'),
         IconButton(
+          tooltip: 'Rotate $label right',
           icon: const Icon(Icons.rotate_right),
-          onPressed: () => _setRotation(front, offset + 90),
+          onPressed: () =>
+              _guard(() => _setRotation(front, offset + 90), 'Rotation'),
         ),
-        const SizedBox(width: 4),
         for (final d in const [0, 90, 180, 270])
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 2),
-            child: ChoiceChip(
-              label: Text('$d'),
-              selected: offset == d,
-              onSelected: (_) => _setRotation(front, d),
-            ),
+          ChoiceChip(
+            label: Text('$d°'),
+            selected: offset == d,
+            onSelected: (_) => _guard(() => _setRotation(front, d), 'Rotation'),
           ),
       ],
     );
@@ -309,7 +430,9 @@ class _DemoScreenState extends State<DemoScreen> {
             divisions: 40,
             label: aspect == 0 ? 'auto' : aspect.toStringAsFixed(2),
             value: aspect,
-            onChanged: (v) => _setAspect(front, v),
+            onChanged: (v) =>
+                _update(() => front ? _frontAspect = v : _backAspect = v),
+            onChangeEnd: (v) => _guard(() => _setAspect(front, v), 'Aspect'),
           ),
         ),
         SizedBox(
@@ -338,17 +461,18 @@ class _DemoScreenState extends State<DemoScreen> {
             dense: true,
             title: const Text('Mirror front'),
             value: _mirrorFront,
-            onChanged: _setMirror,
+            onChanged: (v) => _guard(() => _setMirror(v), 'Mirror'),
           ),
           _aspectRow('Front aspect', true, _frontAspect),
           _aspectRow('Back aspect', false, _backAspect),
           Align(
             alignment: Alignment.centerLeft,
             child: TextButton(
-              onPressed: () {
-                _setAspect(true, 0);
-                _setAspect(false, 0);
-              },
+              onPressed: () => _guard(() async {
+                await _setAspect(true, 0);
+                if (!mounted) return;
+                await _setAspect(false, 0);
+              }, 'Reset aspect'),
               child: const Text('Reset aspect → auto'),
             ),
           ),
@@ -357,123 +481,206 @@ class _DemoScreenState extends State<DemoScreen> {
     );
   }
 
+  void _sheet(String title, List<Widget> Function(DualCameraValue) contents) {
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      backgroundColor: const Color(0xFF19181F),
+      builder: (sheetContext) => SafeArea(
+        top: false,
+        child: FractionallySizedBox(
+          heightFactor: .85,
+          child: AnimatedBuilder(
+            animation: Listenable.merge([_controller, _revision]),
+            builder: (context, _) => Column(
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 8, 8, 0),
+                  child: Row(children: [
+                    Expanded(
+                        child: Text(title,
+                            style: Theme.of(context).textTheme.titleLarge)),
+                    IconButton(
+                        tooltip: 'Close $title',
+                        onPressed: () => Navigator.pop(sheetContext),
+                        icon: const Icon(Icons.close)),
+                  ]),
+                ),
+                Expanded(
+                    child: ListView(
+                  padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
+                  children: contents(_controller.value),
+                )),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _filtersSheet() => _sheet(
+      'Filters',
+      (value) => [
+            const Text('Your look, live in the preview and saved video.'),
+            const SizedBox(height: 16),
+            IgnorePointer(
+                ignoring: _busy || !value.isInitialized, child: _filterChips()),
+            if (_busy) const LinearProgressIndicator(),
+          ]);
+
+  void _captionsSheet() => _sheet(
+      'Captions',
+      (value) => [
+            SwitchListTile(
+              contentPadding: EdgeInsets.zero,
+              title: const Text('Auto-captions'),
+              subtitle: const Text(
+                  'On-device speech recognition and karaoke subtitles (alpha).'),
+              value: _captions,
+              onChanged: _busy || value.isRecording
+                  ? null
+                  : (v) => _update(() => _captions = v),
+            ),
+            const Text(
+                'The speech model downloads at startup (about 100 MB on first use). Captions run on device once ready. Your original video is always kept.'),
+            if (_captionStatus != null) ...[
+              const SizedBox(height: 16),
+              Semantics(liveRegion: true, child: Text(_captionStatus!)),
+            ],
+            if (_busy) const LinearProgressIndicator(),
+          ]);
+
+  void _settingsSheet() => _sheet(
+      'Camera settings',
+      (value) => [
+            if (!value.isInitialized)
+              TextButton(
+                  onPressed:
+                      _busy ? null : () => _guard(_bootstrap, 'Check support'),
+                  child: const Text('Check camera support again')),
+            if (value.isInitialized) ...[
+              SwitchListTile(
+                contentPadding: EdgeInsets.zero,
+                title: const Text('Circular selfie'),
+                subtitle:
+                    const Text('Use a circle instead of a rounded square.'),
+                value: _circle,
+                onChanged: _busy
+                    ? null
+                    : (v) => _guard(() async {
+                          final previous = _circle;
+                          _update(() => _circle = v);
+                          try {
+                            await _controller.setLayout(_layout());
+                          } catch (_) {
+                            _update(() => _circle = previous);
+                            rethrow;
+                          }
+                        }, 'Selfie layout'),
+              ),
+              if (_evSupported)
+                ExpansionTile(
+                  tilePadding: EdgeInsets.zero,
+                  title: const Text('Exposure'),
+                  subtitle: Text(_evLabel(_ev)),
+                  children: [IgnorePointer(ignoring: _busy, child: _evRow())],
+                ),
+            ],
+            ExpansionTile(
+              tilePadding: EdgeInsets.zero,
+              title: const Text('Session details'),
+              children: [
+                Text(_status),
+        if (_modelError != null) SelectableText(_modelError!),
+                if (_error != null) SelectableText(_error!),
+                if (value.errorMessage != null)
+                  SelectableText(value.errorMessage!),
+                if (_lastFile != null) SelectableText('Original: $_lastFile'),
+                if (_captionedFile != null)
+                  SelectableText('Captioned: $_captionedFile'),
+                if (_captionStatus != null) Text(_captionStatus!),
+                if (value.isInitialized)
+                  FittedBox(
+                      fit: BoxFit.scaleDown,
+                      child: DualCameraStatsOverlay(_controller)),
+              ],
+            ),
+            if (value.isInitialized)
+              IgnorePointer(ignoring: _busy, child: _debugPanel()),
+          ]);
+
+  Future<void> _record() => _guard(() async {
+        if (_controller.value.isRecording) {
+          await _stop();
+        } else {
+          await _controller.startRecording();
+          _update(() {
+            _status = 'Recording your story';
+            _captionStatus = null;
+          });
+        }
+      }, 'Recording');
+
+  Future<void> _photo() => _guard(() async {
+        final file = await _controller.takePhoto();
+        _lastFile = file;
+        await Gal.putImage(file);
+        _update(() => _status = 'Photo saved to gallery');
+      }, 'Photo');
+
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: const Text('dual_cameras')),
-      body: ValueListenableBuilder<DualCameraValue>(
-        valueListenable: _controller,
-        builder: (context, value, _) {
-          return Column(
-            children: [
-              Expanded(
-                child: Stack(
-                  fit: StackFit.expand,
-                  children: [
-                    ColoredBox(
-                      color: Colors.black,
-                      child: DualCameraPreview(
-                        _controller,
-                        placeholder: const Center(
-                          child: Text('Live preview appears on a real device'),
-                        ),
-                      ),
-                    ),
-                    Positioned(
-                      top: 8,
-                      left: 8,
-                      child: DualCameraStatsOverlay(_controller),
-                    ),
-                  ],
-                ),
-              ),
-              Padding(
-                padding: const EdgeInsets.all(12),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    Text(_status, textAlign: TextAlign.center),
-                    if (value.thermal != ThermalLevel.nominal)
-                      Text('Thermal: ${value.thermal.name}',
-                          style: const TextStyle(color: Colors.orange)),
-                    if (_lastFile != null) Text('Saved: $_lastFile'),
-                    const SizedBox(height: 8),
-                    Wrap(
-                      alignment: WrapAlignment.center,
-                      spacing: 8,
-                      runSpacing: 8,
-                      children: [
-                        FilledButton(
-                          onPressed: (_caps?.isSupported ?? false) &&
-                                  !value.isInitialized
-                              ? _start
-                              : null,
-                          child: const Text('Initialize'),
-                        ),
-                        FilledButton(
-                          onPressed: value.isInitialized && !value.isRecording
-                              ? () =>
-                                  _guard(_controller.startRecording, 'record')
-                              : null,
-                          child: const Text('Record'),
-                        ),
-                        FilledButton(
-                          onPressed:
-                              value.isRecording ? () => _guard(_stop, 'stop') : null,
-                          child: const Text('Stop'),
-                        ),
-                        FilledButton(
-                          onPressed: value.isInitialized
-                              ? () => _guard(() async {
-                                    _lastFile = await _controller.takePhoto();
-                                    await Gal.putImage(_lastFile!);
-                                  }, 'photo → gallery')
-                              : null,
-                          child: const Text('Photo'),
-                        ),
-                        FilledButton(
-                          onPressed: value.isInitialized
-                              ? () => _guard(_controller.swapPrimary, 'swap')
-                              : null,
-                          child: const Text('Swap'),
-                        ),
-                        FilledButton(
-                          onPressed: value.isInitialized
-                              ? () => _guard(() async {
-                                    setState(() => _circle = !_circle);
-                                    await _controller.setLayout(_layout());
-                                  }, _circle ? 'circle off' : 'circle on')
-                              : null,
-                          child: Text(_circle ? 'Square' : 'Circle'),
-                        ),
-                      ],
-                    ),
-                    if (value.isInitialized && _evSupported) _evRow(),
-                    if (value.isInitialized) _filterChips(),
-                    SwitchListTile(
-                      contentPadding: EdgeInsets.zero,
-                      dense: true,
-                      title: const Text('Auto-captions'),
-                      subtitle: const Text(
-                          'On-device STT + karaoke subtitles (alpha)'),
-                      value: _captions,
-                      onChanged: (v) => setState(() => _captions = v),
-                    ),
-                    if (_captionStatus != null)
-                      Text(_captionStatus!,
-                          textAlign: TextAlign.center,
-                          style: const TextStyle(color: Colors.lightBlue)),
-                    if (_captionedFile != null)
-                      Text('Captioned: $_captionedFile',
-                          textAlign: TextAlign.center),
-                    if (value.isInitialized) _debugPanel(),
-                  ],
-                ),
-              ),
-            ],
-          );
-        },
-      ),
+    return ValueListenableBuilder<DualCameraValue>(
+      valueListenable: _controller,
+      builder: (context, value, _) {
+        final ready = value.isInitialized && !_busy;
+        final status = [
+          if (value.errorMessage != null)
+            'Camera error: ${value.errorMessage}'
+          else
+            _status,
+          if (value.thermal != ThermalLevel.nominal)
+            'Thermal: ${value.thermal.name}',
+          if (_captionStatus != null) _captionStatus!,
+        ].join('\n');
+        return StoryCamera(
+          preparation: _modelPreparation(),
+          preview: DualCameraPreview(
+            _controller,
+            placeholder: const Center(
+                child: SingleChildScrollView(
+                  padding: EdgeInsets.all(24),
+              child: Column(mainAxisSize: MainAxisSize.min, children: [
+                Icon(Icons.camera_outlined, size: 44, color: Colors.white54),
+                SizedBox(height: 12),
+                Text('Every story has two sides', textAlign: TextAlign.center),
+              ]),
+            )),
+          ),
+          initialized: value.isInitialized,
+          recording: value.isRecording,
+          busy: _busy,
+          captions: _captions,
+          filterName: _filter == VideoFilter.none ? 'Original' : 'Moody',
+          status: status,
+          onCapture: _busy
+              ? null
+              : value.isInitialized
+                  ? _record
+                  : (_caps?.isSupported ?? false)
+                      ? _start
+                      : null,
+          onPhoto: ready && !value.isRecording ? _photo : null,
+          onSwap: ready
+              ? () => _guard(_controller.swapPrimary, 'Swap cameras')
+              : null,
+          onFilters: ready ? _filtersSheet : null,
+          onCaptions: !_busy && !value.isRecording ? _captionsSheet : null,
+          onSettings: _settingsSheet,
+        );
+      },
     );
   }
 }

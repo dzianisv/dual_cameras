@@ -5,7 +5,7 @@
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"
         android:maxSdkVersion="29" />
     <application
-        android:label="dual_cameras_example"
+        android:label="StoryCam"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
         <activity
