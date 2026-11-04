@@ -54,7 +54,12 @@ class _DemoScreenState extends State<DemoScreen> {
   String _status = 'Checking camera support…';
   String? _error;
   bool _busy = false;
-  Future<void>? _activeOperation;
+  Future<void>? _cameraOperation;
+  Future<void> _captionQueue = Future<void>.value();
+  int _captionJobs = 0;
+  String? _captionSourceFile;
+  double? _pendingEv;
+  final Map<bool, double> _pendingAspects = {};
   final ValueNotifier<int> _revision = ValueNotifier(0);
 
   void _update(VoidCallback change) {
@@ -205,6 +210,15 @@ class _DemoScreenState extends State<DemoScreen> {
     }
   }
 
+  Future<T> _cameraCommand<T>(Future<T> Function() action) {
+    final future = action();
+    // Disposal can await this completion without inheriting the command's error;
+    // the original future is still awaited and reported by its caller.
+    _cameraOperation =
+        future.then<void>((_) {}, onError: (Object error, StackTrace stack) {});
+    return future;
+  }
+
   Future<void> _start() => _guard(() async {
         final granted =
             await [Permission.camera, Permission.microphone].request();
@@ -214,9 +228,10 @@ class _DemoScreenState extends State<DemoScreen> {
               'Camera and microphone access required. Allow access in device settings, then try again.');
           return;
         }
-        await _controller.initialize(layout: _layout());
+        await _cameraCommand(() => _controller.initialize(layout: _layout()));
         if (!mounted) return;
-        final range = await _controller.getExposureCompensationRange();
+        final range =
+            await _cameraCommand(_controller.getExposureCompensationRange);
         _update(() {
           _status = 'Ready to tell your story';
           _evSupported = range.minEv < range.maxEv && range.stepEv > 0;
@@ -229,14 +244,39 @@ class _DemoScreenState extends State<DemoScreen> {
         });
       }, 'Open camera');
 
-  Future<void> _setEv(double v) => _guard(() async {
-        await _controller.setExposureCompensation(v);
-      }, 'Exposure updated');
+  void _setEv(double value) {
+    _update(() => _ev = value);
+    _pendingEv = value;
+    _flushTuning();
+  }
+
+  void _queueAspect(bool front, double value) {
+    _update(() => front ? _frontAspect = value : _backAspect = value);
+    _pendingAspects[front] = value;
+    _flushTuning();
+  }
+
+  // Live slider updates are serialized with capture commands and coalesced:
+  // while one value is in flight, only the latest requested value is retained.
+  void _flushTuning() {
+    if (_busy || !mounted) return;
+    final ev = _pendingEv;
+    if (ev != null) {
+      _pendingEv = null;
+      _guard(
+          () => _cameraCommand(() => _controller.setExposureCompensation(ev)),
+          'Exposure');
+    } else if (_pendingAspects.isNotEmpty) {
+      final front = _pendingAspects.keys.first;
+      final value = _pendingAspects.remove(front)!;
+      _guard(() => _setAspect(front, value), 'Aspect');
+    }
+  }
 
   String _evLabel(double v) => '${v >= 0 ? '+' : ''}${v.toStringAsFixed(1)} EV';
 
   Future<void> _setFilter(VideoFilter f) => _guard(() async {
-        await _controller.setFilter(f);
+        await _cameraCommand(() => _controller.setFilter(f));
         _update(() => _filter = f);
       }, 'Filter updated');
 
@@ -273,8 +313,7 @@ class _DemoScreenState extends State<DemoScreen> {
           divisions: divisions,
           label: _evLabel(_ev),
           value: _ev.clamp(_evMin, _evMax).toDouble(),
-          onChanged: (v) => _update(() => _ev = v),
-          onChangeEnd: _setEv,
+          onChanged: _setEv,
         ),
       ],
     );
@@ -286,7 +325,7 @@ class _DemoScreenState extends State<DemoScreen> {
       _busy = true;
       _error = null;
     });
-    return _activeOperation = _perform(action, label);
+    return _perform(action, label);
   }
 
   Future<void> _perform(Future<void> Function() action, String label) async {
@@ -299,6 +338,7 @@ class _DemoScreenState extends State<DemoScreen> {
       });
     } finally {
       _update(() => _busy = false);
+      _flushTuning();
     }
   }
 
@@ -307,15 +347,15 @@ class _DemoScreenState extends State<DemoScreen> {
   /// original uncaptioned mp4 is always kept; the captioned one is a second
   /// file. Any captions failure falls back to the plain video.
   Future<void> _stop() async {
+    final captions = _captions;
+    late final String file;
     try {
-      final file = await _controller.stopRecording();
+      file = await _cameraCommand(_controller.stopRecording);
       _lastFile = file;
       await Gal.putVideo(file);
       if (!mounted) return;
       _update(() {
         _status = 'Video saved to gallery';
-        _captionStatus = null;
-        _captionedFile = null;
       });
     } catch (e) {
       _update(() {
@@ -324,9 +364,22 @@ class _DemoScreenState extends State<DemoScreen> {
       });
       return;
     }
-    if (!mounted || !_captions) return;
-    final mp4 = _lastFile;
-    if (mp4 == null) return;
+    if (mounted && captions) _queueCaptions(file);
+  }
+
+  void _queueCaptions(String mp4) {
+    _update(() {
+      _captionJobs++;
+      if (_captionJobs == 1) _captionStatus = 'Preparing captions…';
+    });
+    _captionQueue = _captionQueue.then((_) async {
+      if (!mounted) return;
+      await _captionVideo(mp4);
+      _update(() => _captionJobs--);
+    });
+  }
+
+  Future<void> _captionVideo(String mp4) async {
     try {
       _update(() => _captionStatus = 'Extracting audio…');
       final wav = await _captionPipeline.extractAudio(mp4);
@@ -362,6 +415,7 @@ class _DemoScreenState extends State<DemoScreen> {
       if (!mounted) return;
       _update(() {
         _captionedFile = captioned;
+        _captionSourceFile = mp4;
         _captionStatus = 'Captions done — ${words.length} words';
       });
     } catch (e) {
@@ -379,27 +433,27 @@ class _DemoScreenState extends State<DemoScreen> {
   Future<void> _setRotation(bool front, int offset) async {
     final norm = _norm(offset);
     _update(() => front ? _frontOffset = norm : _backOffset = norm);
-    await _debug
-        .invokeMethod('setRotationOffset', {'front': front, 'offset': norm});
+    await _cameraCommand(() => _debug.invokeMethod<void>(
+        'setRotationOffset', {'front': front, 'offset': norm}));
   }
 
   Future<void> _setAspect(bool front, double aspect) async {
-    _update(() => front ? _frontAspect = aspect : _backAspect = aspect);
-    await _debug
-        .invokeMethod('setAspectOverride', {'front': front, 'aspect': aspect});
+    await _cameraCommand(() => _debug.invokeMethod<void>(
+        'setAspectOverride', {'front': front, 'aspect': aspect}));
   }
 
   Future<void> _setMirror(bool on) async {
     _update(() => _mirrorFront = on);
-    await _debug.invokeMethod('setMirrorFront', {'on': on});
+    await _cameraCommand(
+        () => _debug.invokeMethod<void>('setMirrorFront', {'on': on}));
   }
 
   @override
   void dispose() {
-    // Native commands cannot be cancelled. Let the current command finish
-    // before tearing down its session so it cannot publish to a disposed
-    // controller or reopen the camera after disposal.
-    final pending = _activeOperation;
+    // Native camera commands cannot be cancelled. Wait for that command only;
+    // gallery writes, model downloads and queued captions must not retain the
+    // camera session after the screen is removed.
+    final pending = _cameraOperation;
     if (pending == null) {
       _controller.dispose();
     } else {
@@ -449,9 +503,7 @@ class _DemoScreenState extends State<DemoScreen> {
             divisions: 40,
             label: aspect == 0 ? 'auto' : aspect.toStringAsFixed(2),
             value: aspect,
-            onChanged: (v) =>
-                _update(() => front ? _frontAspect = v : _backAspect = v),
-            onChangeEnd: (v) => _guard(() => _setAspect(front, v), 'Aspect'),
+            onChanged: (v) => _queueAspect(front, v),
           ),
         ),
         SizedBox(
@@ -488,6 +540,11 @@ class _DemoScreenState extends State<DemoScreen> {
             alignment: Alignment.centerLeft,
             child: TextButton(
               onPressed: () => _guard(() async {
+                _pendingAspects.clear();
+                _update(() {
+                  _frontAspect = 0;
+                  _backAspect = 0;
+                });
                 await _setAspect(true, 0);
                 if (!mounted) return;
                 await _setAspect(false, 0);
@@ -568,7 +625,8 @@ class _DemoScreenState extends State<DemoScreen> {
               const SizedBox(height: 16),
               Semantics(liveRegion: true, child: Text(_captionStatus!)),
             ],
-            if (_busy) const LinearProgressIndicator(),
+            if (_busy || _captionJobs > 0) const LinearProgressIndicator(),
+            if (_captionJobs > 1) Text('Caption jobs queued: $_captionJobs'),
           ]);
 
   void _settingsSheet() => _sheet(
@@ -592,7 +650,8 @@ class _DemoScreenState extends State<DemoScreen> {
                           final previous = _circle;
                           _update(() => _circle = v);
                           try {
-                            await _controller.setLayout(_layout());
+                            await _cameraCommand(
+                                () => _controller.setLayout(_layout()));
                           } catch (_) {
                             _update(() => _circle = previous);
                             rethrow;
@@ -617,8 +676,10 @@ class _DemoScreenState extends State<DemoScreen> {
                 if (value.errorMessage != null)
                   SelectableText(value.errorMessage!),
                 if (_lastFile != null) SelectableText('Original: $_lastFile'),
-                if (_captionedFile != null)
+                if (_captionedFile != null) ...[
+                  SelectableText('Caption source: $_captionSourceFile'),
                   SelectableText('Captioned: $_captionedFile'),
+                ],
                 if (_captionStatus != null) Text(_captionStatus!),
                 if (value.isInitialized)
                   FittedBox(
@@ -634,16 +695,15 @@ class _DemoScreenState extends State<DemoScreen> {
         if (_controller.value.isRecording) {
           await _stop();
         } else {
-          await _controller.startRecording();
+          await _cameraCommand(_controller.startRecording);
           _update(() {
             _status = 'Recording your story';
-            _captionStatus = null;
           });
         }
       }, 'Recording');
 
   Future<void> _photo() => _guard(() async {
-        final file = await _controller.takePhoto();
+        final file = await _cameraCommand(_controller.takePhoto);
         _lastFile = file;
         await Gal.putImage(file);
         _update(() => _status = 'Photo saved to gallery');
@@ -698,9 +758,10 @@ class _DemoScreenState extends State<DemoScreen> {
                   : (_caps?.isSupported ?? false)
                       ? _start
                       : null,
-          onPhoto: ready && !value.isRecording ? _photo : null,
+          onPhoto: ready ? _photo : null,
           onSwap: ready
-              ? () => _guard(_controller.swapPrimary, 'Swap cameras')
+              ? () => _guard(
+                  () => _cameraCommand(_controller.swapPrimary), 'Swap cameras')
               : null,
           onFilters: ready ? _filtersSheet : null,
           onCaptions: !_busy && !value.isRecording ? _captionsSheet : null,

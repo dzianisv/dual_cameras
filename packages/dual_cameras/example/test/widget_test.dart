@@ -35,6 +35,9 @@ class FakeCamera extends DualCamerasPlatform with MockPlatformInterfaceMixin {
   int starts = 0, stops = 0, photos = 0, disposals = 0;
   VideoFilter filter = VideoFilter.none;
   Completer<void>? startGate;
+  Completer<void>? exposureGate;
+  final List<double> exposures = [];
+  final List<String> stopFiles = [];
   Completer<InitResult>? initGate;
   Completer<CameraCapabilities>? probeGate;
 
@@ -63,7 +66,7 @@ class FakeCamera extends DualCamerasPlatform with MockPlatformInterfaceMixin {
   @override
   Future<String> stopRecording() async {
     stops++;
-    return '/tmp/story.mp4';
+    return stopFiles.isEmpty ? '/tmp/story.mp4' : stopFiles.removeAt(0);
   }
 
   @override
@@ -75,6 +78,12 @@ class FakeCamera extends DualCamerasPlatform with MockPlatformInterfaceMixin {
   @override
   Future<void> setFilter(VideoFilter value) async {
     filter = value;
+  }
+
+  @override
+  Future<void> setExposureCompensation(double value) async {
+    exposures.add(value);
+    await exposureGate?.future;
   }
 
   @override
@@ -180,12 +189,114 @@ void main() {
     await tester.pump();
     expect(galleryCalls.where((call) => call == 'putVideo').length, 1);
     expect(model.calls, 1);
+    await tester.tap(find.byTooltip('Start recording'));
+    await tester.pump();
+    expect(fake.starts, 2); // Model preparation must not block the next clip.
     model.gate!.completeError(Exception('Download interrupted'));
     await tester.pumpAndSettle();
     expect(find.textContaining('plain video kept'), findsOneWidget);
     expect(find.text('Retry'), findsOneWidget);
     expect(galleryCalls.where((call) => call == 'putVideo').length, 1);
     expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('leaving while captions await model promptly disposes camera',
+      (tester) async {
+    model.gate = Completer<WhisperModelFiles>();
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(
+            const MethodChannel('dual_cameras_example/captions'),
+            (call) async => '/tmp/audio.wav');
+    await tester.pumpWidget(DemoApp(modelManager: model));
+    await tester.pump();
+    model.progress!(.1);
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.text('Captions off'));
+    await tester.tap(find.text('Captions off'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byType(SwitchListTile));
+    await tester.tap(find.byTooltip('Close Captions'));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.byTooltip('Open camera'));
+    await tester.tap(find.byTooltip('Open camera'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('Start recording'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('Stop recording'));
+    await tester.pumpAndSettle();
+    expect(model.calls, 1);
+    await tester.pumpWidget(const SizedBox());
+    await tester.runAsync(() async => Future<void>.delayed(Duration.zero));
+    await tester.pump();
+    expect(fake.disposals, 1);
+    expect(model.gate!.isCompleted, isFalse);
+    model.gate!.complete(FakeModelManager.files);
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets(
+      'caption jobs keep source paths, serialize and recover after failure',
+      (tester) async {
+    final firstExtraction = Completer<String>();
+    final extracted = <String>[];
+    fake.stopFiles.addAll(['/tmp/first.mp4', '/tmp/second.mp4']);
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(
+            const MethodChannel('dual_cameras_example/captions'), (call) async {
+      final source = call.arguments['mp4'] as String;
+      extracted.add(source);
+      if (source == '/tmp/first.mp4') return firstExtraction.future;
+      throw StateError('No audio');
+    });
+    await openCamera(tester);
+    await tester.ensureVisible(find.text('Captions off'));
+    await tester.tap(find.text('Captions off'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byType(SwitchListTile));
+    await tester.tap(find.byTooltip('Close Captions'));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.byTooltip('Start recording'));
+    for (var clip = 0; clip < 2; clip++) {
+      await tester.tap(find.byTooltip('Start recording'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byTooltip('Stop recording'));
+      await tester.pumpAndSettle();
+    }
+    expect(fake.starts, 2);
+    expect(galleryCalls.where((call) => call == 'putVideo').length, 2);
+    expect(extracted, ['/tmp/first.mp4']);
+    firstExtraction.completeError(StateError('No audio'));
+    await tester.pumpAndSettle();
+    expect(extracted, ['/tmp/first.mp4', '/tmp/second.mp4']);
+    expect(find.textContaining('plain video kept'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('gallery save prevents repeated capture until original is saved',
+      (tester) async {
+    final saved = Completer<void>();
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(const MethodChannel('gal'), (call) async {
+      galleryCalls.add(call.method);
+      if (call.method == 'putVideo') await saved.future;
+      return null;
+    });
+    await openCamera(tester);
+    await tester.tap(find.byTooltip('Start recording'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('Stop recording'));
+    await tester.pump();
+    await tester.tap(find.byTooltip('Start recording'));
+    await tester.pump();
+    expect(fake.starts, 1);
+    expect(fake.stops, 1);
+    expect(galleryCalls.where((call) => call == 'putVideo').length, 1);
+    saved.complete();
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('Start recording'));
+    await tester.pumpAndSettle();
+    expect(fake.starts, 2);
   });
 
   testWidgets('late model completion after disposal is safe', (tester) async {
@@ -248,7 +359,12 @@ void main() {
             .widget<IconButton>(
                 find.widgetWithIcon(IconButton, Icons.photo_camera_outlined))
             .onPressed,
-        isNull);
+        isNotNull);
+    await tester.tap(find.byTooltip('Take photo'));
+    await tester.pumpAndSettle();
+    expect(fake.photos, 1);
+    expect(fake.stops, 0);
+    expect(find.byTooltip('Stop recording'), findsOneWidget);
     await tester.tap(find.byTooltip('Stop recording'));
     await tester.pumpAndSettle();
     expect(fake.stops, 1);
@@ -286,6 +402,88 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('Debug tuning'), findsNothing);
     expect(find.text('Filters · Moody'), findsOneWidget);
+  });
+
+  testWidgets('exposure applies while dragging and coalesces pending values',
+      (tester) async {
+    await openCamera(tester);
+    await tester.tap(find.byTooltip('Camera settings'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Exposure'));
+    await tester.pumpAndSettle();
+    fake.exposureGate = Completer<void>();
+    final slider = tester.widget<Slider>(find.byType(Slider));
+    slider.onChanged!(.5);
+    await tester.pump();
+    expect(fake.exposures, [.5]);
+    slider.onChanged!(1);
+    slider.onChanged!(1.5);
+    await tester.pump();
+    expect(fake.exposures, [.5]);
+    fake.exposureGate!.complete();
+    await tester.pumpAndSettle();
+    expect(fake.exposures, [.5, 1.5]);
+  });
+
+  testWidgets('exposure pointer drag survives pending native update',
+      (tester) async {
+    await openCamera(tester);
+    await tester.tap(find.byTooltip('Camera settings'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Exposure'));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.byType(Slider));
+    await tester.pumpAndSettle();
+    fake.exposureGate = Completer<void>();
+    final drag =
+        await tester.startGesture(tester.getCenter(find.byType(Slider)));
+    await drag.moveBy(const Offset(50, 0));
+    await tester.pump();
+    expect(fake.exposures, isNotEmpty); // Sent before the pointer is released.
+    await drag.moveBy(const Offset(-100, 0));
+    await tester.pump();
+    final latest = tester.widget<Slider>(find.byType(Slider)).value;
+    expect(latest, isNot(fake.exposures.first));
+    expect(fake.exposures.length, 1);
+    await drag.up();
+    fake.exposureGate!.complete();
+    await tester.pumpAndSettle();
+    expect(fake.exposures.last, latest);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('debug aspect applies live and coalesces pending values',
+      (tester) async {
+    final gate = Completer<void>();
+    final values = <double>[];
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(const MethodChannel('dual_cameras/debug'),
+            (call) async {
+      if (call.method == 'setAspectOverride') {
+        values.add((call.arguments['aspect'] as num).toDouble());
+        await gate.future;
+      }
+      return null;
+    });
+    await openCamera(tester);
+    await tester.tap(find.byTooltip('Camera settings'));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.text('Debug tuning'));
+    await tester.tap(find.text('Debug tuning'));
+    await tester.pumpAndSettle();
+    final slider = tester.widget<Slider>(find
+        .byWidgetPredicate((widget) => widget is Slider && widget.min == 0)
+        .first);
+    slider.onChanged!(.75);
+    await tester.pump();
+    expect(values, [.75]);
+    slider.onChanged!(1.25);
+    slider.onChanged!(1.5);
+    await tester.pump();
+    expect(values, [.75]);
+    gate.complete();
+    await tester.pumpAndSettle();
+    expect(values, [.75, 1.5]);
   });
 
   testWidgets('pending initialization finishes before session disposal',
