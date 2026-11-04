@@ -144,6 +144,12 @@ class DualCameraController extends ValueNotifier<DualCameraValue> {
   Future<ExposureCompensationRange> getExposureCompensationRange() =>
       _platform.getExposureCompensationRange();
 
+  /// Apply a color-grade [VideoFilter] preset to the final composite, live.
+  /// Affects both preview and recording; the grade runs after exposure, so
+  /// it composes with [setExposureCompensation]. Safe to call any time after
+  /// [initialize].
+  Future<void> setFilter(VideoFilter filter) => _platform.setFilter(filter);
+
   void _onEvent(DualCameraEvent event) {
     switch (event) {
       case DualCameraReady(:final textureId):

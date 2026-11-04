@@ -1,5 +1,12 @@
 ## Unreleased
 
+* Final fullscreen grade pass (`dcr_grade_vertex`/`dcr_grade_fragment`
+  + `GradeUniforms`): composite into an intermediate texture, then grade
+  into the pool buffer. Same preset parameters as Android; ungraded path
+  is bit-identical to before.
+
+## Unreleased
+
 * Implement exposure compensation on both capture devices via
   `AVCaptureDevice.setExposureTargetBias` (clamped to each device's
   min/max bias). Range query returns the intersected bias range.

@@ -46,6 +46,12 @@ final class DualCameraSession: NSObject,
         dataQueue.async { self.layout = layout }
     }
 
+    /// Switch the color-grade preset live (v0.3.0). Runs on the data queue,
+    /// where the compositor state is read during compose().
+    func setFilter(moody: Bool) {
+        dataQueue.async { self.compositor.setFilter(moody: moody) }
+    }
+
     /// Sony-style EV dial: exposure-target bias on both capture devices.
     /// Called on the Pigeon platform thread; lockForConfiguration is safe here.
     func setExposureCompensation(ev: Float) {

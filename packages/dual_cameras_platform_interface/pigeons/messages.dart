@@ -183,6 +183,21 @@ class ExposureCompensationRange {
   double stepEv;
 }
 
+/// Color-grade preset applied to the final composite (preview + recording).
+/// Designed for extension: new presets are new enum values, never an API
+/// break. The grade runs in the compositor's final pass, after exposure.
+///
+/// NOTE: declared after the data classes so the Pigeon codec type number
+/// (142) matches the checked-in generated code; see
+/// lib/src/messages.g.dart.
+enum VideoFilter {
+  /// No grade (identity).
+  none,
+
+  /// Dark moody grade: desaturated, low-key, teal shadows / warm highlights.
+  moody,
+}
+
 /// Commands: Dart -> native.
 @HostApi()
 abstract class DualCameraHostApi {
@@ -223,6 +238,11 @@ abstract class DualCameraHostApi {
   /// or the pipeline isn't up.
   @async
   ExposureCompensationRange getExposureCompensationRange();
+
+  /// Apply a color-grade [VideoFilter] preset to the final composite, live.
+  /// Affects both preview and recording; the grade runs after exposure.
+  @async
+  void setFilter(VideoFilter filter);
 
   @async
   void dispose();

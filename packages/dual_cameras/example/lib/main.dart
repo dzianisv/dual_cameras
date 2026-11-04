@@ -45,6 +45,9 @@ class _DemoScreenState extends State<DemoScreen> {
   double _evStep = 1 / 3;
   bool _evSupported = false;
 
+  // Color-grade filter (v0.3.0): live in preview + recording.
+  VideoFilter _filter = VideoFilter.none;
+
   // Auto-captions (v0.2.0): on-device STT + karaoke burn-in, OFF by default.
   bool _captions = false;
   String? _captionStatus;
@@ -121,6 +124,30 @@ class _DemoScreenState extends State<DemoScreen> {
 
   String _evLabel(double v) =>
       '${v >= 0 ? '+' : ''}${v.toStringAsFixed(1)} EV';
+
+  Future<void> _setFilter(VideoFilter f) async {
+    setState(() => _filter = f);
+    await _guard(() => _controller.setFilter(f), 'filter ${f.name}');
+  }
+
+  Widget _filterChips() {
+    return Wrap(
+      alignment: WrapAlignment.center,
+      spacing: 8,
+      children: [
+        ChoiceChip(
+          label: const Text('None'),
+          selected: _filter == VideoFilter.none,
+          onSelected: (_) => _setFilter(VideoFilter.none),
+        ),
+        ChoiceChip(
+          label: const Text('Moody'),
+          selected: _filter == VideoFilter.moody,
+          onSelected: (_) => _setFilter(VideoFilter.moody),
+        ),
+      ],
+    );
+  }
 
   Widget _evRow() {
     final divisions =
@@ -422,6 +449,7 @@ class _DemoScreenState extends State<DemoScreen> {
                       ],
                     ),
                     if (value.isInitialized && _evSupported) _evRow(),
+                    if (value.isInitialized) _filterChips(),
                     SwitchListTile(
                       contentPadding: EdgeInsets.zero,
                       dense: true,

@@ -359,6 +359,26 @@ data class ExposureCompensationRange (
     )
   }
 }
+
+/**
+ * Color-grade preset applied to the final composite (preview + recording).
+ * Designed for extension: new presets are new enum values, never an API
+ * break. The grade runs in the compositor's final pass, after exposure.
+ *
+ * Generated enum from Pigeon that represents data sent in messages.
+ */
+enum class VideoFilter(val raw: Int) {
+  /** No grade (identity). */
+  NONE(0),
+  /** Dark moody grade: desaturated, low-key, teal shadows / warm highlights. */
+  MOODY(1);
+
+  companion object {
+    fun ofRaw(raw: Int): VideoFilter? {
+      return values().firstOrNull { it.raw == raw }
+    }
+  }
+}
 private open class MessagesPigeonCodec : StandardMessageCodec() {
   override fun readValueOfType(type: Byte, buffer: ByteBuffer): Any? {
     return when (type) {
@@ -427,6 +447,11 @@ private open class MessagesPigeonCodec : StandardMessageCodec() {
           ExposureCompensationRange.fromList(it)
         }
       }
+      142.toByte() -> {
+        return (readValue(buffer) as Long?)?.let {
+          VideoFilter.ofRaw(it.toInt())
+        }
+      }
       else -> super.readValueOfType(type, buffer)
     }
   }
@@ -484,6 +509,10 @@ private open class MessagesPigeonCodec : StandardMessageCodec() {
         stream.write(141)
         writeValue(stream, value.toList())
       }
+      is VideoFilter -> {
+        stream.write(142)
+        writeValue(stream, value.raw)
+      }
       else -> super.writeValue(stream, value)
     }
   }
@@ -517,6 +546,11 @@ interface DualCameraHostApi {
   fun setExposureCompensation(ev: Double, callback: (Result<Unit>) -> Unit)
   /** Supported exposure-compensation range in EV. All zeros when unsupported. */
   fun getExposureCompensationRange(callback: (Result<ExposureCompensationRange>) -> Unit)
+  /**
+   * Apply a color-grade [VideoFilter] preset to the final composite, live.
+   * Affects both preview and recording; the grade runs after exposure.
+   */
+  fun setFilter(filter: VideoFilter, callback: (Result<Unit>) -> Unit)
   fun dispose(callback: (Result<Unit>) -> Unit)
 
   companion object {
@@ -643,6 +677,25 @@ interface DualCameraHostApi {
             val args = message as List<Any?>
             val layoutArg = args[0] as LayoutConfig
             api.setLayout(layoutArg) { result: Result<Unit> ->
+              val error = result.exceptionOrNull()
+              if (error != null) {
+                reply.reply(wrapError(error))
+              } else {
+                reply.reply(wrapResult(null))
+              }
+            }
+          }
+        } else {
+          channel.setMessageHandler(null)
+        }
+      }
+      run {
+        val channel = BasicMessageChannel<Any?>(binaryMessenger, "dev.flutter.pigeon.dual_cameras_platform_interface.DualCameraHostApi.setFilter$separatedMessageChannelSuffix", codec)
+        if (api != null) {
+          channel.setMessageHandler { message, reply ->
+            val args = message as List<Any?>
+            val filterArg = args[0] as VideoFilter
+            api.setFilter(filterArg) { result: Result<Unit> ->
               val error = result.exceptionOrNull()
               if (error != null) {
                 reply.reply(wrapError(error))

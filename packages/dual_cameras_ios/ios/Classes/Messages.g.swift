@@ -353,6 +353,18 @@ struct ExposureCompensationRange {
   }
 }
 
+/// Color-grade preset applied to the final composite (preview + recording).
+/// Designed for extension: new presets are new enum values, never an API
+/// break. The grade runs in the compositor's final pass, after exposure.
+///
+/// Generated enum from Pigeon that represents data sent in messages.
+enum VideoFilter: Int {
+  /// No grade (identity).
+  case none = 0
+  /// Dark moody grade: desaturated, low-key, teal shadows / warm highlights.
+  case moody = 1
+}
+
 private class MessagesPigeonCodecReader: FlutterStandardReader {
   override func readValue(ofType type: UInt8) -> Any? {
     switch type {
@@ -410,6 +422,12 @@ private class MessagesPigeonCodecReader: FlutterStandardReader {
       return InitResult.fromList(self.readValue() as! [Any?])
     case 141:
       return ExposureCompensationRange.fromList(self.readValue() as! [Any?])
+    case 142:
+      let enumResultAsInt: Int? = nilOrValue(self.readValue() as! Int?)
+      if let enumResultAsInt = enumResultAsInt {
+        return VideoFilter(rawValue: enumResultAsInt)
+      }
+      return nil
     default:
       return super.readValue(ofType: type)
     }
@@ -457,6 +475,9 @@ private class MessagesPigeonCodecWriter: FlutterStandardWriter {
     } else if let value = value as? ExposureCompensationRange {
       super.writeByte(141)
       super.writeValue(value.toList())
+    } else if let value = value as? VideoFilter {
+      super.writeByte(142)
+      super.writeValue(value.rawValue)
     } else {
       super.writeValue(value)
     }
@@ -501,6 +522,9 @@ protocol DualCameraHostApi {
   func setExposureCompensation(ev: Double, completion: @escaping (Result<Void, Error>) -> Void)
   /// Supported exposure-compensation range in EV. All zeros when unsupported.
   func getExposureCompensationRange(completion: @escaping (Result<ExposureCompensationRange, Error>) -> Void)
+  /// Apply a color-grade [VideoFilter] preset to the final composite, live.
+  /// Affects both preview and recording; the grade runs after exposure.
+  func setFilter(filter: VideoFilter, completion: @escaping (Result<Void, Error>) -> Void)
   func dispose(completion: @escaping (Result<Void, Error>) -> Void)
 }
 
@@ -624,6 +648,24 @@ class DualCameraHostApiSetup {
       }
     } else {
       setLayoutChannel.setMessageHandler(nil)
+    }
+    /// Apply a color-grade VideoFilter preset to the final composite, live.
+    let setFilterChannel = FlutterBasicMessageChannel(name: "dev.flutter.pigeon.dual_cameras_platform_interface.DualCameraHostApi.setFilter\(channelSuffix)", binaryMessenger: binaryMessenger, codec: codec)
+    if let api = api {
+      setFilterChannel.setMessageHandler { message, reply in
+        let args = message as! [Any?]
+        let filterArg = args[0] as! VideoFilter
+        api.setFilter(filter: filterArg) { result in
+          switch result {
+          case .success:
+            reply(wrapResult(nil))
+          case .failure(let error):
+            reply(wrapError(error))
+          }
+        }
+      }
+    } else {
+      setFilterChannel.setMessageHandler(nil)
     }
     let disposeChannel = FlutterBasicMessageChannel(name: "dev.flutter.pigeon.dual_cameras_platform_interface.DualCameraHostApi.dispose\(channelSuffix)", binaryMessenger: binaryMessenger, codec: codec)
     if let api = api {

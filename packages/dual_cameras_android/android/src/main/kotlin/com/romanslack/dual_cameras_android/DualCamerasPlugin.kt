@@ -246,6 +246,15 @@ class DualCamerasPlugin : FlutterPlugin, DualCameraHostApi {
     }
   }
 
+  override fun setFilter(filter: VideoFilter, callback: (Result<Unit>) -> Unit) {
+    try {
+      renderThread?.setFilter(filter == VideoFilter.MOODY)
+      callback(Result.success(Unit))
+    } catch (t: Throwable) {
+      callback(Result.failure(t))
+    }
+  }
+
   override fun dispose(callback: (Result<Unit>) -> Unit) {
     releaseSession()
     callback(Result.success(Unit))

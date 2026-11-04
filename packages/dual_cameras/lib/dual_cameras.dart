@@ -14,7 +14,8 @@ export 'package:dual_cameras_platform_interface/dual_cameras_platform_interface.
         LayoutConfig,
         ThermalLevel,
         UnsupportedReason,
-        VideoCodec;
+        VideoCodec,
+        VideoFilter;
 
 export 'src/dual_camera_controller.dart' show DualCameraController, DualCameraValue;
 export 'src/dual_camera_hud.dart' show DualCameraStatsOverlay;

@@ -20,4 +20,5 @@ export 'src/messages.g.dart'
         RecordingConfig,
         ThermalLevel,
         UnsupportedReason,
-        VideoCodec;
+        VideoCodec,
+        VideoFilter;

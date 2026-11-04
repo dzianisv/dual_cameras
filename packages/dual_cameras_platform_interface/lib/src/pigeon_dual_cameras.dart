@@ -74,6 +74,9 @@ class PigeonDualCameras extends DualCamerasPlatform
       _api.getExposureCompensationRange();
 
   @override
+  Future<void> setFilter(VideoFilter filter) => _api.setFilter(filter);
+
+  @override
   Future<void> dispose() => _api.dispose();
 
   // --- DualCameraFlutterApi (native -> Dart) ---

@@ -7,6 +7,54 @@ import java.nio.ByteOrder
 import java.nio.FloatBuffer
 
 /**
+ * Color-grade parameters for the final composite pass (blit stage), so one
+ * composite feeds preview + recording identically. All tuning is a param
+ * change, not a shader rewrite: presets map to [GradeParams].
+ */
+data class GradeParams(
+    val enabled: Boolean,
+    /** Multiplicative exposure. */
+    val exposure: Float,
+    /** S-curve contrast strength around 0.5 (1 = identity). */
+    val contrast: Float,
+    /** Saturation (1 = identity). */
+    val saturation: Float,
+    /** RGB add in the shadows (split tone). */
+    val shadowTint: FloatArray,
+    /** RGB add in the highlights (split tone). */
+    val highlightTint: FloatArray,
+    val splitStrength: Float,
+    /** Vignette strength (0 = off). */
+    val vignette: Float,
+) {
+    companion object {
+        val NONE = GradeParams(
+            enabled = false, exposure = 1f, contrast = 1f, saturation = 1f,
+            shadowTint = floatArrayOf(0f, 0f, 0f),
+            highlightTint = floatArrayOf(0f, 0f, 0f),
+            splitStrength = 0f, vignette = 0f,
+        )
+
+        /**
+         * Moody v1 — dark moody wellness/vlogger grade. Starting parameters;
+         * tune by eye on a real device: saturation ~0.65-0.75, slight
+         * exposure pull-down, gentle S-curve, teal shadows / warm highlights,
+         * light vignette.
+         */
+        val MOODY = GradeParams(
+            enabled = true,
+            exposure = 0.92f,
+            contrast = 1.08f,
+            saturation = 0.70f,
+            shadowTint = floatArrayOf(-0.020f, 0.030f, 0.050f),
+            highlightTint = floatArrayOf(0.050f, 0.025f, -0.015f),
+            splitStrength = 1.0f,
+            vignette = 0.28f,
+        )
+    }
+}
+
+/**
  * Layout geometry handed down from Dart (normalized, [LayoutConfig]). Computed
  * once and applied identically to preview, recording, and stills so they can
  * never drift (ARCHITECTURE.md §7).
@@ -78,6 +126,19 @@ class DualCompositor(private var width: Int, private var height: Int) {
     private var blitTexLoc = 0
     private var blitSamplerLoc = 0
 
+    // Grade uniforms (blit stage = the final pass for preview + recording).
+    private var gradeEnabledLoc = 0
+    private var gradeExposureLoc = 0
+    private var gradeContrastLoc = 0
+    private var gradeSaturationLoc = 0
+    private var gradeShadowTintLoc = 0
+    private var gradeHighlightTintLoc = 0
+    private var gradeSplitStrengthLoc = 0
+    private var gradeVignetteLoc = 0
+
+    /** Current grade; swapped live via [setFilter] on the GL thread. */
+    private var grade: GradeParams = GradeParams.NONE
+
     private var fboId = 0
     private var fboTex = 0
 
@@ -101,6 +162,16 @@ class DualCompositor(private var width: Int, private var height: Int) {
         blitPosLoc = GLES20.glGetAttribLocation(blitProgram, "aPosition")
         blitTexLoc = GLES20.glGetAttribLocation(blitProgram, "aTexCoord")
         blitSamplerLoc = GLES20.glGetUniformLocation(blitProgram, "uTexture")
+        gradeEnabledLoc = GLES20.glGetUniformLocation(blitProgram, "uGradeEnabled")
+        gradeExposureLoc = GLES20.glGetUniformLocation(blitProgram, "uExposure")
+        gradeContrastLoc = GLES20.glGetUniformLocation(blitProgram, "uContrast")
+        gradeSaturationLoc = GLES20.glGetUniformLocation(blitProgram, "uSaturation")
+        gradeShadowTintLoc = GLES20.glGetUniformLocation(blitProgram, "uShadowTint")
+        gradeHighlightTintLoc =
+            GLES20.glGetUniformLocation(blitProgram, "uHighlightTint")
+        gradeSplitStrengthLoc =
+            GLES20.glGetUniformLocation(blitProgram, "uSplitStrength")
+        gradeVignetteLoc = GLES20.glGetUniformLocation(blitProgram, "uVignette")
 
         createFbo(width, height)
     }
@@ -259,6 +330,15 @@ class DualCompositor(private var width: Int, private var height: Int) {
         GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, 0)
     }
 
+    /**
+     * Switch the color-grade preset live. Must be called on the GL thread
+     * (RenderThread posts it there); the grade applies to preview and
+     * recording alike, after exposure.
+     */
+    fun setFilter(moody: Boolean) {
+        grade = if (moody) GradeParams.MOODY else GradeParams.NONE
+    }
+
     /** Copy the composed FBO texture onto the currently-current EGLSurface. */
     fun blit(viewportW: Int, viewportH: Int) {
         GLES20.glUseProgram(blitProgram)
@@ -269,6 +349,19 @@ class DualCompositor(private var width: Int, private var height: Int) {
         GLES20.glActiveTexture(GLES20.GL_TEXTURE0)
         GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, fboTex)
         GLES20.glUniform1i(blitSamplerLoc, 0)
+
+        val g = grade
+        GLES20.glUniform1f(gradeEnabledLoc, if (g.enabled) 1f else 0f)
+        GLES20.glUniform1f(gradeExposureLoc, g.exposure)
+        GLES20.glUniform1f(gradeContrastLoc, g.contrast)
+        GLES20.glUniform1f(gradeSaturationLoc, g.saturation)
+        GLES20.glUniform3f(
+            gradeShadowTintLoc, g.shadowTint[0], g.shadowTint[1], g.shadowTint[2])
+        GLES20.glUniform3f(
+            gradeHighlightTintLoc,
+            g.highlightTint[0], g.highlightTint[1], g.highlightTint[2])
+        GLES20.glUniform1f(gradeSplitStrengthLoc, g.splitStrength)
+        GLES20.glUniform1f(gradeVignetteLoc, g.vignette)
 
         bindAttrib(blitPosLoc, fullQuad, 2)
         bindAttrib(blitTexLoc, texQuad, 2)
@@ -515,11 +608,43 @@ class DualCompositor(private var width: Int, private var height: Int) {
             }
         """
 
+        // Final pass: sample the composite and apply the color grade.
+        // Uniform-driven so tuning a preset is a param change (GradeParams),
+        // not a shader rewrite. Runs once per frame for preview + recording.
         private const val BLIT_FRAGMENT = """
             precision mediump float;
             uniform sampler2D uTexture;
+            uniform float uGradeEnabled;
+            uniform float uExposure;
+            uniform float uContrast;
+            uniform float uSaturation;
+            uniform vec3 uShadowTint;
+            uniform vec3 uHighlightTint;
+            uniform float uSplitStrength;
+            uniform float uVignette;
             varying vec2 vTex;
-            void main() { gl_FragColor = texture2D(uTexture, vTex); }
+            void main() {
+                vec3 c = texture2D(uTexture, vTex).rgb;
+                if (uGradeEnabled > 0.5) {
+                    // 1. exposure pull-down / lift
+                    c *= uExposure;
+                    // 2. gentle S-curve contrast
+                    c = clamp((c - 0.5) * uContrast + 0.5, 0.0, 1.0);
+                    // 3. saturation
+                    float luma = dot(c, vec3(0.299, 0.587, 0.114));
+                    c = mix(vec3(luma), c, uSaturation);
+                    // 4. split tone: cool shadows, warm highlights
+                    float l2 = dot(c, vec3(0.299, 0.587, 0.114));
+                    c += uShadowTint * (1.0 - smoothstep(0.0, 0.55, l2)) * uSplitStrength;
+                    c += uHighlightTint * smoothstep(0.45, 1.0, l2) * uSplitStrength;
+                    // 5. vignette
+                    vec2 d = vTex - vec2(0.5);
+                    float vig = smoothstep(0.85, 0.25, length(d) * 2.0);
+                    c *= mix(1.0, vig, uVignette);
+                    c = clamp(c, 0.0, 1.0);
+                }
+                gl_FragColor = vec4(c, 1.0);
+            }
         """
 
         private fun buildProgram(vsSrc: String, fsSrc: String): Int {

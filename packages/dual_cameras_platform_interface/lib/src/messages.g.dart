@@ -330,6 +330,16 @@ class ExposureCompensationRange {
   }
 }
 
+/// Color-grade preset applied to the final composite (preview + recording).
+/// Designed for extension: new presets are new enum values, never an API
+/// break. The grade runs in the compositor's final pass, after exposure.
+enum VideoFilter {
+  /// No grade (identity).
+  none,
+  /// Dark moody grade: desaturated, low-key, teal shadows / warm highlights.
+  moody,
+}
+
 
 class _PigeonCodec extends StandardMessageCodec {
   const _PigeonCodec();
@@ -358,6 +368,9 @@ class _PigeonCodec extends StandardMessageCodec {
       writeValue(buffer, value.index);
     }    else if (value is UnsupportedReason) {
       buffer.putUint8(135);
+      writeValue(buffer, value.index);
+    }    else if (value is VideoFilter) {
+      buffer.putUint8(142);
       writeValue(buffer, value.index);
     }    else if (value is CameraCapabilities) {
       buffer.putUint8(136);
@@ -406,6 +419,9 @@ class _PigeonCodec extends StandardMessageCodec {
       case 135: 
         final int? value = readValue(buffer) as int?;
         return value == null ? null : UnsupportedReason.values[value];
+      case 142: 
+        final int? value = readValue(buffer) as int?;
+        return value == null ? null : VideoFilter.values[value];
       case 136: 
         return CameraCapabilities.decode(readValue(buffer)!);
       case 137: 
@@ -691,6 +707,30 @@ class DualCameraHostApi {
       );
     } else {
       return (pigeonVar_replyList[0] as ExposureCompensationRange?)!;
+    }
+  }
+
+  /// Apply a color-grade [VideoFilter] preset to the final composite, live.
+  /// Affects both preview and recording; the grade runs after exposure.
+  Future<void> setFilter(VideoFilter filter) async {
+    final String pigeonVar_channelName = 'dev.flutter.pigeon.dual_cameras_platform_interface.DualCameraHostApi.setFilter$pigeonVar_messageChannelSuffix';
+    final BasicMessageChannel<Object?> pigeonVar_channel = BasicMessageChannel<Object?>(
+      pigeonVar_channelName,
+      pigeonChannelCodec,
+      binaryMessenger: pigeonVar_binaryMessenger,
+    );
+    final List<Object?>? pigeonVar_replyList =
+        await pigeonVar_channel.send(<Object?>[filter]) as List<Object?>?;
+    if (pigeonVar_replyList == null) {
+      throw _createConnectionError(pigeonVar_channelName);
+    } else if (pigeonVar_replyList.length > 1) {
+      throw PlatformException(
+        code: pigeonVar_replyList[0]! as String,
+        message: pigeonVar_replyList[1] as String?,
+        details: pigeonVar_replyList[2],
+      );
+    } else {
+      return;
     }
   }
 }

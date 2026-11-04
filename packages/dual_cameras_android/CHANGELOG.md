@@ -1,5 +1,12 @@
 ## Unreleased
 
+* Color-grade stage in the compositor's blit shader (the single fan-out
+  point for preview + recording): exposure, S-curve contrast, saturation,
+  split-tone (teal shadows / warm highlights), vignette — all uniform
+  driven via `GradeParams`; `moody` preset ships with v1 parameters.
+
+## Unreleased
+
 * Implement exposure compensation on both cameras via CameraX
   `ExposureState` (`setExposureCompensationIndex`, EV -> nearest index,
   clamped to the intersected range of both cameras). No-op when unsupported.

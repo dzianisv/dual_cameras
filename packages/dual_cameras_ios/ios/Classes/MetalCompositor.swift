@@ -15,6 +15,35 @@ struct CompositeLayout {
 // Fields ordered by DESCENDING alignment (16 → 8 → 4) so Swift `simd` and
 // Metal agree on the byte layout with no ambiguous internal padding — the
 // struct is memcpy'd straight into the shader via setVertex/FragmentBytes.
+//
+// Final color-grade uniforms (v0.3.0). Field order MUST match GradeUniforms
+// in Shaders.metal exactly (float4-aligned; total stride 64).
+private struct GradeUniforms {
+    var shadowTint: simd_float4    // RGB add in the shadows (split tone)
+    var highlightTint: simd_float4 // RGB add in the highlights (split tone)
+    var enabled: Float
+    var exposure: Float
+    var contrast: Float
+    var saturation: Float
+    var splitStrength: Float
+    var vignette: Float
+    var _pad: simd_float2 = simd_float2(0, 0)
+
+    static let none = GradeUniforms(
+        shadowTint: simd_float4(0, 0, 0, 0),
+        highlightTint: simd_float4(0, 0, 0, 0),
+        enabled: 0, exposure: 1, contrast: 1, saturation: 1,
+        splitStrength: 0, vignette: 0)
+
+    /// Moody v1 — dark moody wellness/vlogger grade. Starting parameters;
+    /// tune by eye on a real device.
+    static let moody = GradeUniforms(
+        shadowTint: simd_float4(-0.020, 0.030, 0.050, 0),
+        highlightTint: simd_float4(0.050, 0.025, -0.015, 0),
+        enabled: 1, exposure: 0.92, contrast: 1.08, saturation: 0.70,
+        splitStrength: 1.0, vignette: 0.28)
+}
+
 private struct QuadUniforms {
     var mvp: simd_float4x4        // align 16, size 64 — places the quad in NDC
     var yuvMatrix: simd_float3x3  // align 16, size 48 — BT.709 YCbCr->RGB
@@ -35,10 +64,22 @@ final class MetalCompositor {
     let device: MTLDevice
     private let queue: MTLCommandQueue
     private let pipeline: MTLRenderPipelineState
+    private let gradePipeline: MTLRenderPipelineState
     private var textureCache: CVMetalTextureCache!
     private var pool: CVPixelBufferPool!
     let width: Int
     let height: Int
+
+    // Final color-grade pass (v0.3.0). The scene composites into `sceneTex`,
+    // then the grade pass renders sceneTex -> the pool buffer, so preview and
+    // recording share one grade, after exposure. Mutated/read on `dcr.data`.
+    private var sceneTex: MTLTexture?
+    private var grade: GradeUniforms = .none
+
+    /// Switch the color-grade preset live.
+    func setFilter(moody: Bool) {
+        grade = moody ? .moody : .none
+    }
 
     // Orientation correction. Unlike Android's SurfaceTexture (which silently
     // rotates the camera buffer 90° upright before we sample), iOS hands us the
@@ -94,6 +135,15 @@ final class MetalCompositor {
         guard let pipeline = try? device.makeRenderPipelineState(descriptor: desc) else { return nil }
         self.pipeline = pipeline
 
+        guard let gvfn = library.makeFunction(name: "dcr_grade_vertex"),
+              let gffn = library.makeFunction(name: "dcr_grade_fragment") else { return nil }
+        let gdesc = MTLRenderPipelineDescriptor()
+        gdesc.vertexFunction = gvfn
+        gdesc.fragmentFunction = gffn
+        gdesc.colorAttachments[0].pixelFormat = .bgra8Unorm
+        guard let gradePipeline = try? device.makeRenderPipelineState(descriptor: gdesc) else { return nil }
+        self.gradePipeline = gradePipeline
+
         CVMetalTextureCacheCreate(nil, nil, device, nil, &textureCache)
 
         let attrs: [String: Any] = [
@@ -119,8 +169,29 @@ final class MetalCompositor {
             return nil
         }
 
+        // Grade path (v0.3.0): composite into the intermediate scene texture,
+        // then the grade pass renders scene -> the pool buffer, so preview and
+        // recording share one grade, after exposure. Ungraded keeps the
+        // original single pass (bit-identical to before).
+        let grading = grade.enabled > 0.5
+        let sceneTarget: MTLTexture
+        if grading {
+            if sceneTex == nil {
+                let desc = MTLTextureDescriptor.texture2DDescriptor(
+                    pixelFormat: .bgra8Unorm, width: width, height: height,
+                    mipmapped: false)
+                desc.usage = [.renderTarget, .shaderRead]
+                desc.storageMode = .private
+                sceneTex = device.makeTexture(descriptor: desc)
+            }
+            guard let st = sceneTex else { return nil }
+            sceneTarget = st
+        } else {
+            sceneTarget = target
+        }
+
         let pass = MTLRenderPassDescriptor()
-        pass.colorAttachments[0].texture = target
+        pass.colorAttachments[0].texture = sceneTarget
         pass.colorAttachments[0].loadAction = .clear
         pass.colorAttachments[0].clearColor = MTLClearColorMake(0, 0, 0, 1)
         pass.colorAttachments[0].storeAction = .store
@@ -151,6 +222,22 @@ final class MetalCompositor {
         }
 
         enc.endEncoding()
+
+        if grading {
+            let gpass = MTLRenderPassDescriptor()
+            gpass.colorAttachments[0].texture = target
+            gpass.colorAttachments[0].loadAction = .clear
+            gpass.colorAttachments[0].clearColor = MTLClearColorMake(0, 0, 0, 1)
+            gpass.colorAttachments[0].storeAction = .store
+            guard let genc = cmd.makeRenderCommandEncoder(descriptor: gpass) else { return nil }
+            genc.setRenderPipelineState(gradePipeline)
+            genc.setFragmentTexture(sceneTarget, index: 0)
+            var gu = grade
+            genc.setFragmentBytes(&gu, length: MemoryLayout<GradeUniforms>.stride, index: 0)
+            genc.drawPrimitives(type: .triangleStrip, vertexStart: 0, vertexCount: 4)
+            genc.endEncoding()
+        }
+
         cmd.commit() // async — never waitUntilCompleted on the hot path (§9)
         return out
     }

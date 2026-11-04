@@ -158,6 +158,12 @@ public final class DualCamerasPlugin: NSObject, FlutterPlugin, DualCameraHostApi
         completion(.success(()))
     }
 
+    func setFilter(filter: VideoFilter, completion: @escaping (Result<Void, Error>) -> Void) {
+        guard let session = session else { return completion(notReady()) }
+        session.setFilter(moody: filter == .moody)
+        completion(.success(()))
+    }
+
     func setExposureCompensation(ev: Double, completion: @escaping (Result<Void, Error>) -> Void) {
         guard let session = session else { return completion(notReady()) }
         session.setExposureCompensation(ev: Float(ev))

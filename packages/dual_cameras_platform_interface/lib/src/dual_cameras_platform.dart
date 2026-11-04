@@ -75,6 +75,11 @@ abstract class DualCamerasPlatform extends PlatformInterface {
       throw UnimplementedError(
           'getExposureCompensationRange() has not been implemented.');
 
+  /// Apply a color-grade [VideoFilter] preset to the final composite, live.
+  /// Affects both preview and recording; the grade runs after exposure.
+  Future<void> setFilter(VideoFilter filter) =>
+      throw UnimplementedError('setFilter() has not been implemented.');
+
   Future<void> dispose() =>
       throw UnimplementedError('dispose() has not been implemented.');
 }

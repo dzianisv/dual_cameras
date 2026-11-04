@@ -1,5 +1,11 @@
 ## Unreleased
 
+* Add `DualCameraController.setFilter(VideoFilter)` — live color-grade
+  presets (`VideoFilter.none`, `VideoFilter.moody`); new presets are new
+  enum values, never an API break. Backward compatible.
+
+## Unreleased
+
 * Add `DualCameraController.setExposureCompensation(double ev)` and
   `getExposureCompensationRange()` — the Sony-style EV dial, applied live to
   both cameras (fixes overexposed video). Backward compatible.

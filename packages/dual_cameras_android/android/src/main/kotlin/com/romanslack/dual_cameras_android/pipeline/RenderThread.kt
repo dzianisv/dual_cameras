@@ -119,6 +119,11 @@ class RenderThread(
         handler.post { layout = newLayout }
     }
 
+    /** Switch the color-grade preset live (applied on the GL thread). */
+    fun setFilter(moody: Boolean) {
+        handler.post { compositor.setFilter(moody) }
+    }
+
     /** Report a camera's real frame size so the compositor can aspect-fill. */
     fun setSourceSize(isFront: Boolean, w: Int, h: Int) {
         handler.post {
