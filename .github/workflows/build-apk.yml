@@ -50,7 +50,7 @@ jobs:
         working-directory: ${{ env.EXAMPLE_DIR }}
         run: flutter build apk --release --target-platform android-arm64
 
-      - name: Verify APK (package + camera permission)
+      - name: Verify APK (package + capture and download permissions)
         working-directory: ${{ env.EXAMPLE_DIR }}
         run: |
           AAPT2=$(ls "$ANDROID_HOME"/build-tools/*/aapt2 | sort -V | tail -1)
@@ -58,7 +58,9 @@ jobs:
           "$AAPT2" dump badging "$APK" > badging.txt
           grep -q "package: name='com.romanslack.dual_cameras_example'" badging.txt
           grep -q "android.permission.CAMERA" badging.txt
-          echo "APK OK: package + CAMERA permission present"
+          grep -q "android.permission.RECORD_AUDIO" badging.txt
+          grep -q "android.permission.INTERNET" badging.txt
+          echo "APK OK: package + CAMERA, RECORD_AUDIO, INTERNET permissions present"
 
       - name: Name the APK for the release
         working-directory: ${{ env.EXAMPLE_DIR }}
