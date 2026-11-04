@@ -118,9 +118,18 @@ class ModelManager {
           }
           return chunk;
         }));
-      } finally {
-        await sink.close();
+      } catch (_) {
+        // addStream can close the underlying file after a source error.
+        // A second close may throw too; preserve the original network error
+        // and stack rather than replacing it with a cleanup exception.
+        try {
+          await sink.close();
+        } catch (_) {
+          // Best-effort cleanup; the outer finally removes the partial file.
+        }
+        rethrow;
       }
+      await sink.close();
       if (received == 0 || (total != null && received != total)) {
         throw const HttpException('Model download was incomplete. Please retry.');
       }
