@@ -133,6 +133,17 @@ class DualCameraController extends ValueNotifier<DualCameraValue> {
   /// Update the layout geometry live.
   Future<void> setLayout(LayoutConfig layout) => _platform.setLayout(layout);
 
+  /// Set exposure compensation in EV on both cameras — the Sony-style EV dial.
+  /// Negative values darken (fixes overexposed video); `0.0` is neutral.
+  /// Safe to call any time after [initialize]; a no-op when unsupported.
+  Future<void> setExposureCompensation(double ev) =>
+      _platform.setExposureCompensation(ev);
+
+  /// The device's supported exposure-compensation range in EV
+  /// (all zeros when unsupported or before [initialize]).
+  Future<ExposureCompensationRange> getExposureCompensationRange() =>
+      _platform.getExposureCompensationRange();
+
   void _onEvent(DualCameraEvent event) {
     switch (event) {
       case DualCameraReady(:final textureId):

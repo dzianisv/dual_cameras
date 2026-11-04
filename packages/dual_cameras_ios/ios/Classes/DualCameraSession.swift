@@ -46,6 +46,29 @@ final class DualCameraSession: NSObject,
         dataQueue.async { self.layout = layout }
     }
 
+    /// Sony-style EV dial: exposure-target bias on both capture devices.
+    /// Called on the Pigeon platform thread; lockForConfiguration is safe here.
+    func setExposureCompensation(ev: Float) {
+        for device in [backDevice, frontDevice] {
+            guard let device = device,
+                  (try? device.lockForConfiguration()) != nil else { continue }
+            device.setExposureTargetBias(
+                min(max(ev, device.minExposureTargetBias), device.maxExposureTargetBias))
+            device.unlockForConfiguration()
+        }
+    }
+
+    /// Intersected EV bias range of both devices; zeros when unavailable.
+    /// (AVCaptureDevice exposes no public bias step; 1/3 EV is the conventional
+    /// UI granularity.)
+    func exposureCompensationRange() -> (Float, Float, Float) {
+        guard let back = backDevice, let front = frontDevice else { return (0, 0, 0) }
+        let minEv = max(back.minExposureTargetBias, front.minExposureTargetBias)
+        let maxEv = min(back.maxExposureTargetBias, front.maxExposureTargetBias)
+        guard minEv < maxEv else { return (0, 0, 0) }
+        return (minEv, maxEv, 1.0 / 3.0)
+    }
+
     // Debug tuning (IOS_HANDOFF §6): forward to the compositor on the data queue,
     // where its orientation state is read during compose().
     func setRotationOffset(isFront: Bool, degrees: Int) {

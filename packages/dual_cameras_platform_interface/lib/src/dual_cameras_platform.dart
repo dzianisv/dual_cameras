@@ -63,6 +63,18 @@ abstract class DualCamerasPlatform extends PlatformInterface {
   Future<void> setLayout(LayoutConfig layout) =>
       throw UnimplementedError('setLayout() has not been implemented.');
 
+  /// Set exposure compensation in EV on both cameras (Sony-style EV dial).
+  /// Negative darkens (fixes overexposed video), positive brightens.
+  /// No-op on devices without support.
+  Future<void> setExposureCompensation(double ev) => throw UnimplementedError(
+      'setExposureCompensation() has not been implemented.');
+
+  /// Supported exposure-compensation range in EV; all zeros when unsupported
+  /// or the pipeline isn't up.
+  Future<ExposureCompensationRange> getExposureCompensationRange() =>
+      throw UnimplementedError(
+          'getExposureCompensationRange() has not been implemented.');
+
   Future<void> dispose() =>
       throw UnimplementedError('dispose() has not been implemented.');
 }

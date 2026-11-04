@@ -31,7 +31,14 @@ class _DemoScreenState extends State<DemoScreen> {
   CameraCapabilities? _caps;
   String _status = 'Probing…';
   String? _lastFile;
-  bool _circle = false;
+  bool _circle = true; // Telegram-style: circular selfie inset by default.
+
+  // Exposure (EV) slider — the Sony-style dial, applied live to both cameras.
+  double _ev = 0.0;
+  double _evMin = -2.0;
+  double _evMax = 2.0;
+  double _evStep = 1 / 3;
+  bool _evSupported = false;
 
   // Live geometry tuning (debug channel) — to dial in the front/back
   // orientation and fix any stretch directly on the device.
@@ -73,10 +80,57 @@ class _DemoScreenState extends State<DemoScreen> {
     }
     try {
       await _controller.initialize(layout: _layout());
-      setState(() => _status = 'Initialized');
+      final range = await _controller.getExposureCompensationRange();
+      if (!mounted) return;
+      setState(() {
+        _status = 'Initialized';
+        _evSupported = range.minEv < range.maxEv && range.stepEv > 0;
+        if (_evSupported) {
+          _evMin = range.minEv;
+          _evMax = range.maxEv;
+          _evStep = range.stepEv;
+          _ev = 0.0;
+        }
+      });
     } catch (e) {
       setState(() => _status = 'initialize failed: $e');
     }
+  }
+
+  Future<void> _setEv(double v) async {
+    setState(() => _ev = v);
+    try {
+      await _controller.setExposureCompensation(v);
+    } catch (e) {
+      setState(() => _status = 'EV failed: $e');
+    }
+  }
+
+  String _evLabel(double v) =>
+      '${v >= 0 ? '+' : ''}${v.toStringAsFixed(1)} EV';
+
+  Widget _evRow() {
+    final divisions =
+        _evStep > 0 ? ((_evMax - _evMin) / _evStep).round().clamp(1, 48) : null;
+    return Row(
+      children: [
+        const SizedBox(width: 110, child: Text('Exposure')),
+        Expanded(
+          child: Slider(
+            min: _evMin,
+            max: _evMax,
+            divisions: divisions,
+            label: _evLabel(_ev),
+            value: _ev.clamp(_evMin, _evMax).toDouble(),
+            onChanged: _setEv,
+          ),
+        ),
+        SizedBox(
+          width: 64,
+          child: Text(_evLabel(_ev), textAlign: TextAlign.right),
+        ),
+      ],
+    );
   }
 
   Future<void> _guard(Future<void> Function() action, String label) async {
@@ -297,6 +351,7 @@ class _DemoScreenState extends State<DemoScreen> {
                         ),
                       ],
                     ),
+                    if (value.isInitialized && _evSupported) _evRow(),
                     if (value.isInitialized) _debugPanel(),
                   ],
                 ),

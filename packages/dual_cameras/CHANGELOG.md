@@ -1,3 +1,9 @@
+## Unreleased
+
+* Add `DualCameraController.setExposureCompensation(double ev)` and
+  `getExposureCompensationRange()` — the Sony-style EV dial, applied live to
+  both cameras (fixes overexposed video). Backward compatible.
+
 ## 0.1.2
 
 * Require `dual_cameras_ios` ^0.1.1: crisp full-frame back camera, immediate

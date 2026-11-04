@@ -165,6 +165,24 @@ class InitResult {
   CameraCapabilities capabilities;
 }
 
+/// Supported exposure-compensation range in EV (the Sony-style EV dial).
+class ExposureCompensationRange {
+  ExposureCompensationRange({
+    required this.minEv,
+    required this.maxEv,
+    required this.stepEv,
+  });
+
+  /// Most negative EV (darkest), e.g. -4.0.
+  double minEv;
+
+  /// Most positive EV (brightest), e.g. +4.0.
+  double maxEv;
+
+  /// EV step between compensation indices, e.g. 1/3.
+  double stepEv;
+}
+
 /// Commands: Dart -> native.
 @HostApi()
 abstract class DualCameraHostApi {
@@ -194,6 +212,17 @@ abstract class DualCameraHostApi {
   /// Update layout geometry live (e.g. user drags the inset).
   @async
   void setLayout(LayoutConfig layout);
+
+  /// Set exposure compensation in EV on both cameras (the Sony-style EV dial).
+  /// Negative values darken the image (fixes overexposed video), positive
+  /// values brighten it. No-op when unsupported or the pipeline isn't up.
+  @async
+  void setExposureCompensation(double ev);
+
+  /// Supported exposure-compensation range in EV. All zeros when unsupported
+  /// or the pipeline isn't up.
+  @async
+  ExposureCompensationRange getExposureCompensationRange();
 
   @async
   void dispose();

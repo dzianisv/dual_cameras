@@ -320,6 +320,39 @@ struct InitResult {
   }
 }
 
+/// Supported exposure-compensation range in EV (the Sony-style EV dial).
+///
+/// Generated class from Pigeon that represents data sent in messages.
+struct ExposureCompensationRange {
+  /// Most negative EV (darkest), e.g. -4.0.
+  var minEv: Double
+  /// Most positive EV (brightest), e.g. +4.0.
+  var maxEv: Double
+  /// EV step between compensation indices, e.g. 1/3.
+  var stepEv: Double
+
+
+  // swift-format-ignore: AlwaysUseLowerCamelCase
+  static func fromList(_ pigeonVar_list: [Any?]) -> ExposureCompensationRange? {
+    let minEv = pigeonVar_list[0] as! Double
+    let maxEv = pigeonVar_list[1] as! Double
+    let stepEv = pigeonVar_list[2] as! Double
+
+    return ExposureCompensationRange(
+      minEv: minEv,
+      maxEv: maxEv,
+      stepEv: stepEv
+    )
+  }
+  func toList() -> [Any?] {
+    return [
+      minEv,
+      maxEv,
+      stepEv,
+    ]
+  }
+}
+
 private class MessagesPigeonCodecReader: FlutterStandardReader {
   override func readValue(ofType type: UInt8) -> Any? {
     switch type {
@@ -375,6 +408,8 @@ private class MessagesPigeonCodecReader: FlutterStandardReader {
       return FrameStats.fromList(self.readValue() as! [Any?])
     case 140:
       return InitResult.fromList(self.readValue() as! [Any?])
+    case 141:
+      return ExposureCompensationRange.fromList(self.readValue() as! [Any?])
     default:
       return super.readValue(ofType: type)
     }
@@ -419,6 +454,9 @@ private class MessagesPigeonCodecWriter: FlutterStandardWriter {
     } else if let value = value as? InitResult {
       super.writeByte(140)
       super.writeValue(value.toList())
+    } else if let value = value as? ExposureCompensationRange {
+      super.writeByte(141)
+      super.writeValue(value.toList())
     } else {
       super.writeValue(value)
     }
@@ -457,6 +495,12 @@ protocol DualCameraHostApi {
   func swapPrimary(completion: @escaping (Result<Void, Error>) -> Void)
   /// Update layout geometry live (e.g. user drags the inset).
   func setLayout(layout: LayoutConfig, completion: @escaping (Result<Void, Error>) -> Void)
+  /// Set exposure compensation in EV on both cameras (the Sony-style EV dial).
+  /// Negative values darken the image (fixes overexposed video), positive
+  /// values brighten it. No-op when unsupported or the pipeline isn't up.
+  func setExposureCompensation(ev: Double, completion: @escaping (Result<Void, Error>) -> Void)
+  /// Supported exposure-compensation range in EV. All zeros when unsupported.
+  func getExposureCompensationRange(completion: @escaping (Result<ExposureCompensationRange, Error>) -> Void)
   func dispose(completion: @escaping (Result<Void, Error>) -> Void)
 }
 
@@ -595,6 +639,40 @@ class DualCameraHostApiSetup {
       }
     } else {
       disposeChannel.setMessageHandler(nil)
+    }
+    /// Set exposure compensation in EV on both cameras (the Sony-style EV dial).
+    let setExposureCompensationChannel = FlutterBasicMessageChannel(name: "dev.flutter.pigeon.dual_cameras_platform_interface.DualCameraHostApi.setExposureCompensation\(channelSuffix)", binaryMessenger: binaryMessenger, codec: codec)
+    if let api = api {
+      setExposureCompensationChannel.setMessageHandler { message, reply in
+        let args = message as! [Any?]
+        let evArg = args[0] as! Double
+        api.setExposureCompensation(ev: evArg) { result in
+          switch result {
+          case .success:
+            reply(wrapResult(nil))
+          case .failure(let error):
+            reply(wrapError(error))
+          }
+        }
+      }
+    } else {
+      setExposureCompensationChannel.setMessageHandler(nil)
+    }
+    /// Supported exposure-compensation range in EV.
+    let getExposureCompensationRangeChannel = FlutterBasicMessageChannel(name: "dev.flutter.pigeon.dual_cameras_platform_interface.DualCameraHostApi.getExposureCompensationRange\(channelSuffix)", binaryMessenger: binaryMessenger, codec: codec)
+    if let api = api {
+      getExposureCompensationRangeChannel.setMessageHandler { _, reply in
+        api.getExposureCompensationRange { result in
+          switch result {
+          case .success(let res):
+            reply(wrapResult(res))
+          case .failure(let error):
+            reply(wrapError(error))
+          }
+        }
+      }
+    } else {
+      getExposureCompensationRangeChannel.setMessageHandler(nil)
     }
   }
 }

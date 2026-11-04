@@ -295,6 +295,41 @@ class InitResult {
   }
 }
 
+/// Supported exposure-compensation range in EV (the Sony-style EV dial).
+class ExposureCompensationRange {
+  ExposureCompensationRange({
+    required this.minEv,
+    required this.maxEv,
+    required this.stepEv,
+  });
+
+  /// Most negative EV (darkest), e.g. -4.0.
+  double minEv;
+
+  /// Most positive EV (brightest), e.g. +4.0.
+  double maxEv;
+
+  /// EV step between compensation indices, e.g. 1/3.
+  double stepEv;
+
+  Object encode() {
+    return <Object?>[
+      minEv,
+      maxEv,
+      stepEv,
+    ];
+  }
+
+  static ExposureCompensationRange decode(Object result) {
+    result as List<Object?>;
+    return ExposureCompensationRange(
+      minEv: result[0]! as double,
+      maxEv: result[1]! as double,
+      stepEv: result[2]! as double,
+    );
+  }
+}
+
 
 class _PigeonCodec extends StandardMessageCodec {
   const _PigeonCodec();
@@ -339,6 +374,9 @@ class _PigeonCodec extends StandardMessageCodec {
     }    else if (value is InitResult) {
       buffer.putUint8(140);
       writeValue(buffer, value.encode());
+    }    else if (value is ExposureCompensationRange) {
+      buffer.putUint8(141);
+      writeValue(buffer, value.encode());
     } else {
       super.writeValue(buffer, value);
     }
@@ -378,6 +416,8 @@ class _PigeonCodec extends StandardMessageCodec {
         return FrameStats.decode(readValue(buffer)!);
       case 140: 
         return InitResult.decode(readValue(buffer)!);
+      case 141: 
+        return ExposureCompensationRange.decode(readValue(buffer)!);
       default:
         return super.readValueOfType(type, buffer);
     }
@@ -597,6 +637,60 @@ class DualCameraHostApi {
       );
     } else {
       return;
+    }
+  }
+
+  /// Set exposure compensation in EV on both cameras (the Sony-style EV dial).
+  /// Negative values darken the image (fixes overexposed video), positive
+  /// values brighten it. No-op when unsupported or the pipeline isn't up.
+  Future<void> setExposureCompensation(double ev) async {
+    final String pigeonVar_channelName = 'dev.flutter.pigeon.dual_cameras_platform_interface.DualCameraHostApi.setExposureCompensation$pigeonVar_messageChannelSuffix';
+    final BasicMessageChannel<Object?> pigeonVar_channel = BasicMessageChannel<Object?>(
+      pigeonVar_channelName,
+      pigeonChannelCodec,
+      binaryMessenger: pigeonVar_binaryMessenger,
+    );
+    final List<Object?>? pigeonVar_replyList =
+        await pigeonVar_channel.send(<Object?>[ev]) as List<Object?>?;
+    if (pigeonVar_replyList == null) {
+      throw _createConnectionError(pigeonVar_channelName);
+    } else if (pigeonVar_replyList.length > 1) {
+      throw PlatformException(
+        code: pigeonVar_replyList[0]! as String,
+        message: pigeonVar_replyList[1] as String?,
+        details: pigeonVar_replyList[2],
+      );
+    } else {
+      return;
+    }
+  }
+
+  /// Supported exposure-compensation range in EV. All zeros when unsupported
+  /// or the pipeline isn't up.
+  Future<ExposureCompensationRange> getExposureCompensationRange() async {
+    final String pigeonVar_channelName = 'dev.flutter.pigeon.dual_cameras_platform_interface.DualCameraHostApi.getExposureCompensationRange$pigeonVar_messageChannelSuffix';
+    final BasicMessageChannel<Object?> pigeonVar_channel = BasicMessageChannel<Object?>(
+      pigeonVar_channelName,
+      pigeonChannelCodec,
+      binaryMessenger: pigeonVar_binaryMessenger,
+    );
+    final List<Object?>? pigeonVar_replyList =
+        await pigeonVar_channel.send(null) as List<Object?>?;
+    if (pigeonVar_replyList == null) {
+      throw _createConnectionError(pigeonVar_channelName);
+    } else if (pigeonVar_replyList.length > 1) {
+      throw PlatformException(
+        code: pigeonVar_replyList[0]! as String,
+        message: pigeonVar_replyList[1] as String?,
+        details: pigeonVar_replyList[2],
+      );
+    } else if (pigeonVar_replyList[0] == null) {
+      throw PlatformException(
+        code: 'null-error',
+        message: 'Host platform returned null value for non-null return value.',
+      );
+    } else {
+      return (pigeonVar_replyList[0] as ExposureCompensationRange?)!;
     }
   }
 }

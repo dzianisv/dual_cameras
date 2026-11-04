@@ -1,3 +1,9 @@
+## Unreleased
+
+* Implement exposure compensation on both capture devices via
+  `AVCaptureDevice.setExposureTargetBias` (clamped to each device's
+  min/max bias). Range query returns the intersected bias range.
+
 ## 0.1.1
 
 * Crisp full-frame back camera: pick a non-binned ~720p multicam format for the

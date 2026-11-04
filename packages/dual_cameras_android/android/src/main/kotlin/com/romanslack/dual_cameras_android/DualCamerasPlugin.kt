@@ -227,6 +227,25 @@ class DualCamerasPlugin : FlutterPlugin, DualCameraHostApi {
     callback(Result.success(Unit))
   }
 
+  override fun setExposureCompensation(ev: Double, callback: (Result<Unit>) -> Unit) {
+    try {
+      cameraSource?.setExposureCompensation(ev)
+      callback(Result.success(Unit))
+    } catch (t: Throwable) {
+      callback(Result.failure(t))
+    }
+  }
+
+  override fun getExposureCompensationRange(callback: (Result<ExposureCompensationRange>) -> Unit) {
+    try {
+      val (minEv, maxEv, stepEv) = cameraSource?.exposureCompensationRange()
+        ?: Triple(0.0, 0.0, 0.0)
+      callback(Result.success(ExposureCompensationRange(minEv, maxEv, stepEv)))
+    } catch (t: Throwable) {
+      callback(Result.failure(t))
+    }
+  }
+
   override fun dispose(callback: (Result<Unit>) -> Unit) {
     releaseSession()
     callback(Result.success(Unit))

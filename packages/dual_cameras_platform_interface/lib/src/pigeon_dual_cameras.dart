@@ -66,6 +66,14 @@ class PigeonDualCameras extends DualCamerasPlatform
   Future<void> setLayout(LayoutConfig layout) => _api.setLayout(layout);
 
   @override
+  Future<void> setExposureCompensation(double ev) =>
+      _api.setExposureCompensation(ev);
+
+  @override
+  Future<ExposureCompensationRange> getExposureCompensationRange() =>
+      _api.getExposureCompensationRange();
+
+  @override
   Future<void> dispose() => _api.dispose();
 
   // --- DualCameraFlutterApi (native -> Dart) ---

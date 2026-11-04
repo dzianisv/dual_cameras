@@ -1,0 +1,101 @@
+name: Build release APK
+
+# Builds the example app (dual-camera recorder + EV slider) on GitHub's
+# runners and attaches the APK to the GitHub Release for the pushed v* tag.
+# (The sandbox VM cannot run Gradle: Java TCP is blocked there — CI is the
+# canonical build path.)
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  EXAMPLE_DIR: packages/dual_cameras/example
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the repo
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: 3.47.7
+          channel: stable
+          cache: true
+
+      - name: Fetch packages
+        working-directory: ${{ env.EXAMPLE_DIR }}
+        run: flutter pub get
+
+      - name: Analyze
+        working-directory: ${{ env.EXAMPLE_DIR }}
+        run: flutter analyze
+
+      # The example's release buildType signs with the debug key (stock Flutter
+      # template default) — the APK is sideload-installable, but it is a TEST
+      # build. Reinstall (don't update) once a properly-signed build ships.
+      - name: Build release APK (arm64)
+        working-directory: ${{ env.EXAMPLE_DIR }}
+        run: flutter build apk --release --target-platform android-arm64
+
+      - name: Verify APK (package + camera permission)
+        working-directory: ${{ env.EXAMPLE_DIR }}
+        run: |
+          AAPT2=$(ls "$ANDROID_HOME"/build-tools/*/aapt2 | sort -V | tail -1)
+          APK=build/app/outputs/flutter-apk/app-release.apk
+          "$AAPT2" dump badging "$APK" > badging.txt
+          grep -q "package: name='com.romanslack.dual_cameras_example'" badging.txt
+          grep -q "android.permission.CAMERA" badging.txt
+          echo "APK OK: package + CAMERA permission present"
+
+      - name: Name the APK for the release
+        working-directory: ${{ env.EXAMPLE_DIR }}
+        run: |
+          cp build/app/outputs/flutter-apk/app-release.apk dual-cameras-ev.apk
+          ls -lh dual-cameras-ev.apk
+
+      - name: Publish to GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: '${{ github.ref_name }} — dual-camera recorder + EV slider'
+          files: packages/dual_cameras/example/dual-cameras-ev.apk
+          body: |
+            ## dual_cameras example app — ${{ github.ref_name }}
+
+            Test build of the example app: records the **front + back cameras
+            simultaneously**, composited into one portrait MP4 with a **circular
+            selfie inset** (Telegram-style), plus an **exposure (EV) slider** —
+            the Sony-style dial, applied live to both cameras while
+            previewing/recording. Fixes overexposed video.
+
+            ### Install
+            1. Download `dual-cameras-ev.apk` below.
+            2. Sideload it (allow "install unknown apps" when prompted).
+            3. Grant Camera + Microphone, tap **Initialize**, then **Record**.
+               The EV slider appears under the buttons once initialized.
+
+            ### Requirements
+            - A phone with **concurrent front+back camera** support
+              (e.g. Pixel 6+, Galaxy S22+). Otherwise the app reports
+              "Not supported on this device".
+            - Concurrent capture is capped around **720p** by the hardware.
+
+            ### Signing caveat
+            This APK is signed with a **debug key** (test build). When a
+            properly-signed build ships later, **uninstall this one first** —
+            Android will not let a release-signed build update a debug-signed
+            install.

@@ -8,6 +8,7 @@ export 'package:dual_cameras_platform_interface/dual_cameras_platform_interface.
         CameraLens,
         DualLayoutMode,
         DualResolution,
+        ExposureCompensationRange,
         FrameStats,
         InsetCorner,
         LayoutConfig,

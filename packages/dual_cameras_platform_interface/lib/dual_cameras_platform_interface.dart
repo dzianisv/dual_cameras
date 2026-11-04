@@ -12,6 +12,7 @@ export 'src/messages.g.dart'
         DualCameraHostApi,
         DualLayoutMode,
         DualResolution,
+        ExposureCompensationRange,
         FrameStats,
         InitResult,
         InsetCorner,

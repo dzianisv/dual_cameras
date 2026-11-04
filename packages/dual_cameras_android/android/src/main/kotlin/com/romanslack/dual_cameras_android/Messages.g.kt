@@ -328,6 +328,37 @@ data class InitResult (
     )
   }
 }
+
+/**
+ * Supported exposure-compensation range in EV (the Sony-style EV dial).
+ *
+ * Generated class from Pigeon that represents data sent in messages.
+ */
+data class ExposureCompensationRange (
+  /** Most negative EV (darkest), e.g. -4.0. */
+  val minEv: Double,
+  /** Most positive EV (brightest), e.g. +4.0. */
+  val maxEv: Double,
+  /** EV step between compensation indices, e.g. 1/3. */
+  val stepEv: Double
+)
+ {
+  companion object {
+    fun fromList(pigeonVar_list: List<Any?>): ExposureCompensationRange {
+      val minEv = pigeonVar_list[0] as Double
+      val maxEv = pigeonVar_list[1] as Double
+      val stepEv = pigeonVar_list[2] as Double
+      return ExposureCompensationRange(minEv, maxEv, stepEv)
+    }
+  }
+  fun toList(): List<Any?> {
+    return listOf(
+      minEv,
+      maxEv,
+      stepEv,
+    )
+  }
+}
 private open class MessagesPigeonCodec : StandardMessageCodec() {
   override fun readValueOfType(type: Byte, buffer: ByteBuffer): Any? {
     return when (type) {
@@ -391,6 +422,11 @@ private open class MessagesPigeonCodec : StandardMessageCodec() {
           InitResult.fromList(it)
         }
       }
+      141.toByte() -> {
+        return (readValue(buffer) as? List<Any?>)?.let {
+          ExposureCompensationRange.fromList(it)
+        }
+      }
       else -> super.readValueOfType(type, buffer)
     }
   }
@@ -444,6 +480,10 @@ private open class MessagesPigeonCodec : StandardMessageCodec() {
         stream.write(140)
         writeValue(stream, value.toList())
       }
+      is ExposureCompensationRange -> {
+        stream.write(141)
+        writeValue(stream, value.toList())
+      }
       else -> super.writeValue(stream, value)
     }
   }
@@ -469,6 +509,14 @@ interface DualCameraHostApi {
   fun swapPrimary(callback: (Result<Unit>) -> Unit)
   /** Update layout geometry live (e.g. user drags the inset). */
   fun setLayout(layout: LayoutConfig, callback: (Result<Unit>) -> Unit)
+  /**
+   * Set exposure compensation in EV on both cameras (the Sony-style EV dial).
+   * Negative values darken the image (fixes overexposed video), positive
+   * values brighten it. No-op when unsupported or the pipeline isn't up.
+   */
+  fun setExposureCompensation(ev: Double, callback: (Result<Unit>) -> Unit)
+  /** Supported exposure-compensation range in EV. All zeros when unsupported. */
+  fun getExposureCompensationRange(callback: (Result<ExposureCompensationRange>) -> Unit)
   fun dispose(callback: (Result<Unit>) -> Unit)
 
   companion object {
@@ -617,6 +665,43 @@ interface DualCameraHostApi {
                 reply.reply(wrapError(error))
               } else {
                 reply.reply(wrapResult(null))
+              }
+            }
+          }
+        } else {
+          channel.setMessageHandler(null)
+        }
+      }
+      run {
+        val channel = BasicMessageChannel<Any?>(binaryMessenger, "dev.flutter.pigeon.dual_cameras_platform_interface.DualCameraHostApi.setExposureCompensation$separatedMessageChannelSuffix", codec)
+        if (api != null) {
+          channel.setMessageHandler { message, reply ->
+            val args = message as List<Any?>
+            val evArg = args[0] as Double
+            api.setExposureCompensation(evArg) { result: Result<Unit> ->
+              val error = result.exceptionOrNull()
+              if (error != null) {
+                reply.reply(wrapError(error))
+              } else {
+                reply.reply(wrapResult(null))
+              }
+            }
+          }
+        } else {
+          channel.setMessageHandler(null)
+        }
+      }
+      run {
+        val channel = BasicMessageChannel<Any?>(binaryMessenger, "dev.flutter.pigeon.dual_cameras_platform_interface.DualCameraHostApi.getExposureCompensationRange$separatedMessageChannelSuffix", codec)
+        if (api != null) {
+          channel.setMessageHandler { _, reply ->
+            api.getExposureCompensationRange{ result: Result<ExposureCompensationRange> ->
+              val error = result.exceptionOrNull()
+              if (error != null) {
+                reply.reply(wrapError(error))
+              } else {
+                val data = result.getOrNull()
+                reply.reply(wrapResult(data))
               }
             }
           }

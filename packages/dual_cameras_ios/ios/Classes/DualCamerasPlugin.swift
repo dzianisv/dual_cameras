@@ -158,6 +158,19 @@ public final class DualCamerasPlugin: NSObject, FlutterPlugin, DualCameraHostApi
         completion(.success(()))
     }
 
+    func setExposureCompensation(ev: Double, completion: @escaping (Result<Void, Error>) -> Void) {
+        guard let session = session else { return completion(notReady()) }
+        session.setExposureCompensation(ev: Float(ev))
+        completion(.success(()))
+    }
+
+    func getExposureCompensationRange(completion: @escaping (Result<ExposureCompensationRange, Error>) -> Void) {
+        guard let session = session else { return completion(notReady()) }
+        let (minEv, maxEv, stepEv) = session.exposureCompensationRange()
+        completion(.success(ExposureCompensationRange(
+            minEv: Double(minEv), maxEv: Double(maxEv), stepEv: Double(stepEv))))
+    }
+
     func dispose(completion: @escaping (Result<Void, Error>) -> Void) {
         // Release the preview texture immediately on the platform thread.
         if let id = textureId { textureRegistry.unregisterTexture(id) }
