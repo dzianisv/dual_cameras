@@ -1,7 +1,7 @@
-name: Build release APK
+name: Build StoryCam APK
 
-# Builds the example app (dual-camera recorder + EV slider) on GitHub's
-# runners and attaches the APK to the GitHub Release for the pushed v* tag.
+# Manual builds produce a downloadable test APK workflow artifact.
+# Existing v* tag builds additionally retain their GitHub Release behavior.
 # (The sandbox VM cannot run Gradle: Java TCP is blocked there — CI is the
 # canonical build path.)
 on:
@@ -43,6 +43,16 @@ jobs:
         working-directory: ${{ env.EXAMPLE_DIR }}
         run: flutter analyze
 
+      - name: Test StoryCam UI and caption downloads
+        working-directory: ${{ env.EXAMPLE_DIR }}
+        run: flutter test
+
+      - name: Test camera controller
+        working-directory: packages/dual_cameras
+        run: |
+          flutter pub get
+          flutter test
+
       # The example's release buildType signs with the debug key (stock Flutter
       # template default) — the APK is sideload-installable, but it is a TEST
       # build. Reinstall (don't update) once a properly-signed build ships.
@@ -50,7 +60,7 @@ jobs:
         working-directory: ${{ env.EXAMPLE_DIR }}
         run: flutter build apk --release --target-platform android-arm64
 
-      - name: Verify APK (package + capture and download permissions)
+      - name: Verify StoryCam APK and test signing
         working-directory: ${{ env.EXAMPLE_DIR }}
         run: |
           AAPT2=$(ls "$ANDROID_HOME"/build-tools/*/aapt2 | sort -V | tail -1)
@@ -60,13 +70,31 @@ jobs:
           grep -q "android.permission.CAMERA" badging.txt
           grep -q "android.permission.RECORD_AUDIO" badging.txt
           grep -q "android.permission.INTERNET" badging.txt
-          echo "APK OK: package + CAMERA, RECORD_AUDIO, INTERNET permissions present"
+          grep -q "application-label:'StoryCam'" badging.txt
+          "$(dirname "$AAPT2")/apksigner" verify --verbose --print-certs "$APK" > signing.txt
+          grep -q "CN=Android Debug" signing.txt
+          echo "APK OK: StoryCam + package + CAMERA, RECORD_AUDIO, INTERNET + debug certificate"
 
-      - name: Name the APK for the release
+      - name: Prepare APK artifact
         working-directory: ${{ env.EXAMPLE_DIR }}
         run: |
           cp build/app/outputs/flutter-apk/app-release.apk dual-cameras-ev.apk
-          ls -lh dual-cameras-ev.apk
+          cp build/app/outputs/flutter-apk/app-release.apk storycam-test-arm64.apk
+          sha256sum storycam-test-arm64.apk > SHA256SUMS
+          printf 'commit=%s\nref=%s\nsigning=debug test key\n' "$GITHUB_SHA" "$GITHUB_REF" > build-info.txt
+
+      - name: Upload StoryCam test APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: storycam-test-arm64-${{ github.sha }}
+          path: |
+            packages/dual_cameras/example/storycam-test-arm64.apk
+            packages/dual_cameras/example/SHA256SUMS
+            packages/dual_cameras/example/build-info.txt
+            packages/dual_cameras/example/badging.txt
+            packages/dual_cameras/example/signing.txt
+          if-no-files-found: error
+          retention-days: 7
 
       - name: Publish to GitHub Release
         if: startsWith(github.ref, 'refs/tags/v')
