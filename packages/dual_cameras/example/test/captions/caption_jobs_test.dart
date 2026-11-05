@@ -4,11 +4,22 @@ import 'package:flutter_test/flutter_test.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
-  test('native job bridge restores durable state and sends targeted actions', () async {
+  test('native job bridge restores durable state and sends targeted actions',
+      () async {
     final calls = <MethodCall>[];
-    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger.setMockMethodCallHandler(CaptionJobs.channel, (call) async {
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(CaptionJobs.channel, (call) async {
       calls.add(call);
-      if (call.method == 'list') return [{'id': 'persisted', 'state': 'running', 'stage': 'Transcribing', 'progress': 55}];
+      if (call.method == 'list') {
+        return [
+          {
+            'id': 'persisted',
+            'state': 'running',
+            'stage': 'Transcribing',
+            'progress': 55
+          }
+        ];
+      }
       if (call.method == 'enqueue') return 'new';
       if (call.method == 'notificationsEnabled') return false;
       return null;
@@ -22,13 +33,15 @@ void main() {
     await jobs.open('persisted');
     await jobs.share('persisted');
     expect(await jobs.notificationsEnabled(), isFalse);
-    for (final call in calls.where((c) => ['cancel', 'open', 'share'].contains(c.method))) {
+    for (final call
+        in calls.where((c) => ['cancel', 'open', 'share'].contains(c.method))) {
       expect(call.arguments, {'id': 'persisted'});
     }
   });
 
   test('cancelling jobs remain active but cannot be stopped twice', () {
-    final job = CaptionJob.fromMap({'id': 'one', 'state': 'cancelling', 'progress': 120});
+    final job = CaptionJob.fromMap(
+        {'id': 'one', 'state': 'cancelling', 'progress': 120});
     expect(job.active, isTrue);
     expect(job.canStop, isFalse);
     expect(job.ready, isFalse);

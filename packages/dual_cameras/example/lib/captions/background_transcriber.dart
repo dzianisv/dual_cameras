@@ -40,7 +40,8 @@ class BackgroundTranscriber {
           result.completeError(StateError(message['error'] as String));
         }
       } else if (message == null && !result.isCompleted) {
-        result.completeError(StateError('Speech recognition stopped unexpectedly'));
+        result.completeError(
+            StateError('Speech recognition stopped unexpectedly'));
       }
     });
     try {
@@ -70,10 +71,15 @@ Future<void> _decode((SendPort, String, WhisperModelFiles) args) async {
     recognizer = sherpa.OfflineRecognizer(sherpa.OfflineRecognizerConfig(
       model: sherpa.OfflineModelConfig(
         whisper: sherpa.OfflineWhisperModelConfig(
-          encoder: model.encoder, decoder: model.decoder, language: 'en',
-          task: 'transcribe', enableTokenTimestamps: true,
+          encoder: model.encoder,
+          decoder: model.decoder,
+          language: 'en',
+          task: 'transcribe',
+          enableTokenTimestamps: true,
         ),
-        tokens: model.tokens, modelType: 'whisper', numThreads: 2,
+        tokens: model.tokens,
+        modelType: 'whisper',
+        numThreads: 2,
       ),
     ));
     final wave = sherpa.readWave(wavPath);
@@ -96,10 +102,11 @@ Future<void> _decode((SendPort, String, WhisperModelFiles) args) async {
         if (decoded.text.trim().isNotEmpty) {
           final shift = offset / wave.sampleRate;
           final chunkEnd = end / wave.sampleRate;
-          words.addAll(aggregateWords(decoded.tokens, decoded.timestamps)
-              .map((word) => CaptionWord(text: word.text,
-                start: math.min(shift + word.start, chunkEnd),
-                end: math.min(shift + word.end, chunkEnd))));
+          words.addAll(aggregateWords(decoded.tokens, decoded.timestamps).map(
+              (word) => CaptionWord(
+                  text: word.text,
+                  start: math.min(shift + word.start, chunkEnd),
+                  end: math.min(shift + word.end, chunkEnd))));
         }
       } finally {
         stream.free();

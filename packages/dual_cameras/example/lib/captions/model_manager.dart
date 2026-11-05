@@ -23,8 +23,9 @@ class ModelManager {
     Future<Directory> Function()? documentsDirectory,
     this.maxAttempts = 4,
     this.retryDelay = const Duration(seconds: 1),
-  }) : _clientFactory = clientFactory ?? http.Client.new,
-       _documentsDirectory = documentsDirectory ?? getApplicationDocumentsDirectory;
+  })  : _clientFactory = clientFactory ?? http.Client.new,
+        _documentsDirectory =
+            documentsDirectory ?? getApplicationDocumentsDirectory;
 
   final http.Client Function() _clientFactory;
   final Future<Directory> Function() _documentsDirectory;
@@ -119,8 +120,8 @@ class ModelManager {
     }
   }
 
-  Future<void> _downloadWithRetry(String url, File dest,
-      void Function(double) onProgress) async {
+  Future<void> _downloadWithRetry(
+      String url, File dest, void Function(double) onProgress) async {
     for (var attempt = 0; attempt < maxAttempts; attempt++) {
       _checkCancelled();
       final client = _clientFactory();
@@ -143,7 +144,8 @@ class ModelManager {
       }
       await Future<void>.delayed(retryDelay * (1 << attempt));
     }
-    throw const ModelDownloadException('Speech model download could not start.');
+    throw const ModelDownloadException(
+        'Speech model download could not start.');
   }
 
   Future<void> _download(http.Client client, String url, File dest,
@@ -166,8 +168,11 @@ class ModelManager {
         validator = metadata['validator'] as String?;
         expectedTotal = metadata['total'] as int?;
         offset = await partial.length();
-        if (validator == null || validator.isEmpty || expectedTotal == null ||
-            offset <= 0 || offset >= expectedTotal) {
+        if (validator == null ||
+            validator.isEmpty ||
+            expectedTotal == null ||
+            offset <= 0 ||
+            offset >= expectedTotal) {
           offset = 0;
         }
       }
@@ -197,28 +202,40 @@ class ModelManager {
     if (response.statusCode == 206) {
       final range = RegExp(r'^bytes (\d+)-(\d+)/(\d+)$')
           .firstMatch(response.headers['content-range'] ?? '');
-      if (offset == 0 || range == null || int.parse(range[1]!) != offset ||
+      final returnedValidator = validator?.startsWith('"') == true
+          ? response.headers['etag']
+          : response.headers['last-modified'];
+      if ((returnedValidator != null && returnedValidator != validator) ||
+          offset == 0 ||
+          range == null ||
+          int.parse(range[1]!) != offset ||
           int.parse(range[3]!) != expectedTotal ||
           int.parse(range[2]!) != expectedTotal! - 1) {
         await resetPartial();
         throw const ModelDownloadException('Restarting speech model download.');
       }
     } else if (response.statusCode == 200) {
-      offset = 0; // Range ignored or file changed: never append a full response.
+      offset =
+          0; // Range ignored or file changed: never append a full response.
       expectedTotal = response.contentLength;
       final etag = response.headers['etag'];
       validator = etag != null && !etag.startsWith('W/')
-          ? etag : response.headers['last-modified'];
+          ? etag
+          : response.headers['last-modified'];
       await resetPartial();
     } else {
       throw const ModelDownloadException('Speech model server unavailable.');
     }
-    final canResume = validator != null && expectedTotal != null && expectedTotal > 0;
+    final canResume =
+        validator != null && expectedTotal != null && expectedTotal > 0;
     if (canResume) {
-      await resume.writeAsString(jsonEncode({'validator': validator, 'total': expectedTotal}), flush: true);
+      await resume.writeAsString(
+          jsonEncode({'validator': validator, 'total': expectedTotal}),
+          flush: true);
     }
     var received = offset;
-    final sink = partial.openWrite(mode: offset > 0 ? FileMode.append : FileMode.write);
+    final sink =
+        partial.openWrite(mode: offset > 0 ? FileMode.append : FileMode.write);
     var complete = false;
     try {
       try {
@@ -232,20 +249,24 @@ class ModelManager {
         }));
       } catch (_) {
         // Preserve the transfer error if addStream already closed its sink.
-        try { await sink.close(); } catch (_) {}
+        try {
+          await sink.close();
+        } catch (_) {}
         rethrow;
       }
       await sink.close();
       _checkCancelled();
-      if (received == 0 || (expectedTotal != null && received != expectedTotal)) {
-        throw const ModelDownloadException('Speech model download was incomplete.');
+      if (received == 0 ||
+          (expectedTotal != null && received != expectedTotal)) {
+        throw const ModelDownloadException(
+            'Speech model download was incomplete.');
       }
       await partial.rename(dest.path);
       await receiptPartial.writeAsString('$received', flush: true);
       await receiptPartial.rename(receipt.path);
       complete = true;
     } finally {
-      if (complete || !canResume || received >= (expectedTotal ?? 0)) {
+      if (complete || !canResume || received >= expectedTotal) {
         await resetPartial();
       }
       if (await receiptPartial.exists()) await receiptPartial.delete();
