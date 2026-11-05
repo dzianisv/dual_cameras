@@ -71,6 +71,12 @@ jobs:
           grep -q "android.permission.RECORD_AUDIO" badging.txt
           grep -q "android.permission.INTERNET" badging.txt
           grep -q "application-label:'StoryCam'" badging.txt
+          APP_VERSION=$(sed -n 's/^version: //p' pubspec.yaml)
+          grep -q "versionCode='${APP_VERSION#*+}'" badging.txt
+          grep -q "versionName='${APP_VERSION%+*}'" badging.txt
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            test "$GITHUB_REF_NAME" = "v${APP_VERSION%+*}"
+          fi
           "$(dirname "$AAPT2")/apksigner" verify --verbose --print-certs "$APK" > signing.txt
           grep -q "CN=Android Debug" signing.txt
           echo "APK OK: StoryCam + package + CAMERA, RECORD_AUDIO, INTERNET + debug certificate"
@@ -78,7 +84,6 @@ jobs:
       - name: Prepare APK artifact
         working-directory: ${{ env.EXAMPLE_DIR }}
         run: |
-          cp build/app/outputs/flutter-apk/app-release.apk dual-cameras-ev.apk
           cp build/app/outputs/flutter-apk/app-release.apk storycam-test-arm64.apk
           sha256sum storycam-test-arm64.apk > SHA256SUMS
           printf 'commit=%s\nref=%s\nsigning=debug test key\n' "$GITHUB_SHA" "$GITHUB_REF" > build-info.txt
@@ -101,31 +106,49 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.ref_name }}
-          name: '${{ github.ref_name }} — dual-camera recorder + EV slider'
-          files: packages/dual_cameras/example/dual-cameras-ev.apk
+          name: '${{ github.ref_name }} - StoryCam test release'
+          prerelease: true
+          fail_on_unmatched_files: true
+          files: |
+            packages/dual_cameras/example/storycam-test-arm64.apk
+            packages/dual_cameras/example/SHA256SUMS
+            packages/dual_cameras/example/build-info.txt
           body: |
-            ## dual_cameras example app — ${{ github.ref_name }}
+            ## StoryCam ${{ github.ref_name }} test release
 
-            Test build of the example app: records the **front + back cameras
-            simultaneously**, composited into one portrait MP4 with a **circular
-            selfie inset** (Telegram-style), plus an **exposure (EV) slider** —
-            the Sony-style dial, applied live to both cameras while
-            previewing/recording. Fixes overexposed video.
+            Android ARM64 test build with the StoryCam capture interface and
+            fixes for caption-model downloads. Records the front and back cameras
+            together in one portrait video, with live exposure and filter controls.
+
+            ### Changes since v0.3.0
+            - Redesigned camera controls with a full 9:16 preview, responsive
+              layouts and accessible labels.
+            - Fixed Internet permission for caption-model downloads in release builds.
+            - Caption-model startup progress, retry and recovery from incomplete caches.
+            - Queued captions run independently of capture. The original video is
+              kept, and the next recording does not wait for caption processing.
+            - Live exposure controls and still capture while recording.
 
             ### Install
-            1. Download `dual-cameras-ev.apk` below.
+            1. Download `storycam-test-arm64.apk` below.
             2. Sideload it (allow "install unknown apps" when prompted).
-            3. Grant Camera + Microphone, tap **Initialize**, then **Record**.
-               The EV slider appears under the buttons once initialized.
+            3. Open StoryCam, grant Camera and Microphone, then use the shutter
+               to open the camera and start or stop recording.
 
             ### Requirements
-            - A phone with **concurrent front+back camera** support
-              (e.g. Pixel 6+, Galaxy S22+). Otherwise the app reports
-              "Not supported on this device".
-            - Concurrent capture is capped around **720p** by the hardware.
+            - An ARM64 Android phone with concurrent front and back camera support.
+            - The caption model downloads about 100 MB on first use. Camera capture
+              remains available while it downloads.
 
-            ### Signing caveat
-            This APK is signed with a **debug key** (test build). When a
-            properly-signed build ships later, **uninstall this one first** —
-            Android will not let a release-signed build update a debug-signed
-            install.
+            ### Verification and limitations
+            CI runs analysis, UI/caption/controller tests, and verifies the APK's
+            package, version, permissions and signature before publication.
+            **This build has not been tested on a physical phone.** Real capture,
+            gallery saving, audio sync, GPU performance and native caption inference
+            still need device testing. Launcher artwork is unchanged.
+
+            This APK uses a **debug test signing key**, not a production key.
+            Android may reject updating another test build signed with a different
+            key. If so, back up anything needed before uninstalling the old app;
+            uninstalling removes app-local data. A future production-signed build
+            will also require reinstalling.
