@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:dual_cameras_example/captions/model_manager.dart';
@@ -22,10 +23,13 @@ void main() {
         response.headers.set(HttpHeaders.etagHeader, '"fixture-v1"');
         if (!interrupted) {
           interrupted = true;
-          response.contentLength = 6;
-          response.add([1, 2]);
-          await response.flush();
-          final socket = await response.detachSocket();
+          final socket = await response.detachSocket(writeHeaders: false);
+          socket.add(ascii.encode('HTTP/1.1 200 OK\r\n'
+              'Content-Length: 6\r\n'
+              'ETag: "fixture-v1"\r\n'
+              'Connection: close\r\n\r\n'));
+          socket.add([1, 2]);
+          await socket.flush();
           socket.destroy();
           return;
         }
