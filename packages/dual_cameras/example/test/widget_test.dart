@@ -127,7 +127,7 @@ void main() {
   });
 
   Future<void> openCamera(WidgetTester tester) async {
-    await tester.pumpWidget(DemoApp(modelManager: model));
+    await tester.pumpWidget(DemoApp(modelManager: model, backgroundCaptions: false));
     await tester.pumpAndSettle();
     await tester.tap(find.byTooltip('Open camera'));
     await tester.pumpAndSettle();
@@ -169,7 +169,7 @@ void main() {
         .setMockMethodCallHandler(
             const MethodChannel('dual_cameras_example/captions'),
             (call) async => '/tmp/audio.wav');
-    await tester.pumpWidget(DemoApp(modelManager: model));
+    await tester.pumpWidget(DemoApp(modelManager: model, backgroundCaptions: false));
     await tester.pump();
     await tester.ensureVisible(find.text('Captions off'));
     await tester.tap(find.text('Captions off'));
@@ -207,7 +207,7 @@ void main() {
         .setMockMethodCallHandler(
             const MethodChannel('dual_cameras_example/captions'),
             (call) async => '/tmp/audio.wav');
-    await tester.pumpWidget(DemoApp(modelManager: model));
+    await tester.pumpWidget(DemoApp(modelManager: model, backgroundCaptions: false));
     await tester.pump();
     model.progress!(.1);
     await tester.pumpAndSettle();
@@ -301,7 +301,7 @@ void main() {
 
   testWidgets('late model completion after disposal is safe', (tester) async {
     model.gate = Completer<WhisperModelFiles>();
-    await tester.pumpWidget(DemoApp(modelManager: model));
+    await tester.pumpWidget(DemoApp(modelManager: model, backgroundCaptions: false));
     await tester.pump();
     await tester.pumpWidget(const SizedBox());
     model.progress!(.7);
@@ -312,7 +312,7 @@ void main() {
 
   testWidgets('unsupported device keeps capture disabled', (tester) async {
     fake.supported = false;
-    await tester.pumpWidget(DemoApp(modelManager: model));
+    await tester.pumpWidget(DemoApp(modelManager: model, backgroundCaptions: false));
     await tester.pumpAndSettle();
     expect(find.text('StoryCam'), findsOneWidget);
     await tester.tap(find.byTooltip('Open camera'));
@@ -324,7 +324,7 @@ void main() {
 
   testWidgets('permission denial stays actionable', (tester) async {
     permissions[1] = 0;
-    await tester.pumpWidget(DemoApp(modelManager: model));
+    await tester.pumpWidget(DemoApp(modelManager: model, backgroundCaptions: false));
     await tester.pumpAndSettle();
     await tester.tap(find.byTooltip('Open camera'));
     await tester.pumpAndSettle();
@@ -489,7 +489,7 @@ void main() {
   testWidgets('pending initialization finishes before session disposal',
       (tester) async {
     fake.initGate = Completer<InitResult>();
-    await tester.pumpWidget(DemoApp(modelManager: model));
+    await tester.pumpWidget(DemoApp(modelManager: model, backgroundCaptions: false));
     await tester.pumpAndSettle();
     await tester.tap(find.byTooltip('Open camera'));
     await tester.pump();
@@ -508,7 +508,7 @@ void main() {
   testWidgets('late support probe is safe after leaving screen',
       (tester) async {
     fake.probeGate = Completer<CameraCapabilities>();
-    await tester.pumpWidget(DemoApp(modelManager: model));
+    await tester.pumpWidget(DemoApp(modelManager: model, backgroundCaptions: false));
     await tester.pumpWidget(const SizedBox());
     fake.probeGate!.complete(CameraCapabilities(isSupported: true));
     await tester.pumpAndSettle();

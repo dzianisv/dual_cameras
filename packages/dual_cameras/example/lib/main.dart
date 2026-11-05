@@ -1,3 +1,6 @@
+import 'dart:async';
+
+import 'package:flutter/foundation.dart';
 import 'package:dual_cameras/dual_cameras.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -5,6 +8,8 @@ import 'package:gal/gal.dart';
 import 'package:permission_handler/permission_handler.dart';
 
 import 'captions/caption_models.dart';
+import 'captions/caption_jobs.dart';
+import 'captions/caption_job_runner.dart';
 import 'captions/caption_pipeline.dart';
 import 'captions/model_manager.dart';
 import 'captions/transcriber.dart';
@@ -12,10 +17,15 @@ import 'ui/story_camera.dart';
 
 void main() => runApp(const DemoApp());
 
+@pragma('vm:entry-point')
+Future<void> captionJobMain() => runCaptionJob();
+
 class DemoApp extends StatelessWidget {
-  const DemoApp({super.key, this.modelManager});
+  const DemoApp({super.key, this.modelManager, this.captionJobs, this.backgroundCaptions});
 
   final ModelManager? modelManager;
+  final CaptionJobs? captionJobs;
+  final bool? backgroundCaptions;
 
   @override
   Widget build(BuildContext context) {
@@ -34,27 +44,39 @@ class DemoApp extends StatelessWidget {
           ),
         ),
       ),
-      home: DemoScreen(modelManager: modelManager),
+      home: DemoScreen(modelManager: modelManager, captionJobs: captionJobs, backgroundCaptions: backgroundCaptions),
     );
   }
 }
 
 class DemoScreen extends StatefulWidget {
-  const DemoScreen({super.key, this.modelManager});
+  const DemoScreen({super.key, this.modelManager, this.captionJobs, this.backgroundCaptions});
 
   final ModelManager? modelManager;
+  final CaptionJobs? captionJobs;
+  final bool? backgroundCaptions;
 
   @override
   State<DemoScreen> createState() => _DemoScreenState();
 }
 
-class _DemoScreenState extends State<DemoScreen> {
+class _DemoScreenState extends State<DemoScreen> with WidgetsBindingObserver {
   final DualCameraController _controller = DualCameraController();
   CameraCapabilities? _caps;
   String _status = 'Checking camera support…';
   String? _error;
   bool _busy = false;
   Future<void>? _cameraOperation;
+  late final bool _usesBackgroundJobs = widget.backgroundCaptions ??
+      (!kIsWeb && defaultTargetPlatform == TargetPlatform.android);
+  late final CaptionJobs _jobs = widget.captionJobs ?? CaptionJobs();
+  List<CaptionJob> _backgroundJobs = [];
+  Timer? _jobPoll;
+  bool _refreshingJobs = false;
+  bool _notificationsEnabled = true;
+  final Set<String> _pendingJobActions = {};
+  String? _jobError;
+
   Future<void> _captionQueue = Future<void>.value();
   int _captionJobs = 0;
   String? _captionSourceFile;
@@ -112,8 +134,136 @@ class _DemoScreenState extends State<DemoScreen> {
   void initState() {
     super.initState();
     _bootstrap();
-    _prepareModel();
+    if (_usesBackgroundJobs) {
+      WidgetsBinding.instance.addObserver(this);
+      _startJobPolling();
+    } else {
+      _prepareModel();
+    }
   }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (!_usesBackgroundJobs) return;
+    if (state == AppLifecycleState.resumed) {
+      _startJobPolling();
+    } else {
+      _jobPoll?.cancel();
+      _jobPoll = null;
+    }
+  }
+
+  void _startJobPolling() {
+    _jobPoll?.cancel();
+    _refreshJobs();
+    _jobPoll = Timer.periodic(const Duration(seconds: 1), (_) => _refreshJobs());
+  }
+
+  Future<void> _refreshJobs() async {
+    if (_refreshingJobs || !mounted) return;
+    _refreshingJobs = true;
+    try {
+      final jobs = await _jobs.list();
+      final enabled = await _jobs.notificationsEnabled();
+      _update(() {
+        _backgroundJobs = jobs;
+        _notificationsEnabled = enabled;
+        _jobError = null;
+      });
+    } catch (_) {
+      _update(() => _jobError = 'Could not load caption jobs. Reopen Captions to retry.');
+    } finally {
+      _refreshingJobs = false;
+    }
+  }
+
+  Future<void> _toggleCaptions(bool value) async {
+    _update(() => _captions = value);
+    if (value && _usesBackgroundJobs) {
+      await Permission.notification.request();
+      await _refreshJobs();
+    }
+  }
+
+  Future<void> _jobAction(String id, Future<void> Function() action) async {
+    if (!_pendingJobActions.add(id)) return;
+    _update(() {});
+    try {
+      await action();
+      await _refreshJobs();
+    } catch (_) {
+      _update(() => _jobError = 'Could not complete that action. Please try again.');
+    } finally {
+      _pendingJobActions.remove(id);
+      _update(() {});
+    }
+  }
+
+  Widget _backgroundPreparation() {
+    final active = _backgroundJobs.where((job) => job.active).toList();
+    final latest = active.isNotEmpty ? active.first :
+        (_backgroundJobs.isEmpty ? null : _backgroundJobs.first);
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Column(mainAxisSize: MainAxisSize.min, children: [
+        Row(children: [
+          Expanded(child: TextButton(
+            style: TextButton.styleFrom(alignment: Alignment.centerLeft, padding: EdgeInsets.zero),
+            onPressed: _captionsSheet,
+            child: Text(latest?.label ?? 'Captions run in the background',
+              maxLines: 2, overflow: TextOverflow.ellipsis),
+          )),
+          if (latest != null && latest.canStop)
+            TextButton(onPressed: _pendingJobActions.contains(latest.id) ? null :
+              () => _jobAction(latest.id, () => _jobs.cancel(latest.id)), child: const Text('Stop')),
+        ]),
+        if (active.isNotEmpty) LinearProgressIndicator(
+          value: latest!.progress / 100, minHeight: 3,
+          semanticsLabel: latest.label, semanticsValue: '${latest.progress}%'),
+        if (!_notificationsEnabled && active.isNotEmpty)
+          const Text('Notifications are off. Track progress and Stop here.', style: TextStyle(fontSize: 12)),
+      ]),
+    );
+  }
+
+  List<Widget> _backgroundJobCards() => [
+    const Text('Android keeps captions running when you leave StoryCam. '
+      'Notifications show progress and Stop, then Open and Share when ready. '
+      'The speech model downloads on first use (about 100 MB). Originals are kept.'),
+    if (!_notificationsEnabled) ...[
+      const SizedBox(height: 12),
+      const Text('Notifications are off. Jobs still run, but Android hides their notifications. '
+        'You can track progress, Stop, Open and Share here.'),
+      TextButton(onPressed: openAppSettings, child: const Text('Enable notifications in settings')),
+    ],
+    if (_jobError != null) Text(_jobError!),
+    if (_backgroundJobs.isEmpty) const Padding(
+      padding: EdgeInsets.only(top: 16), child: Text('No caption jobs yet. Turn on auto-captions and record a video.')),
+    for (final job in _backgroundJobs) Card(child: Padding(
+      padding: const EdgeInsets.all(12),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Semantics(liveRegion: job.active, child: Text(job.label)),
+        if (job.active) ...[
+          const SizedBox(height: 8),
+          LinearProgressIndicator(value: job.progress / 100,
+            semanticsValue: '${job.progress}%'),
+        ],
+        if (job.error != null && job.state == 'failed') Text(job.error!),
+        Wrap(spacing: 8, children: [
+          if (job.canStop) TextButton(
+            onPressed: _pendingJobActions.contains(job.id) ? null :
+              () => _jobAction(job.id, () => _jobs.cancel(job.id)), child: const Text('Stop')),
+          if (job.ready) ...[
+            TextButton(onPressed: () => _jobAction(job.id, () => _jobs.open(job.id)), child: const Text('Open')),
+            TextButton(onPressed: () => _jobAction(job.id, () => _jobs.share(job.id)), child: const Text('Share')),
+          ],
+          if (job.state == 'failed' || job.state == 'cancelled') TextButton(
+            onPressed: _pendingJobActions.contains(job.id) ? null :
+              () => _jobAction(job.id, () async { await _jobs.retry(job.id); }), child: const Text('Retry')),
+        ]),
+      ]),
+    )),
+  ];
 
   // Startup and post-recording captions share one future: never download the
   // same model twice. This task is independent of the camera action lock.
@@ -152,6 +302,7 @@ class _DemoScreenState extends State<DemoScreen> {
   }
 
   Widget _modelPreparation() {
+    if (_usesBackgroundJobs) return _backgroundPreparation();
     final label = _modelReady
         ? 'Captions ready · on device'
         : _modelError != null
@@ -353,7 +504,7 @@ class _DemoScreenState extends State<DemoScreen> {
       file = await _cameraCommand(_controller.stopRecording);
       _lastFile = file;
       await Gal.putVideo(file);
-      if (!mounted) return;
+      if (!mounted && !_usesBackgroundJobs) return;
       _update(() {
         _status = 'Video saved to gallery';
       });
@@ -364,7 +515,18 @@ class _DemoScreenState extends State<DemoScreen> {
       });
       return;
     }
-    if (mounted && captions) _queueCaptions(file);
+    if (captions) {
+      if (_usesBackgroundJobs) {
+        try {
+          await _jobs.enqueue(file);
+          await _refreshJobs();
+        } catch (_) {
+          _update(() => _jobError = 'Could not queue captions. Your original video is saved in the gallery.');
+        }
+      } else if (mounted) {
+        _queueCaptions(file);
+      }
+    }
   }
 
   void _queueCaptions(String mp4) {
@@ -450,6 +612,8 @@ class _DemoScreenState extends State<DemoScreen> {
 
   @override
   void dispose() {
+    _jobPoll?.cancel();
+    WidgetsBinding.instance.removeObserver(this);
     // Native camera commands cannot be cancelled. Wait for that command only;
     // gallery writes, model downloads and queued captions must not retain the
     // camera session after the screen is removed.
@@ -617,9 +781,10 @@ class _DemoScreenState extends State<DemoScreen> {
               value: _captions,
               onChanged: _busy || value.isRecording
                   ? null
-                  : (v) => _update(() => _captions = v),
+                  : _toggleCaptions,
             ),
-            const Text(
+            if (_usesBackgroundJobs) ..._backgroundJobCards(),
+            if (!_usesBackgroundJobs) const Text(
                 'The speech model downloads at startup (about 100 MB on first use). Captions run on device once ready. Your original video is always kept.'),
             if (_captionStatus != null) ...[
               const SizedBox(height: 16),
@@ -723,6 +888,7 @@ class _DemoScreenState extends State<DemoScreen> {
           if (value.thermal != ThermalLevel.nominal)
             'Thermal: ${value.thermal.name}',
           if (_captionStatus != null) _captionStatus!,
+          if (_jobError != null) _jobError!,
         ].join('\n');
         return StoryCamera(
           preparation: _modelPreparation(),
@@ -764,7 +930,7 @@ class _DemoScreenState extends State<DemoScreen> {
                   () => _cameraCommand(_controller.swapPrimary), 'Swap cameras')
               : null,
           onFilters: ready ? _filtersSheet : null,
-          onCaptions: !_busy && !value.isRecording ? _captionsSheet : null,
+          onCaptions: _captionsSheet,
           onSettings: _settingsSheet,
         );
       },
