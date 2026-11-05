@@ -63,6 +63,7 @@ Future<void> _decode((SendPort, String, WhisperModelFiles) args) async {
   commands.listen((_) => cancelled = true);
   reply.send(commands.sendPort);
   sherpa.OfflineRecognizer? recognizer;
+  late Object terminal;
   try {
     // Yield before initialization so a queued Stop can prevent loading a model.
     await Future<void>.delayed(Duration.zero);
@@ -115,11 +116,13 @@ Future<void> _decode((SendPort, String, WhisperModelFiles) args) async {
     }
     await Future<void>.delayed(Duration.zero);
     if (cancelled) throw StateError('Caption job stopped');
-    reply.send(words);
+    terminal = words;
   } catch (error) {
-    reply.send({'error': '$error'});
+    terminal = {'error': '$error'};
   } finally {
     recognizer?.free();
     commands.close();
   }
+  // Completion may tear down the headless engine: release all FFI state first.
+  reply.send(terminal);
 }

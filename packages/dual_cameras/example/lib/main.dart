@@ -21,7 +21,11 @@ void main() => runApp(const DemoApp());
 Future<void> captionJobMain() => runCaptionJob();
 
 class DemoApp extends StatelessWidget {
-  const DemoApp({super.key, this.modelManager, this.captionJobs, this.backgroundCaptions});
+  const DemoApp(
+      {super.key,
+      this.modelManager,
+      this.captionJobs,
+      this.backgroundCaptions});
 
   final ModelManager? modelManager;
   final CaptionJobs? captionJobs;
@@ -44,13 +48,20 @@ class DemoApp extends StatelessWidget {
           ),
         ),
       ),
-      home: DemoScreen(modelManager: modelManager, captionJobs: captionJobs, backgroundCaptions: backgroundCaptions),
+      home: DemoScreen(
+          modelManager: modelManager,
+          captionJobs: captionJobs,
+          backgroundCaptions: backgroundCaptions),
     );
   }
 }
 
 class DemoScreen extends StatefulWidget {
-  const DemoScreen({super.key, this.modelManager, this.captionJobs, this.backgroundCaptions});
+  const DemoScreen(
+      {super.key,
+      this.modelManager,
+      this.captionJobs,
+      this.backgroundCaptions});
 
   final ModelManager? modelManager;
   final CaptionJobs? captionJobs;
@@ -76,6 +87,8 @@ class _DemoScreenState extends State<DemoScreen> with WidgetsBindingObserver {
   bool _notificationsEnabled = true;
   final Set<String> _pendingJobActions = {};
   String? _jobError;
+  String? _jobLoadError;
+  String? get _visibleJobError => _jobError ?? _jobLoadError;
 
   Future<void> _captionQueue = Future<void>.value();
   int _captionJobs = 0;
@@ -156,7 +169,8 @@ class _DemoScreenState extends State<DemoScreen> with WidgetsBindingObserver {
   void _startJobPolling() {
     _jobPoll?.cancel();
     _refreshJobs();
-    _jobPoll = Timer.periodic(const Duration(seconds: 1), (_) => _refreshJobs());
+    _jobPoll =
+        Timer.periodic(const Duration(seconds: 1), (_) => _refreshJobs());
   }
 
   Future<void> _refreshJobs() async {
@@ -168,10 +182,11 @@ class _DemoScreenState extends State<DemoScreen> with WidgetsBindingObserver {
       _update(() {
         _backgroundJobs = jobs;
         _notificationsEnabled = enabled;
-        _jobError = null;
+        _jobLoadError = null;
       });
     } catch (_) {
-      _update(() => _jobError = 'Could not load caption jobs. Reopen Captions to retry.');
+      _update(() => _jobLoadError =
+          'Could not load caption jobs. Reopen Captions to retry.');
     } finally {
       _refreshingJobs = false;
     }
@@ -180,7 +195,12 @@ class _DemoScreenState extends State<DemoScreen> with WidgetsBindingObserver {
   Future<void> _toggleCaptions(bool value) async {
     _update(() => _captions = value);
     if (value && _usesBackgroundJobs) {
-      await Permission.notification.request();
+      try {
+        await Permission.notification.request();
+      } catch (_) {
+        _update(() => _jobError =
+            'Could not request notifications. Enable them in Android settings.');
+      }
       await _refreshJobs();
     }
   }
@@ -190,9 +210,11 @@ class _DemoScreenState extends State<DemoScreen> with WidgetsBindingObserver {
     _update(() {});
     try {
       await action();
+      _update(() => _jobError = null);
       await _refreshJobs();
     } catch (_) {
-      _update(() => _jobError = 'Could not complete that action. Please try again.');
+      _update(() =>
+          _jobError = 'Could not complete that action. Please try again.');
     } finally {
       _pendingJobActions.remove(id);
       _update(() {});
@@ -201,69 +223,105 @@ class _DemoScreenState extends State<DemoScreen> with WidgetsBindingObserver {
 
   Widget _backgroundPreparation() {
     final active = _backgroundJobs.where((job) => job.active).toList();
-    final latest = active.isNotEmpty ? active.first :
-        (_backgroundJobs.isEmpty ? null : _backgroundJobs.first);
+    final latest = active.isNotEmpty
+        ? active.first
+        : (_backgroundJobs.isEmpty ? null : _backgroundJobs.first);
     return Padding(
       padding: const EdgeInsets.only(bottom: 10),
       child: Column(mainAxisSize: MainAxisSize.min, children: [
         Row(children: [
-          Expanded(child: TextButton(
-            style: TextButton.styleFrom(alignment: Alignment.centerLeft, padding: EdgeInsets.zero),
+          Expanded(
+              child: TextButton(
+            style: TextButton.styleFrom(
+                alignment: Alignment.centerLeft, padding: EdgeInsets.zero),
             onPressed: _captionsSheet,
             child: Text(latest?.label ?? 'Captions run in the background',
-              maxLines: 2, overflow: TextOverflow.ellipsis),
+                maxLines: 2, overflow: TextOverflow.ellipsis),
           )),
           if (latest != null && latest.canStop)
-            TextButton(onPressed: _pendingJobActions.contains(latest.id) ? null :
-              () => _jobAction(latest.id, () => _jobs.cancel(latest.id)), child: const Text('Stop')),
+            TextButton(
+                onPressed: _pendingJobActions.contains(latest.id)
+                    ? null
+                    : () =>
+                        _jobAction(latest.id, () => _jobs.cancel(latest.id)),
+                child: const Text('Stop')),
         ]),
-        if (active.isNotEmpty) LinearProgressIndicator(
-          value: latest!.progress / 100, minHeight: 3,
-          semanticsLabel: latest.label, semanticsValue: '${latest.progress}%'),
+        if (active.isNotEmpty)
+          LinearProgressIndicator(
+              value: latest!.progress / 100,
+              minHeight: 3,
+              semanticsLabel: latest.label,
+              semanticsValue: '${latest.progress}%'),
         if (!_notificationsEnabled && active.isNotEmpty)
-          const Text('Notifications are off. Track progress and Stop here.', style: TextStyle(fontSize: 12)),
+          const Text('Notifications are off. Track progress and Stop here.',
+              style: TextStyle(fontSize: 12)),
       ]),
     );
   }
 
   List<Widget> _backgroundJobCards() => [
-    const Text('Android keeps captions running when you leave StoryCam. '
-      'Notifications show progress and Stop, then Open and Share when ready. '
-      'The speech model downloads on first use (about 100 MB). Originals are kept.'),
-    if (!_notificationsEnabled) ...[
-      const SizedBox(height: 12),
-      const Text('Notifications are off. Jobs still run, but Android hides their notifications. '
-        'You can track progress, Stop, Open and Share here.'),
-      TextButton(onPressed: openAppSettings, child: const Text('Enable notifications in settings')),
-    ],
-    if (_jobError != null) Text(_jobError!),
-    if (_backgroundJobs.isEmpty) const Padding(
-      padding: EdgeInsets.only(top: 16), child: Text('No caption jobs yet. Turn on auto-captions and record a video.')),
-    for (final job in _backgroundJobs) Card(child: Padding(
-      padding: const EdgeInsets.all(12),
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Semantics(liveRegion: job.active, child: Text(job.label)),
-        if (job.active) ...[
-          const SizedBox(height: 8),
-          LinearProgressIndicator(value: job.progress / 100,
-            semanticsValue: '${job.progress}%'),
+        const Text('Android keeps captions running when you leave StoryCam. '
+            'Notifications show progress and Stop, then Open and Share when ready. '
+            'The speech model downloads on first use (about 100 MB). Originals are kept.'),
+        if (!_notificationsEnabled) ...[
+          const SizedBox(height: 12),
+          const Text(
+              'Notifications are off. Jobs still run, but Android hides their notifications. '
+              'You can track progress, Stop, Open and Share here.'),
+          TextButton(
+              onPressed: openAppSettings,
+              child: const Text('Enable notifications in settings')),
         ],
-        if (job.error != null && job.state == 'failed') Text(job.error!),
-        Wrap(spacing: 8, children: [
-          if (job.canStop) TextButton(
-            onPressed: _pendingJobActions.contains(job.id) ? null :
-              () => _jobAction(job.id, () => _jobs.cancel(job.id)), child: const Text('Stop')),
-          if (job.ready) ...[
-            TextButton(onPressed: () => _jobAction(job.id, () => _jobs.open(job.id)), child: const Text('Open')),
-            TextButton(onPressed: () => _jobAction(job.id, () => _jobs.share(job.id)), child: const Text('Share')),
-          ],
-          if (job.state == 'failed' || job.state == 'cancelled') TextButton(
-            onPressed: _pendingJobActions.contains(job.id) ? null :
-              () => _jobAction(job.id, () async { await _jobs.retry(job.id); }), child: const Text('Retry')),
-        ]),
-      ]),
-    )),
-  ];
+        if (_visibleJobError != null) Text(_visibleJobError!),
+        if (_backgroundJobs.isEmpty)
+          const Padding(
+              padding: EdgeInsets.only(top: 16),
+              child: Text(
+                  'No caption jobs yet. Turn on auto-captions and record a video.')),
+        for (final job in _backgroundJobs)
+          Card(
+              child: Padding(
+            padding: const EdgeInsets.all(12),
+            child:
+                Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Semantics(liveRegion: job.active, child: Text(job.label)),
+              if (job.active) ...[
+                const SizedBox(height: 8),
+                LinearProgressIndicator(
+                    value: job.progress / 100,
+                    semanticsValue: '${job.progress}%'),
+              ],
+              if (job.error != null && job.state == 'failed') Text(job.error!),
+              Wrap(spacing: 8, children: [
+                if (job.canStop)
+                  TextButton(
+                      onPressed: _pendingJobActions.contains(job.id)
+                          ? null
+                          : () =>
+                              _jobAction(job.id, () => _jobs.cancel(job.id)),
+                      child: const Text('Stop')),
+                if (job.ready) ...[
+                  TextButton(
+                      onPressed: () =>
+                          _jobAction(job.id, () => _jobs.open(job.id)),
+                      child: const Text('Open')),
+                  TextButton(
+                      onPressed: () =>
+                          _jobAction(job.id, () => _jobs.share(job.id)),
+                      child: const Text('Share')),
+                ],
+                if (job.state == 'failed' || job.state == 'cancelled')
+                  TextButton(
+                      onPressed: _pendingJobActions.contains(job.id)
+                          ? null
+                          : () => _jobAction(job.id, () async {
+                                await _jobs.retry(job.id);
+                              }),
+                      child: const Text('Retry')),
+              ]),
+            ]),
+          )),
+      ];
 
   // Startup and post-recording captions share one future: never download the
   // same model twice. This task is independent of the camera action lock.
@@ -519,9 +577,11 @@ class _DemoScreenState extends State<DemoScreen> with WidgetsBindingObserver {
       if (_usesBackgroundJobs) {
         try {
           await _jobs.enqueue(file);
+          _update(() => _jobError = null);
           await _refreshJobs();
         } catch (_) {
-          _update(() => _jobError = 'Could not queue captions. Your original video is saved in the gallery.');
+          _update(() => _jobError =
+              'Could not queue captions. Your original video is saved in the gallery.');
         }
       } else if (mounted) {
         _queueCaptions(file);
@@ -779,13 +839,12 @@ class _DemoScreenState extends State<DemoScreen> with WidgetsBindingObserver {
               subtitle: const Text(
                   'On-device speech recognition and karaoke subtitles (alpha).'),
               value: _captions,
-              onChanged: _busy || value.isRecording
-                  ? null
-                  : _toggleCaptions,
+              onChanged: _busy || value.isRecording ? null : _toggleCaptions,
             ),
             if (_usesBackgroundJobs) ..._backgroundJobCards(),
-            if (!_usesBackgroundJobs) const Text(
-                'The speech model downloads at startup (about 100 MB on first use). Captions run on device once ready. Your original video is always kept.'),
+            if (!_usesBackgroundJobs)
+              const Text(
+                  'The speech model downloads at startup (about 100 MB on first use). Captions run on device once ready. Your original video is always kept.'),
             if (_captionStatus != null) ...[
               const SizedBox(height: 16),
               Semantics(liveRegion: true, child: Text(_captionStatus!)),
@@ -888,7 +947,7 @@ class _DemoScreenState extends State<DemoScreen> with WidgetsBindingObserver {
           if (value.thermal != ThermalLevel.nominal)
             'Thermal: ${value.thermal.name}',
           if (_captionStatus != null) _captionStatus!,
-          if (_jobError != null) _jobError!,
+          if (_visibleJobError != null) _visibleJobError!,
         ].join('\n');
         return StoryCamera(
           preparation: _modelPreparation(),

@@ -21,6 +21,7 @@ class ModelManager {
   ModelManager({
     http.Client Function()? clientFactory,
     Future<Directory> Function()? documentsDirectory,
+    this.baseUrl = _defaultBaseUrl,
     this.maxAttempts = 4,
     this.retryDelay = const Duration(seconds: 1),
   })  : _clientFactory = clientFactory ?? http.Client.new,
@@ -29,6 +30,9 @@ class ModelManager {
 
   final http.Client Function() _clientFactory;
   final Future<Directory> Function() _documentsDirectory;
+
+  /// Override only for controlled download integration tests.
+  final String baseUrl;
   final int maxAttempts;
   final Duration retryDelay;
   Future<WhisperModelFiles>? _inFlight;
@@ -37,7 +41,7 @@ class ModelManager {
   bool _cancelled = false;
   http.Client? _activeClient;
 
-  static const _baseUrl =
+  static const _defaultBaseUrl =
       'https://huggingface.co/csukuangfj/sherpa-onnx-whisper-base.en/resolve/main';
   static const _encoderFile = 'base.en-encoder.int8.onnx';
   static const _decoderFile = 'base.en-decoder.int8.onnx';
@@ -98,7 +102,7 @@ class ModelManager {
       for (var i = 0; i < missing.length; i++) {
         _checkCancelled();
         final name = missing[i];
-        await _downloadWithRetry('$_baseUrl/$name', File('${dir.path}/$name'),
+        await _downloadWithRetry('$baseUrl/$name', File('${dir.path}/$name'),
             (p) => _report((i + p) / missing.length));
         _report((i + 1) / missing.length);
       }

@@ -12,22 +12,50 @@ import 'widget_test.dart' show FakeCamera, FakeModelManager;
 class FakeJobs extends CaptionJobs {
   List<CaptionJob> jobs = [];
   bool notifications = true;
-  final List<String> enqueued = [], stopped = [], opened = [], shared = [], retried = [];
+  bool failOpen = false;
+  bool failList = false;
+  final List<String> enqueued = [],
+      stopped = [],
+      opened = [],
+      shared = [],
+      retried = [];
   Completer<void>? cancelGate;
   @override
-  Future<List<CaptionJob>> list() async => List.of(jobs);
+  Future<List<CaptionJob>> list() async {
+    if (failList) throw StateError('list failed');
+    return List.of(jobs);
+  }
+
   @override
   Future<bool> notificationsEnabled() async => notifications;
   @override
-  Future<String> enqueue(String mp4) async { enqueued.add(mp4); return 'new-job'; }
+  Future<String> enqueue(String mp4) async {
+    enqueued.add(mp4);
+    return 'new-job';
+  }
+
   @override
-  Future<void> cancel(String id) async { stopped.add(id); await cancelGate?.future; }
+  Future<void> cancel(String id) async {
+    stopped.add(id);
+    await cancelGate?.future;
+  }
+
   @override
-  Future<void> open(String id) async { opened.add(id); }
+  Future<void> open(String id) async {
+    if (failOpen) throw StateError('open failed');
+    opened.add(id);
+  }
+
   @override
-  Future<void> share(String id) async { shared.add(id); }
+  Future<void> share(String id) async {
+    shared.add(id);
+  }
+
   @override
-  Future<String?> retry(String id) async { retried.add(id); return 'retry-job'; }
+  Future<String?> retry(String id) async {
+    retried.add(id);
+    return 'retry-job';
+  }
 }
 
 void main() {
@@ -44,11 +72,17 @@ void main() {
     jobs = FakeJobs();
     model = FakeModelManager();
     saved.clear();
-    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger.setMockMethodCallHandler(
-      const MethodChannel('flutter.baseflow.com/permissions/methods'), (call) async =>
-        call.method == 'requestPermissions' ? {for (final value in call.arguments as List) value: 1} : null);
-    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger.setMockMethodCallHandler(
-      const MethodChannel('gal'), (call) async { saved.add(call.method); return null; });
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(
+            const MethodChannel('flutter.baseflow.com/permissions/methods'),
+            (call) async => call.method == 'requestPermissions'
+                ? {for (final value in call.arguments as List) value: 1}
+                : null);
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(const MethodChannel('gal'), (call) async {
+      saved.add(call.method);
+      return null;
+    });
   });
   tearDown(() async {
     DualCamerasPlatform.instance = previous;
@@ -56,41 +90,73 @@ void main() {
   });
 
   Future<void> launch(WidgetTester tester) async {
-    await tester.pumpWidget(DemoApp(modelManager: model, captionJobs: jobs, backgroundCaptions: true));
+    await tester.pumpWidget(DemoApp(
+        modelManager: model, captionJobs: jobs, backgroundCaptions: true));
     await tester.pumpAndSettle();
-    addTearDown(() async { await tester.pumpWidget(const SizedBox()); });
+    addTearDown(() async {
+      await tester.pumpWidget(const SizedBox());
+    });
   }
+
   Future<void> sheet(WidgetTester tester) async {
     await tester.ensureVisible(find.text('Captions off'));
     await tester.tap(find.text('Captions off'));
     await tester.pumpAndSettle();
   }
 
-  testWidgets('Android defers model work to job and shows restored progress + Stop', (tester) async {
-    jobs.jobs = [const CaptionJob(id: 'one', state: 'running', stage: 'Transcribing on device', progress: 48)];
+  testWidgets(
+      'Android defers model work to job and shows restored progress + Stop',
+      (tester) async {
+    jobs.jobs = [
+      const CaptionJob(
+          id: 'one',
+          state: 'running',
+          stage: 'Transcribing on device',
+          progress: 48)
+    ];
     await launch(tester);
     expect(model.calls, 0);
     expect(find.text('Transcribing on device · 48%'), findsOneWidget);
-    expect(tester.widget<LinearProgressIndicator>(find.byType(LinearProgressIndicator)).value, .48);
+    expect(
+        tester
+            .widget<LinearProgressIndicator>(
+                find.byType(LinearProgressIndicator))
+            .value,
+        .48);
     jobs.cancelGate = Completer<void>();
     await tester.tap(find.text('Stop'));
     await tester.pump();
     await tester.tap(find.text('Stop'));
     await tester.pump();
     expect(jobs.stopped, ['one']);
-    jobs.jobs = [const CaptionJob(id: 'one', state: 'cancelling', stage: 'Stopping', progress: 48)];
+    jobs.jobs = [
+      const CaptionJob(
+          id: 'one', state: 'cancelling', stage: 'Stopping', progress: 48)
+    ];
     jobs.cancelGate!.complete();
     await tester.pumpAndSettle();
     expect(find.text('Stopping captions…'), findsOneWidget);
     expect(find.text('Stop'), findsNothing);
   });
 
-  testWidgets('leaving screen does not cancel native jobs; reopening restores Open/Share', (tester) async {
-    jobs.jobs = [const CaptionJob(id: 'one', state: 'running', stage: 'Adding captions', progress: 80)];
+  testWidgets(
+      'leaving screen does not cancel native jobs; reopening restores Open/Share',
+      (tester) async {
+    jobs.jobs = [
+      const CaptionJob(
+          id: 'one', state: 'running', stage: 'Adding captions', progress: 80)
+    ];
     await launch(tester);
     await tester.pumpWidget(const SizedBox());
     expect(jobs.stopped, isEmpty);
-    jobs.jobs = [const CaptionJob(id: 'one', state: 'succeeded', stage: 'Captions ready', progress: 100, output: '/private/result.mp4')];
+    jobs.jobs = [
+      const CaptionJob(
+          id: 'one',
+          state: 'succeeded',
+          stage: 'Captions ready',
+          progress: 100,
+          output: '/private/result.mp4')
+    ];
     await launch(tester);
     await sheet(tester);
     await tester.tap(find.text('Open'));
@@ -101,9 +167,13 @@ void main() {
     expect(jobs.shared, ['one']);
   });
 
-  testWidgets('denied notifications keep progress and Stop available in app', (tester) async {
+  testWidgets('denied notifications keep progress and Stop available in app',
+      (tester) async {
     jobs.notifications = false;
-    jobs.jobs = [const CaptionJob(id: 'one', state: 'running', stage: 'Downloading model', progress: 10)];
+    jobs.jobs = [
+      const CaptionJob(
+          id: 'one', state: 'running', stage: 'Downloading model', progress: 10)
+    ];
     await launch(tester);
     expect(find.textContaining('Track progress and Stop here'), findsOneWidget);
     await sheet(tester);
@@ -115,9 +185,17 @@ void main() {
     expect(jobs.stopped, ['one']);
   });
 
-  testWidgets('failed jobs expose useful error and explicit Retry', (tester) async {
-    jobs.jobs = [const CaptionJob(id: 'one', state: 'failed', stage: 'Failed', progress: 5,
-      error: 'Speech model download interrupted. Check your connection and retry.')];
+  testWidgets('failed jobs expose useful error and explicit Retry',
+      (tester) async {
+    jobs.jobs = [
+      const CaptionJob(
+          id: 'one',
+          state: 'failed',
+          stage: 'Failed',
+          progress: 5,
+          error:
+              'Speech model download interrupted. Check your connection and retry.')
+    ];
     await launch(tester);
     await sheet(tester);
     expect(find.textContaining('original kept'), findsWidgets);
@@ -126,7 +204,56 @@ void main() {
     expect(jobs.retried, ['one']);
   });
 
-  testWidgets('recordings are saved then handed to native queue without UI inference', (tester) async {
+  testWidgets(
+      'successful polling preserves action errors until an action succeeds',
+      (tester) async {
+    jobs.jobs = [
+      const CaptionJob(
+          id: 'one',
+          state: 'succeeded',
+          stage: 'Captions ready',
+          progress: 100,
+          output: '/result.mp4')
+    ];
+    jobs.failOpen = true;
+    await launch(tester);
+    await sheet(tester);
+    await tester.tap(find.text('Open'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('Close Captions'));
+    await tester.pumpAndSettle();
+    await tester.pump(const Duration(seconds: 2));
+    await tester.pumpAndSettle();
+    await sheet(tester);
+    expect(find.textContaining('Could not complete that action'), findsWidgets);
+    jobs.failOpen = false;
+    await tester.tap(find.text('Open'));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('Could not complete that action'), findsNothing);
+  });
+
+  testWidgets('list and notification permission failures remain handled',
+      (tester) async {
+    jobs.failList = true;
+    await launch(tester);
+    await sheet(tester);
+    expect(find.textContaining('Could not load caption jobs'), findsWidgets);
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(
+            const MethodChannel('flutter.baseflow.com/permissions/methods'),
+            (call) async {
+      throw PlatformException(code: 'permission_request_failed');
+    });
+    await tester.tap(find.byType(SwitchListTile));
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+    expect(
+        find.textContaining('Could not request notifications'), findsWidgets);
+  });
+
+  testWidgets(
+      'recordings are saved then handed to native queue without UI inference',
+      (tester) async {
     await launch(tester);
     await sheet(tester);
     await tester.tap(find.byType(SwitchListTile));
