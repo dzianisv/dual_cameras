@@ -24,6 +24,22 @@ android {
         versionCode = flutter.versionCode
         versionName = flutter.versionName
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        // StoryCam ships ARM64 only: the sherpa-onnx / plugin AARs carry
+        // armeabi-v7a and x86_64 .so files that would otherwise leak into
+        // the APK (run 43006787011 shipped all three ABIs, ~40 MB extra).
+        // NOTE: ndk.abiFilters alone did NOT strip them — run 43008152191
+        // (a49a302) still shipped all three ABIs at the same 95.7 MB.
+        // AGP's packaging exclusion is what actually drops AAR jniLibs.
+        ndk {
+            abiFilters += "arm64-v8a"
+        }
+    }
+
+    packaging {
+        jniLibs {
+            excludes += "lib/armeabi-v7a/*"
+            excludes += "lib/x86_64/*"
+        }
     }
 
     buildTypes {

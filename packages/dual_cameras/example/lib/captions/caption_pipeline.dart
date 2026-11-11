@@ -29,8 +29,7 @@ class CaptionPipeline {
     required String mp4Path,
     required List<CaptionWord> words,
   }) async {
-    final wordsJson =
-        jsonEncode(words.map((w) => w.toJson()).toList());
+    final wordsJson = jsonEncode(words.map((w) => w.toJson()).toList());
     final out = await _channel.invokeMethod<String>(
       'burnCaptions',
       {'mp4': mp4Path, 'words': wordsJson},

@@ -78,6 +78,7 @@ class DualCameraController extends ValueNotifier<DualCameraValue> {
   DualCamerasPlatform get _platform =>
       DualCamerasPlatform.instance;
   StreamSubscription<DualCameraEvent>? _eventSub;
+  bool _disposed = false;
 
   /// Probe whether this device can run front+back concurrently without bringing
   /// the pipeline up. Cheap; safe to call before [initialize].
@@ -171,6 +172,11 @@ class DualCameraController extends ValueNotifier<DualCameraValue> {
 
   @override
   Future<void> dispose() async {
+    // Idempotent: the screen defers disposal to a pending camera command
+    // (whenComplete), and dispose must never release the native session
+    // twice if it is reached again.
+    if (_disposed) return;
+    _disposed = true;
     await _eventSub?.cancel();
     _eventSub = null;
     try {
