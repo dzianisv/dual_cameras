@@ -319,6 +319,56 @@ void main() {
         model: model,
       );
       expect(noiseResult.words, isEmpty);
+
+      // Single-word diagnostic — repro for the v0.5.0 phone defect: Den
+      // said «Привет» and the burned-in caption came back as English
+      // "THERE YET.". Auto-detection on ~1 s of speech is the suspect.
+      // These decodes only PRINT lang/text; they assert no language, so
+      // the run stays green whatever the model does — the CI log is the
+      // evidence. The raw decode (no VAD gate) separates "the recognizer
+      // misdetected" from "VAD/the gate dropped the word".
+      const oneWord = 'test/fixtures/russian_one_word.wav';
+      expect(File(oneWord).existsSync(), isTrue, reason: 'missing $oneWord');
+      final oneWordWave = sherpa.readWave(oneWord);
+      final oneWordRecognizer = sherpa.OfflineRecognizer(rawConfig);
+      try {
+        final oneWordStream = oneWordRecognizer.createStream();
+        try {
+          oneWordStream.acceptWaveform(
+            samples: oneWordWave.samples,
+            sampleRate: oneWordWave.sampleRate,
+          );
+          oneWordRecognizer.decode(oneWordStream);
+          final oneWordRaw = oneWordRecognizer.getResult(oneWordStream);
+          // ignore: avoid_print
+          print('host-inference diag raw one-word decode: '
+              'lang=${oneWordRaw.lang} text="${oneWordRaw.text}" '
+              'tokens=${oneWordRaw.tokens.length} '
+              '${oneWordRaw.tokens.take(12).toList()} '
+              'timestamps=${oneWordRaw.timestamps.length} '
+              '${oneWordRaw.timestamps.take(12).toList()}');
+        } finally {
+          oneWordStream.free();
+        }
+      } finally {
+        oneWordRecognizer.free();
+      }
+      for (final (label, path) in [
+        ('one-word numbers', 'test/fixtures/russian_one_word.wav'),
+        ('two-word numbers', 'test/fixtures/russian_two_words.wav'),
+        ('one-word cyrillic', 'test/fixtures/cyrillic_one_word.wav'),
+      ]) {
+        expect(File(path).existsSync(), isTrue, reason: 'missing $path');
+        final diag = await Transcriber().transcribe(
+          wavPath: path,
+          model: model,
+        );
+        // ignore: avoid_print
+        print('host-inference single-word diag [$label]: '
+            'lang=${diag.detectedLanguage} '
+            'timingsValid=${diag.timingsValid} '
+            'words=${diag.words.map((w) => w.text).join(' ')}');
+      }
     } finally {
       await temp.delete(recursive: true);
     }

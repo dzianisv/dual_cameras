@@ -65,3 +65,21 @@ SHA-256: `58db5ce8e890d50501359183d23e72956ee63aa9c4fc4b4055ab7085fbb9e54d`
 
 Pink noise (ffmpeg `anoisesrc=color=pink`, amplitude 0.25). Must decode to
 no words — VAD must reject it before the recognizer can hallucinate.
+
+## Single-word clips (v0.5.1 — phone defect repro)
+Sliced (exact sample ranges, no re-encode) from the fixtures above to
+reproduce Den's phone defect: a lone Russian word («Привет») captioned as
+English "THERE YET." in v0.5.0. Auto-detection on ~1 s of speech is the
+suspect; the host test prints the detected language + text for each clip
+(the 5-word fixtures stay the asserted regression).
+
+| clip | source | range | duration | SHA-256 |
+| --- | --- | --- | --- | --- |
+| `russian_one_word.wav` | russian_numbers.wav | 0–1.097 s | 1.097 s | `e780b3f8b32564341065376f0f714af9e281e3351fc8af8381ee7f6c6706f6fc` |
+| `russian_two_words.wav` | russian_numbers.wav | 0–2.437 s | 2.437 s | `18b1bc21509a90e86e65b0a3472f35bdf695fea787bf476649c0d94125399f44` |
+| `cyrillic_one_word.wav` | cyrillic_words.wav | 0–1.097 s | 1.097 s | `cd79fd0edec896d0dc143f6c14d2a652a371b8bc7ccee808820dfce9533f4cab` |
+
+`russian_one_word.wav` is the «один» clip (speech ~0.30–0.85 s, rest near-
+silence); `russian_two_words.wav` is «один» + «два»; `cyrillic_one_word.wav`
+is the «мама» clip (speech ~0.30–0.85 s). Same Commons sources/licenses as
+the fixtures they were cut from (see above).
