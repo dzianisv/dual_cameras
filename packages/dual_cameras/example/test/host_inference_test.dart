@@ -242,6 +242,33 @@ void main() {
       const cyrillic = 'test/fixtures/cyrillic_words.wav';
       expect(File(cyrillic).existsSync(), isTrue,
           reason: 'missing $cyrillic');
+      // Raw decode first, so a missing word is attributable to the
+      // recognizer (not in the raw tokens) or the gate (in the raw tokens
+      // but dropped).
+      final cyrillicWave = sherpa.readWave(cyrillic);
+      final cyrillicRecognizer = sherpa.OfflineRecognizer(rawConfig);
+      try {
+        final cyrillicStream = cyrillicRecognizer.createStream();
+        try {
+          cyrillicStream.acceptWaveform(
+            samples: cyrillicWave.samples,
+            sampleRate: cyrillicWave.sampleRate,
+          );
+          cyrillicRecognizer.decode(cyrillicStream);
+          final cyrillicRaw = cyrillicRecognizer.getResult(cyrillicStream);
+          // ignore: avoid_print
+          print('host-inference diag raw cyrillic decode: '
+              'lang=${cyrillicRaw.lang} text="${cyrillicRaw.text}" '
+              'tokens=${cyrillicRaw.tokens.length} '
+              '${cyrillicRaw.tokens.take(12).toList()} '
+              'timestamps=${cyrillicRaw.timestamps.length} '
+              '${cyrillicRaw.timestamps.take(12).toList()}');
+        } finally {
+          cyrillicStream.free();
+        }
+      } finally {
+        cyrillicRecognizer.free();
+      }
       final cyrillicResult = await Transcriber().transcribe(
         wavPath: cyrillic,
         model: model,

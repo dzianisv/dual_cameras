@@ -76,6 +76,39 @@ void main() {
         isEmpty);
   });
 
+  test('snaps a word just before its uncovered segment into it', () {
+    // Whisper timestamps run early: a real word can sit entirely in the
+    // gap before its speech with no overlap. It snaps into the segment,
+    // keeping its duration, anchored at the segment start.
+    final words = applyVadGate(
+      const [
+        CaptionWord(text: 'один', start: 0.0, end: 1.0),
+        CaptionWord(text: 'пять', start: 5.45, end: 5.6),
+      ],
+      segments,
+    );
+    expect(words.map((w) => w.text).toList(), ['один', 'пять']);
+    expect(words[1].start, closeTo(5.65, 0.001));
+    expect(words[1].end, closeTo(5.80, 0.001));
+  });
+
+  test('does not snap a word to a far uncovered segment', () {
+    // More than snapToleranceSeconds (1.0 s) from every uncovered segment:
+    // a hallucination in a long silence stays dropped.
+    const farSegments = [
+      SpeechSegment(start: 0.0, end: 1.0),
+      SpeechSegment(start: 5.0, end: 6.0),
+    ];
+    final words = applyVadGate(
+      const [
+        CaptionWord(text: 'один', start: 0.0, end: 0.9),
+        CaptionWord(text: 'хм', start: 2.0, end: 2.3),
+      ],
+      farSegments,
+    );
+    expect(words.map((w) => w.text).toList(), ['один']);
+  });
+
   test('empty input stays empty', () {
     expect(applyVadGate(const [], segments), isEmpty);
   });
