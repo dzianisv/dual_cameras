@@ -24,6 +24,12 @@ android {
         versionCode = flutter.versionCode
         versionName = flutter.versionName
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        // StoryCam ships ARM64 only: the sherpa-onnx / plugin AARs carry
+        // armeabi-v7a and x86_64 .so files that would otherwise leak into
+        // the APK (run 43006787011 shipped all three ABIs, ~40 MB extra).
+        ndk {
+            abiFilters += "arm64-v8a"
+        }
     }
 
     buildTypes {
