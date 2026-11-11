@@ -59,12 +59,12 @@ void main() {
   test('truncates a word straddling a segment boundary instead of dropping it',
       () {
     final words = applyVadGate(
-      const [CaptionWord(text: 'один', start: 1.0, end: 1.6)],
+      const [CaptionWord(text: 'один', start: 1.0, end: 1.3)],
       segments,
     );
     expect(words, hasLength(1));
     expect(words.single.start, 1.0);
-    expect(words.single.end, lessThanOrEqualTo(1.497 + 0.05));
+    expect(words.single.end, closeTo(1.097, 0.001));
   });
 
   test('no speech segments means no words at all', () {

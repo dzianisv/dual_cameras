@@ -33,7 +33,8 @@ class SpeechDetector {
       bufferSizeInSeconds: 30,
     );
     try {
-      const window = 16000 * 10;
+      const windowSeconds = 10;
+      final window = sampleRate * windowSeconds;
       final segments = <SpeechSegment>[];
       void drain() {
         while (!vad.isEmpty()) {

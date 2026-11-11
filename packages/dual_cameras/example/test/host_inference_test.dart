@@ -1,3 +1,5 @@
+import 'dart:convert';
+import 'dart:ffi';
 import 'dart:io';
 
 import 'package:crypto/crypto.dart' as crypto;
@@ -21,6 +23,48 @@ import 'package:sherpa_onnx/sherpa_onnx.dart' as sherpa;
 /// The fixture is real human speech (five single-word clips from Wikimedia
 /// Commons, The Shtooka Project, CC-BY-2.0-FR — see test/fixtures/README.md),
 /// concatenated with 0.4s silences between words.
+/// Pre-load the sherpa-onnx Linux .so from the pub cache, so the bare-name
+/// dlopen the package does under `flutter test` finds it.
+///
+/// Under `flutter test`, `Isolate.resolvePackageUriSync` is unavailable, so
+/// the package's own auto-resolution returns null and `initBindings()` tries
+/// `DynamicLibrary.open('libsherpa-onnx-c-api.so')`, which is not on the
+/// loader path. The libs ship in `sherpa_onnx_linux/linux/<arch>/` (with
+/// `$ORIGIN` RPATH, so libonnxruntime.so resolves from the same dir). The
+/// .so carries SONAME `libsherpa-onnx-c-api.so`, so pre-loading it by
+/// absolute path makes the bare-name open — in this isolate and in spawned
+/// isolates (same process) — return the same handle.
+///
+/// Returns the lib dir. Throws [StateError] when the lib cannot be located.
+String _preloadNativeLib() {
+  final config = File('.dart_tool/package_config.json');
+  if (!config.existsSync()) {
+    throw StateError(
+        'package_config.json not found (cwd ${Directory.current.path})');
+  }
+  final data = jsonDecode(config.readAsStringSync()) as Map<String, dynamic>;
+  final packages = (data['packages'] as List).cast<Map<String, dynamic>>();
+  final entry = packages.firstWhere(
+    (p) => p['name'] == 'sherpa_onnx_linux',
+    orElse: () => throw StateError(
+        'sherpa_onnx_linux not in package_config.json'),
+  );
+  final pkgDir =
+      config.uri.resolveUri(Uri.parse(entry['rootUri'] as String));
+  final arch =
+      Platform.version.contains('arm64') ||
+              Platform.version.contains('aarch64')
+          ? 'aarch64'
+          : 'x64';
+  final libFile =
+      File.fromUri(pkgDir.resolve('linux/$arch/libsherpa-onnx-c-api.so'));
+  if (!libFile.existsSync()) {
+    throw StateError('native lib not found at ${libFile.path}');
+  }
+  DynamicLibrary.open(libFile.path);
+  return libFile.parent.path;
+}
+
 void main() {
   test('host inference: multilingual model decodes Russian fixture',
       () async {
@@ -31,9 +75,14 @@ void main() {
       return;
     }
 
-    // If the native library cannot load on this host (e.g. flutter test on a
-    // platform without the sherpa-onnx desktop build), the check is
+    // If the native library cannot load on this host, the check is
     // unverified — skip loudly instead of failing on an environment limit.
+    try {
+      _preloadNativeLib();
+    } catch (error) {
+      markTestSkipped('sherpa-onnx Linux native lib not resolvable: $error');
+      return;
+    }
     try {
       sherpa.initBindings();
     } catch (error) {
