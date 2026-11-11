@@ -93,7 +93,7 @@ void main() {
   });
 
   test('does not snap a word to a far uncovered segment', () {
-    // More than snapToleranceSeconds (1.0 s) from every uncovered segment:
+    // More than snapToleranceSeconds (2.0 s) from every uncovered segment:
     // a hallucination in a long silence stays dropped.
     const farSegments = [
       SpeechSegment(start: 0.0, end: 1.0),
@@ -107,6 +107,31 @@ void main() {
       farSegments,
     );
     expect(words.map((w) => w.text).toList(), ['один']);
+  });
+
+  test('snaps across covered segments that are not between word and target',
+      () {
+    // The 'спасибо' geometry from the host check: the word's timestamp
+    // landed 1.1 s before its own (uncovered) segment. The covered
+    // segments are all before the word, none lies between it and its
+    // target, so the snap is allowed — unlike 'хм' in the gap test, where
+    // the covered second segment sits between the word and its target.
+    const segments3 = [
+      SpeechSegment(start: 0.0, end: 1.0),
+      SpeechSegment(start: 2.0, end: 3.0),
+      SpeechSegment(start: 5.0, end: 6.0),
+    ];
+    final words = applyVadGate(
+      const [
+        CaptionWord(text: 'один', start: 0.0, end: 0.9),
+        CaptionWord(text: 'два', start: 2.0, end: 2.9),
+        CaptionWord(text: 'пять', start: 3.5, end: 3.9),
+      ],
+      segments3,
+    );
+    expect(words.map((w) => w.text).toList(), ['один', 'два', 'пять']);
+    expect(words[2].start, closeTo(5.0, 0.001));
+    expect(words[2].end, closeTo(5.4, 0.001));
   });
 
   test('empty input stays empty', () {

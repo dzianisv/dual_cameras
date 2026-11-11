@@ -12,10 +12,12 @@ import 'caption_models.dart';
 /// Whisper's token timestamps run early (about a word early for isolated
 /// words), so a real word's time can fall just before its speech segment
 /// with no overlap at all. Such a word snaps into the nearest segment that
-/// no overlapping word already covers, preserving its duration, as long as
-/// the gap is within [snapToleranceSeconds]. A word near a segment that
-/// already has a word is a hallucination in a gap — it stays dropped, as
-/// does a word far from every uncovered segment.
+/// no overlapping word already covers — but only when no covered segment
+/// lies between the word and that segment in the snap direction. That
+/// "no jumping over speech that already has a word" rule is what keeps a
+/// hallucination sitting in a gap between two real words dropped, while a
+/// real word whose timestamp landed early still finds its own (uncovered)
+/// segment. A word far from every uncovered segment stays dropped.
 ///
 /// [toleranceSeconds] forgives small timestamp/VAD boundary disagreements; a
 /// word that only touches a segment within the tolerance still counts as
@@ -24,7 +26,7 @@ List<CaptionWord> applyVadGate(
   List<CaptionWord> words,
   List<SpeechSegment> segments, {
   double toleranceSeconds = 0.05,
-  double snapToleranceSeconds = 1.0,
+  double snapToleranceSeconds = 2.0,
 }) {
   if (segments.isEmpty) return const [];
   final gated = <CaptionWord>[];
@@ -54,7 +56,11 @@ List<CaptionWord> applyVadGate(
       pending.add(word);
     }
   }
-  // Pass 2: snap a pending word into the nearest uncovered segment.
+  // Pass 2: snap a pending word into the nearest uncovered segment, unless
+  // a covered segment lies between the word and that segment in the snap
+  // direction (the word would be jumping over speech that already has a
+  // word — a hallucination in a gap). The snapped segment is then covered,
+  // so two pending words cannot pile onto the same burst.
   for (final word in pending) {
     var best = -1;
     var bestGap = double.infinity;
@@ -73,6 +79,21 @@ List<CaptionWord> applyVadGate(
     }
     if (best < 0 || bestGap > snapToleranceSeconds) continue;
     final segment = segments[best];
+    final blocked = covered.any((i) {
+      final c = segments[i];
+      if (word.end <= segment.start) {
+        // Forward snap: a covered segment starting after the word ends
+        // and at or before the target's start is in the way.
+        return c.start >= word.end && c.start <= segment.start;
+      }
+      if (word.start >= segment.end) {
+        // Backward snap: a covered segment ending before the word starts
+        // and at or after the target's end is in the way.
+        return c.end <= word.start && c.end >= segment.end;
+      }
+      return false;
+    });
+    if (blocked) continue;
     final duration = word.end - word.start;
     double start;
     double end;
@@ -89,6 +110,7 @@ List<CaptionWord> applyVadGate(
       end = math.min(word.end, segment.end);
     }
     if (end <= start) continue;
+    covered.add(best);
     gated.add(CaptionWord(text: word.text, start: start, end: end));
   }
   gated.sort((a, b) => a.start.compareTo(b.start));
