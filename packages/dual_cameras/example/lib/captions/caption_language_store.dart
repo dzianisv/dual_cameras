@@ -28,11 +28,18 @@ class CaptionLanguageStore {
 
   /// The stored language, or Auto when nothing is stored, the file is
   /// unreadable, or the content is not a known code.
+  ///
+  /// File IO is synchronous inside: the file is two bytes, and real async
+  /// dart:io never completes inside testWidgets' fake-async zone, which
+  /// hung the caption-language widget tests for the full 10-minute test
+  /// timeout (CI iteration 3, run 43027708614 — both picker tests timed
+  /// out even with bounded pumps and no pumpAndSettle). The Future
+  /// signatures stay so callers do not change.
   Future<CaptionLanguage> load() async {
     try {
       final file = await _file();
-      if (!await file.exists()) return CaptionLanguage.auto;
-      return CaptionLanguage.fromCode((await file.readAsString()).trim());
+      if (!file.existsSync()) return CaptionLanguage.auto;
+      return CaptionLanguage.fromCode(file.readAsStringSync().trim());
     } catch (_) {
       return CaptionLanguage.auto;
     }
@@ -43,7 +50,7 @@ class CaptionLanguageStore {
   Future<void> save(CaptionLanguage language) async {
     try {
       final file = await _file();
-      await file.writeAsString(language.code, flush: true);
+      file.writeAsStringSync(language.code, flush: true);
     } catch (_) {
       // Best effort only — see [load].
     }

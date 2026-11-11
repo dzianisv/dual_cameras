@@ -373,8 +373,12 @@ void main() {
       // Forced-language assertions (the v0.5.1 fix): a picked language
       // must reach the recognizer and change what comes back. Auto stays
       // the default (every decode above used it); these prove the override.
-      // Spoken number words come back as digits ("один" -> "1") — Whisper's
-      // number normalization, same as the five-word fixture.
+      // The five-word fixture consistently comes back as digits ("один"
+      // -> "1") — Whisper's number normalization. The SINGLE word flips
+      // between runs ("1" in run 43027708614, "один" in run 43031353098,
+      // same models, same fixture), so the one-word assertions accept
+      // either form: with language forced to Russian both are the right
+      // word, and the override is proven by lang=ru + one word.
       final forcedRu = await Transcriber().transcribe(
         wavPath: 'test/fixtures/russian_one_word.wav',
         model: model,
@@ -385,7 +389,8 @@ void main() {
           'lang=${forcedRu.detectedLanguage} '
           'words=${forcedRu.words.map((w) => w.text).join(' ')}');
       expect(forcedRu.detectedLanguage, 'ru');
-      expect(forcedRu.words.map((w) => w.text).join(' '), contains('1'));
+      expect(forcedRu.words, hasLength(1));
+      expect(['1', 'один'], contains(forcedRu.words.single.text));
       final forcedRuCyrillic = await Transcriber().transcribe(
         wavPath: 'test/fixtures/cyrillic_one_word.wav',
         model: model,
@@ -412,8 +417,8 @@ void main() {
         onProgress: (_) {},
       );
       expect(forcedRuBackground.detectedLanguage, 'ru');
-      expect(forcedRuBackground.words.map((w) => w.text).join(' '),
-          contains('1'));
+      expect(forcedRuBackground.words, hasLength(1));
+      expect(['1', 'один'], contains(forcedRuBackground.words.single.text));
     } finally {
       await temp.delete(recursive: true);
     }

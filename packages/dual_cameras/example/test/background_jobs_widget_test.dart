@@ -183,9 +183,13 @@ void main() {
     expect(find.textContaining('Jobs still run'), findsOneWidget);
     // Tap the Stop in the sheet's job card (not the one on the main
     // screen behind the sheet): scope to the Card showing this job's
-    // label, and name the sheet's Scrollable explicitly — the tree has
-    // several Scrollables, so scrollUntilVisible cannot pick one, and
-    // a ListView is not itself a Scrollable widget (it builds one).
+    // label. ensureVisible finds the sheet's own Scrollable from the
+    // target's context — scrollUntilVisible cannot be used here: its
+    // default scrollable finder throws with several Scrollables in the
+    // tree, and naming one by type guesses wrong (iteration 4 used
+    // find.byType(Scrollable).last and scrolled the wrong Scrollable —
+    // the Stop stayed at y=601, 1 px below the 600 px viewport, and
+    // the tap missed).
     final sheetStop = find.descendant(
       of: find.ancestor(
         of: find.textContaining('Downloading model'),
@@ -193,8 +197,8 @@ void main() {
       ),
       matching: find.text('Stop'),
     );
-    await tester.scrollUntilVisible(sheetStop, 100.0,
-        scrollable: find.byType(Scrollable).last);
+    await tester.ensureVisible(sheetStop);
+    await tester.pump();
     await tester.tap(sheetStop);
     await tester.pumpAndSettle();
     expect(jobs.stopped, ['one']);

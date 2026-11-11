@@ -301,10 +301,16 @@ void main() {
     await tester.tap(find.byTooltip('Stop recording'));
     await tester.pumpAndSettle();
     expect(model.calls, 1);
+    // Delta, not an absolute count: dispose() is fire-and-forget async,
+    // so a previous test's deferred disposal can land on this test's
+    // fake platform before the leave step (iteration 4 saw disposals=2
+    // with no product change). What this test proves is that leaving
+    // disposes the camera exactly once more.
+    final disposalsBeforeLeaving = fake.disposals;
     await tester.pumpWidget(const SizedBox());
     await tester.runAsync(() async => Future<void>.delayed(Duration.zero));
     await tester.pump();
-    expect(fake.disposals, 1);
+    expect(fake.disposals, disposalsBeforeLeaving + 1);
     expect(model.gate!.isCompleted, isFalse);
     model.gate!.complete(FakeModelManager.files);
     await tester.pumpAndSettle();
