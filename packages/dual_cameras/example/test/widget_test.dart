@@ -211,15 +211,24 @@ void main() {
     addTearDown(() => dir.delete(recursive: true));
     final store =
         CaptionLanguageStore(documentsDirectory: () async => dir);
+    // Bounded pumps, not pumpAndSettle: in foreground mode the model
+    // indicator is indeterminate while the model loads, so
+    // pumpAndSettle can never settle here (the other foreground
+    // captions test uses pump() for the same reason).
+    Future<void> settle() async {
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 500));
+    }
+
     Future<void> openCaptionsSheet() async {
       await tester.pumpWidget(DemoApp(
           modelManager: model,
           backgroundCaptions: false,
           captionLanguageStore: store));
-      await tester.pumpAndSettle();
+      await settle();
       await tester.ensureVisible(find.text('Captions off'));
       await tester.tap(find.text('Captions off'));
-      await tester.pumpAndSettle();
+      await settle();
     }
 
     await openCaptionsSheet();
@@ -231,7 +240,7 @@ void main() {
         isTrue);
     await tester.ensureVisible(find.text('Русский'));
     await tester.tap(find.text('Русский'));
-    await tester.pumpAndSettle();
+    await settle();
     expect(
         tester
             .widget<ChoiceChip>(find.widgetWithText(ChoiceChip, 'Русский'))
@@ -240,7 +249,9 @@ void main() {
     expect(await File('${dir.path}/caption_language.txt').readAsString(),
         'ru');
 
-    // A fresh app session restores the saved language.
+    // Close the sheet, then a fresh app session restores the language.
+    await tester.tap(find.byTooltip('Close Captions'));
+    await settle();
     await tester.pumpWidget(const SizedBox());
     await openCaptionsSheet();
     expect(

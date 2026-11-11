@@ -181,7 +181,9 @@ void main() {
     await sheet(tester);
     expect(find.text('Enable notifications in settings'), findsOneWidget);
     expect(find.textContaining('Jobs still run'), findsOneWidget);
-    await tester.ensureVisible(find.text('Stop').last);
+    // The job card sits below the language picker in the sheet's
+    // scrollable list; scroll it into view before tapping.
+    await tester.scrollUntilVisible(find.text('Stop').last, 100.0);
     await tester.tap(find.text('Stop').last);
     await tester.pumpAndSettle();
     expect(jobs.stopped, ['one']);
