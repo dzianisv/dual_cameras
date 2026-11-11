@@ -5,8 +5,13 @@ import 'package:flutter/services.dart';
 class CaptionJobs {
   static const channel = MethodChannel('dual_cameras_example/caption_jobs');
 
-  Future<String> enqueue(String mp4) async {
-    final id = await channel.invokeMethod<String>('enqueue', {'mp4': mp4});
+  /// Queue a caption job for [mp4]. [language] is the sherpa-onnx code
+  /// chosen when the job was enqueued ('' = Auto); the native side stores
+  /// it with the job and the headless runner reads it back from `ready`,
+  /// so a job always uses the language that was current at enqueue time.
+  Future<String> enqueue(String mp4, {String language = ''}) async {
+    final id = await channel.invokeMethod<String>(
+        'enqueue', {'mp4': mp4, 'language': language});
     if (id == null || id.isEmpty) {
       throw StateError('Caption job was not queued');
     }

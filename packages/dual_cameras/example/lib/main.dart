@@ -10,6 +10,8 @@ import 'package:permission_handler/permission_handler.dart';
 import 'captions/caption_models.dart';
 import 'captions/caption_jobs.dart';
 import 'captions/caption_job_runner.dart';
+import 'captions/caption_language.dart';
+import 'captions/caption_language_store.dart';
 import 'captions/caption_pipeline.dart';
 import 'captions/model_manager.dart';
 import 'captions/transcriber.dart';
@@ -25,11 +27,13 @@ class DemoApp extends StatelessWidget {
       {super.key,
       this.modelManager,
       this.captionJobs,
-      this.backgroundCaptions});
+      this.backgroundCaptions,
+      this.captionLanguageStore});
 
   final ModelManager? modelManager;
   final CaptionJobs? captionJobs;
   final bool? backgroundCaptions;
+  final CaptionLanguageStore? captionLanguageStore;
 
   @override
   Widget build(BuildContext context) {
@@ -51,7 +55,8 @@ class DemoApp extends StatelessWidget {
       home: DemoScreen(
           modelManager: modelManager,
           captionJobs: captionJobs,
-          backgroundCaptions: backgroundCaptions),
+          backgroundCaptions: backgroundCaptions,
+          captionLanguageStore: captionLanguageStore),
     );
   }
 }
@@ -61,11 +66,13 @@ class DemoScreen extends StatefulWidget {
       {super.key,
       this.modelManager,
       this.captionJobs,
-      this.backgroundCaptions});
+      this.backgroundCaptions,
+      this.captionLanguageStore});
 
   final ModelManager? modelManager;
   final CaptionJobs? captionJobs;
   final bool? backgroundCaptions;
+  final CaptionLanguageStore? captionLanguageStore;
 
   @override
   State<DemoScreen> createState() => _DemoScreenState();
@@ -78,8 +85,14 @@ class _DemoScreenState extends State<DemoScreen> with WidgetsBindingObserver {
   String? _error;
   bool _busy = false;
   Future<void>? _cameraOperation;
-  late final bool _usesBackgroundJobs = widget.backgroundCaptions ??
-      (!kIsWeb && defaultTargetPlatform == TargetPlatform.android);
+  // Background caption jobs have no native side yet (no WorkManager worker
+  // or `caption_jobs` channel handler exists in the repo or the shipped APK),
+  // so on a real phone `enqueue` always fails with MissingPluginException
+  // and captions never run. Run captions in the foreground until the native
+  // worker lands; the background-job code stays in place (still tested via
+  // the injected `backgroundCaptions` flag) so the default can flip back
+  // when the worker exists. See NOTES.md, "Diagnosis — v0.5.0 phone defect".
+  late final bool _usesBackgroundJobs = widget.backgroundCaptions ?? false;
   late final CaptionJobs _jobs = widget.captionJobs ?? CaptionJobs();
   List<CaptionJob> _backgroundJobs = [];
   Timer? _jobPoll;
@@ -128,6 +141,14 @@ class _DemoScreenState extends State<DemoScreen> with WidgetsBindingObserver {
   String? _modelError;
   final Transcriber _transcriber = Transcriber();
 
+  // Caption language (v0.5.1): Auto by default; a picked language is
+  // forced on the recognizer and persisted across sessions. Auto can
+  // misdetect very short utterances (v0.5.0 phone defect: «Привет» came
+  // back as English "THERE YET."), so the user can pin the language.
+  late final CaptionLanguageStore _languageStore =
+      widget.captionLanguageStore ?? CaptionLanguageStore();
+  CaptionLanguage _captionLanguage = CaptionLanguage.auto;
+
   // Live geometry tuning (debug channel) — to dial in the front/back
   // orientation and fix any stretch directly on the device.
   static const MethodChannel _debug = MethodChannel('dual_cameras/debug');
@@ -147,6 +168,9 @@ class _DemoScreenState extends State<DemoScreen> with WidgetsBindingObserver {
   void initState() {
     super.initState();
     _bootstrap();
+    _languageStore.load().then((stored) {
+      if (mounted) _update(() => _captionLanguage = stored);
+    });
     if (_usesBackgroundJobs) {
       WidgetsBinding.instance.addObserver(this);
       _startJobPolling();
@@ -203,6 +227,17 @@ class _DemoScreenState extends State<DemoScreen> with WidgetsBindingObserver {
       }
       await _refreshJobs();
     }
+  }
+
+  /// Pick the caption language. Applies to the next recording immediately
+  /// and is saved for later sessions; a job already queued keeps the
+  /// language it was enqueued with.
+  void _setCaptionLanguage(CaptionLanguage value) {
+    if (value == _captionLanguage) return;
+    _update(() => _captionLanguage = value);
+    // Best effort: a failed save only means the next session starts on
+    // Auto again (see CaptionLanguageStore).
+    unawaited(_languageStore.save(value));
   }
 
   Future<void> _jobAction(String id, Future<void> Function() action) async {
@@ -576,7 +611,7 @@ class _DemoScreenState extends State<DemoScreen> with WidgetsBindingObserver {
     if (captions) {
       if (_usesBackgroundJobs) {
         try {
-          await _jobs.enqueue(file);
+          await _jobs.enqueue(file, language: _captionLanguage.code);
           _update(() => _jobError = null);
           await _refreshJobs();
         } catch (_) {
@@ -618,6 +653,7 @@ class _DemoScreenState extends State<DemoScreen> with WidgetsBindingObserver {
       final result = await _transcriber.transcribe(
         wavPath: wav,
         model: model,
+        language: _captionLanguage.code,
       );
       final words = result.words;
       if (!mounted) return;
@@ -842,6 +878,25 @@ class _DemoScreenState extends State<DemoScreen> with WidgetsBindingObserver {
                   'On-device speech recognition and karaoke subtitles (alpha).'),
               value: _captions,
               onChanged: _busy || value.isRecording ? null : _toggleCaptions,
+            ),
+            const SizedBox(height: 8),
+            const Text('Caption language'),
+            const Text(
+                'Auto usually works, but it can mishear a short phrase in the wrong language. Pick a language to force it.',
+                style: TextStyle(fontSize: 12)),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 8,
+              children: [
+                for (final language in CaptionLanguage.values)
+                  ChoiceChip(
+                    label: Text(language.label),
+                    selected: _captionLanguage == language,
+                    onSelected: _busy || value.isRecording
+                        ? null
+                        : (_) => _setCaptionLanguage(language),
+                  ),
+              ],
             ),
             if (_usesBackgroundJobs) ..._backgroundJobCards(),
             if (!_usesBackgroundJobs)

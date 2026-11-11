@@ -15,6 +15,7 @@ class FakeJobs extends CaptionJobs {
   bool failOpen = false;
   bool failList = false;
   final List<String> enqueued = [],
+      enqueuedLanguages = [],
       stopped = [],
       opened = [],
       shared = [],
@@ -29,8 +30,9 @@ class FakeJobs extends CaptionJobs {
   @override
   Future<bool> notificationsEnabled() async => notifications;
   @override
-  Future<String> enqueue(String mp4) async {
+  Future<String> enqueue(String mp4, {String language = ''}) async {
     enqueued.add(mp4);
+    enqueuedLanguages.add(language);
     return 'new-job';
   }
 
@@ -271,6 +273,8 @@ void main() {
     }
     expect(saved.where((method) => method == 'putVideo').length, 2);
     expect(jobs.enqueued, ['/tmp/story.mp4', '/tmp/story.mp4']);
+    // Auto by default: the enqueue call carries '' as the language.
+    expect(jobs.enqueuedLanguages, ['', '']);
     expect(model.calls, 0);
     expect(camera.starts, 2);
   });

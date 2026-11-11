@@ -1,7 +1,10 @@
 import 'dart:async';
+import 'dart:io';
 import 'dart:ui' as ui;
 
 import 'package:dual_cameras_example/main.dart';
+import 'package:dual_cameras_example/captions/caption_language.dart';
+import 'package:dual_cameras_example/captions/caption_language_store.dart';
 import 'package:dual_cameras_example/captions/model_manager.dart';
 import 'package:dual_cameras_example/captions/caption_models.dart';
 import 'package:dual_cameras_platform_interface/dual_cameras_platform_interface.dart';
@@ -200,6 +203,52 @@ void main() {
     expect(find.textContaining('plain video kept'), findsOneWidget);
     expect(find.text('Retry'), findsOneWidget);
     expect(galleryCalls.where((call) => call == 'putVideo').length, 1);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('caption language picker saves and restores the choice',
+      (tester) async {
+    final dir = await Directory.systemTemp.createTemp('caption-lang-');
+    addTearDown(() => dir.delete(recursive: true));
+    final store =
+        CaptionLanguageStore(documentsDirectory: () async => dir);
+    Future<void> openCaptionsSheet() async {
+      await tester.pumpWidget(DemoApp(
+          modelManager: model,
+          backgroundCaptions: false,
+          captionLanguageStore: store));
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(find.text('Captions off'));
+      await tester.tap(find.text('Captions off'));
+      await tester.pumpAndSettle();
+    }
+
+    await openCaptionsSheet();
+    expect(find.text('Caption language'), findsOneWidget);
+    expect(
+        tester
+            .widget<ChoiceChip>(find.widgetWithText(ChoiceChip, 'Auto'))
+            .selected,
+        isTrue);
+    await tester.ensureVisible(find.text('Русский'));
+    await tester.tap(find.text('Русский'));
+    await tester.pumpAndSettle();
+    expect(
+        tester
+            .widget<ChoiceChip>(find.widgetWithText(ChoiceChip, 'Русский'))
+            .selected,
+        isTrue);
+    expect(await File('${dir.path}/caption_language.txt').readAsString(),
+        'ru');
+
+    // A fresh app session restores the saved language.
+    await tester.pumpWidget(const SizedBox());
+    await openCaptionsSheet();
+    expect(
+        tester
+            .widget<ChoiceChip>(find.widgetWithText(ChoiceChip, 'Русский'))
+            .selected,
+        isTrue);
     expect(tester.takeException(), isNull);
   });
 

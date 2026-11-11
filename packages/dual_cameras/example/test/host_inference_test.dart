@@ -369,6 +369,51 @@ void main() {
             'timingsValid=${diag.timingsValid} '
             'words=${diag.words.map((w) => w.text).join(' ')}');
       }
+
+      // Forced-language assertions (the v0.5.1 fix): a picked language
+      // must reach the recognizer and change what comes back. Auto stays
+      // the default (every decode above used it); these prove the override.
+      // Spoken number words come back as digits ("один" -> "1") — Whisper's
+      // number normalization, same as the five-word fixture.
+      final forcedRu = await Transcriber().transcribe(
+        wavPath: 'test/fixtures/russian_one_word.wav',
+        model: model,
+        language: 'ru',
+      );
+      // ignore: avoid_print
+      print('host-inference forced ru one-word: '
+          'lang=${forcedRu.detectedLanguage} '
+          'words=${forcedRu.words.map((w) => w.text).join(' ')}');
+      expect(forcedRu.detectedLanguage, 'ru');
+      expect(forcedRu.words.map((w) => w.text).join(' '), contains('1'));
+      final forcedRuCyrillic = await Transcriber().transcribe(
+        wavPath: 'test/fixtures/cyrillic_one_word.wav',
+        model: model,
+        language: 'ru',
+      );
+      expect(forcedRuCyrillic.detectedLanguage, 'ru');
+      expect(forcedRuCyrillic.words.map((w) => w.text).join(' '),
+          contains('мама'));
+      final forcedEn = await Transcriber().transcribe(
+        wavPath: 'test/fixtures/russian_one_word.wav',
+        model: model,
+        language: 'en',
+      );
+      // ignore: avoid_print
+      print('host-inference forced en one-word: '
+          'lang=${forcedEn.detectedLanguage} '
+          'words=${forcedEn.words.map((w) => w.text).join(' ')}');
+      expect(forcedEn.detectedLanguage, 'en');
+      // The background (isolate) path must honor the override too.
+      final forcedRuBackground = await BackgroundTranscriber().transcribe(
+        wavPath: 'test/fixtures/russian_one_word.wav',
+        model: model,
+        language: 'ru',
+        onProgress: (_) {},
+      );
+      expect(forcedRuBackground.detectedLanguage, 'ru');
+      expect(forcedRuBackground.words.map((w) => w.text).join(' '),
+          contains('1'));
     } finally {
       await temp.delete(recursive: true);
     }

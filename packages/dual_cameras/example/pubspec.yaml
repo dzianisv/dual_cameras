@@ -1,7 +1,7 @@
 name: dual_cameras_example
 description: "Demonstrates dual_cameras: front+back simultaneous capture."
 publish_to: 'none'
-version: 0.5.0+5
+version: 0.5.1+6
 
 environment:
   sdk: ^3.5.0

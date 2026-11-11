@@ -38,6 +38,9 @@ Future<void> runCaptionJob() async {
     cancelled = cancelled || args['cancelled'] == true;
     checkCancelled();
     final mp4 = args['mp4'] as String;
+    // The caption language chosen when the job was enqueued ('' = Auto).
+    // The native side stores it with the job; a missing key means Auto.
+    final language = args['language'] as String? ?? '';
     await progress('Preparing speech model', 0);
     final model = await models.ensureModel(onProgress: (value) {
       // Native handler persists and throttles these whole-percentage updates.
@@ -51,6 +54,7 @@ Future<void> runCaptionJob() async {
     final result = await transcriber.transcribe(
         wavPath: wav,
         model: model,
+        language: language,
         onProgress: (value) =>
             progress('Transcribing on device', 35 + (value * 40).floor()));
     final words = result.words;

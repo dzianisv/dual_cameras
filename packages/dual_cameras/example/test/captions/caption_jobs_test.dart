@@ -29,6 +29,20 @@ void main() {
     expect(restored.single.label, 'Transcribing · 55%');
     expect(restored.single.canStop, isTrue);
     expect(await jobs.enqueue('/source.mp4'), 'new');
+    // The enqueue call carries the caption language ('' = Auto); a picked
+    // language travels with the job so the runner can force it.
+    expect(
+        calls
+            .firstWhere((call) => call.method == 'enqueue')
+            .arguments,
+        {'mp4': '/source.mp4', 'language': ''});
+    expect(await jobs.enqueue('/source.mp4', language: 'ru'), 'new');
+    expect(
+        calls
+            .where((call) => call.method == 'enqueue')
+            .last
+            .arguments,
+        {'mp4': '/source.mp4', 'language': 'ru'});
     await jobs.cancel('persisted');
     await jobs.open('persisted');
     await jobs.share('persisted');

@@ -15,7 +15,10 @@ import 'word_aggregator.dart';
 /// Stop is received even while Whisper is decoding. Cancellation unwinds at
 /// the next chunk boundary; native recognizer/stream resources are always freed.
 ///
-/// Language is auto-detected (never forced), Silero VAD runs before decoding
+/// [language] is the sherpa-onnx language code (see [Transcriber]): `''`
+/// (default) auto-detects per chunk, a non-empty code forces that language
+/// for every chunk. Auto is unreliable on very short utterances, which is
+/// why callers let the user override it. Silero VAD runs before decoding
 /// so silence/noise cannot hallucinate captions, and decoded words are gated
 /// to the detected speech segments so highlighting stops during pauses.
 class BackgroundTranscriber {
@@ -31,6 +34,7 @@ class BackgroundTranscriber {
     required String wavPath,
     required WhisperModelFiles model,
     required void Function(double) onProgress,
+    String language = '',
   }) async {
     final receive = ReceivePort();
     final result = Completer<TranscriptionResult>();
@@ -52,7 +56,8 @@ class BackgroundTranscriber {
       }
     });
     try {
-      await Isolate.spawn(_decode, (receive.sendPort, wavPath, model),
+      await Isolate.spawn(
+          _decode, (receive.sendPort, wavPath, model, language),
           onExit: receive.sendPort, errorsAreFatal: true);
       return await result.future;
     } finally {
@@ -63,8 +68,9 @@ class BackgroundTranscriber {
   }
 }
 
-Future<void> _decode((SendPort, String, WhisperModelFiles) args) async {
-  final (reply, wavPath, model) = args;
+Future<void> _decode(
+    (SendPort, String, WhisperModelFiles, String) args) async {
+  final (reply, wavPath, model, language) = args;
   final commands = ReceivePort();
   var cancelled = false;
   commands.listen((_) => cancelled = true);
@@ -94,8 +100,9 @@ Future<void> _decode((SendPort, String, WhisperModelFiles) args) async {
             encoder: model.encoder,
             decoder: model.decoder,
             // Empty language = automatic language detection (sherpa-onnx C
-            // API); the detected language comes back in result.lang.
-            language: '',
+            // API); the detected language comes back in result.lang. A
+            // non-empty code forces that language for every chunk.
+            language: language,
             task: 'transcribe',
             enableTokenTimestamps: true,
           ),
