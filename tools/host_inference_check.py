@@ -33,6 +33,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import re
 import sys
 import urllib.request
 import wave
@@ -60,15 +61,30 @@ RU_WORDS = [
     ("четыре", "4"),
     ("пять", "5"),
 ]
-EN_WORDS = ["one", "two", "three", "four", "five"]
+EN_WORDS = [
+    ("one", "1"),
+    ("two", "2"),
+    ("three", "3"),
+    ("four", "4"),
+    ("five", "5"),
+]
 
 
-def ru_word_present(text: str, word: tuple[str, str]) -> bool:
-    """True if either the Cyrillic word or its digit appears in text."""
-    cyrillic, digit = word
-    if cyrillic in text:
+def number_word_present(text: str, word: tuple[str, str]) -> bool:
+    """True if the word form or its digit appears in text.
+
+    The word form is matched as a substring (covers Cyrillic «один» and
+    English "one"); the digit is matched as a standalone number token,
+    so "1, 2, 3, 4, 5" (Whisper's comma-separated digit form) counts.
+    """
+    word_form, digit = word
+    if word_form in text:
         return True
-    return digit in text.split()
+    return digit in re.findall(r"[0-9]+", text)
+
+
+# Backwards-compatible name (the Russian checks used this first).
+ru_word_present = number_word_present
 
 
 def read_wave_16k_mono(path: str) -> array:
@@ -406,7 +422,9 @@ def main() -> int:
     check("english_lang", en["lang"] == "en", f"lang={en['lang']!r}")
     check(
         "english_text",
-        all(w in en["text"].lower() for w in EN_WORDS),
+        # espeak says "one, two, ..." but Whisper may normalize to
+        # digits ("1, 2, 3, 4, 5") — same accept-either rule as Russian.
+        all(number_word_present(en["text"].lower(), w) for w in EN_WORDS),
         f"text={en['text']!r}",
     )
 
