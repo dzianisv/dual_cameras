@@ -30,6 +30,30 @@ refused access during verification (2026-11-11). Their spoken content is
 verified by the host test itself (the decode must contain all five words).
 **Re-verify those three clips' licenses before publishing this repo.**
 
+## cyrillic_words.wav — 7.940 s, 16 kHz mono s16
+SHA-256: `e6601f6d93f99632a40d30be5e282d51dbd8bf206ea5dffc1ec15f2ea37af272`
+
+Five real human Russian words (not numbers — Whisper normalizes spoken
+number words to digits, so this fixture is the Cyrillic end-to-end proof),
+same Commons `Ru-*.ogg` series, normalized to 16 kHz mono and concatenated
+with 0.4 s of digital silence between words:
+
+| word | source file | duration | source SHA-256 (as downloaded) |
+| --- | --- | --- | --- |
+| мама | `Ru-мама.ogg` | 1.097 s | `1eefeebaf93a8cf5cf4929c2d8e5be58349ee0ef6699ce34259cfe615d99b0a1` |
+| дом | `Ru-дом.ogg` | 0.900 s | `251edc54224be30b68f84d28f99ce53d0aa2d019f956847344bcb95f86ce45b8` |
+| солнце | `Ru-солнце.ogg` | 1.150 s | `0419652e849c52af3afb16019a20e889ad1c1bc97bad52d26f1518db79f6defe` |
+| вода | `Ru-вода.ogg` | 2.043 s | `425776f1fdde3ecfe2cc0625b204382b6d8937707a31a1a904a85a752ece190b` |
+| спасибо | `Ru-спасибо.ogg` | 1.149 s | `60c5fecdcfc624b71b5c0d725e0af5b5af4171948f1cdaaa3aa740679eeeae02` |
+
+Word regions (seconds): [0–1.097], [1.497–2.397], [2.797–3.947],
+[4.347–6.390], [6.790–7.940]. Silence gaps: [1.097–1.497], [2.397–2.797],
+[3.947–4.347], [6.390–6.790].
+
+Attribution: same Commons series as the numbers fixture. These five clips'
+individual license/source pages were not verified — re-verify before
+publishing this repo.
+
 ## silence.wav — 2.000 s, 16 kHz mono s16
 SHA-256: `35babfbd1a756e6765981cf9ca2094ea3ecbb4cdca30dde34f68ccde6cb76c30`
 

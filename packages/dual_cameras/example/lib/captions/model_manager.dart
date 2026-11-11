@@ -101,10 +101,10 @@ class ModelManager {
   /// together. The csukuangfj pins that were replaced here were verified
   /// against CI downloads first (encoder 0b8fb130…, decoder 9759d217… —
   /// LFS oid == SHA-256 confirmed); see NOTES.md.
-  /// base-tokens.txt and silero_vad.onnx have no content hash in the Hub API
-  /// response (tokens only carries a git blob oid, which is not a content
-  /// hash), so only their sizes are pinned here. Their SHA-256 must be taken
-  /// from a CI download and pinned afterwards — see NOTES.md.
+  /// base-tokens.txt and silero_vad.onnx hashes are pinned from CI
+  /// downloads (2026-11-11, runs 43002757885/43004840994): the tokens hash
+  /// is identical for the csukuangfj and clairemcw copies of the file
+  /// (same bytes), and the VAD hash matches the Hub tree API LFS oid.
   static List<ModelFileSpec> _defaultFiles(
       String whisperBase, String vadBase) {
     return [
@@ -129,16 +129,16 @@ class ModelManager {
         name: 'base-tokens.txt',
         url: '$whisperBase/base-tokens.txt',
         size: 816730,
-        // No content hash published by the Hub API; pin from CI download.
-        sha256: null,
+        sha256:
+            'b34b360dbb493e781e479794586d661700670d65564001f23024971d1f2fa126',
       ),
       ModelFileSpec(
         key: 'vad',
         name: 'silero_vad.onnx',
         url: '$vadBase/silero_vad.onnx',
         size: 1807522,
-        // No content hash pinned yet; pin from CI download.
-        sha256: null,
+        sha256:
+            'a35ebf52fd3ce5f1469b2a36158dba761bc47b973ea3382b3186ca15b1f5af28',
       ),
     ];
   }

@@ -7,9 +7,15 @@ import 'caption_models.dart';
 
 /// Silero VAD (via sherpa-onnx) over raw 16 kHz mono samples.
 ///
-/// Feeds the audio in 10-second windows and drains completed segments as
-/// they appear, so arbitrarily long recordings do not need to sit in the VAD
-/// buffer. Segment boundaries come from the audio itself, not from Whisper —
+/// Feeds the audio one VAD window (512 samples) at a time and drains
+/// completed segments after each chunk, the way a streaming VAD is meant to
+/// be used. This matters: feeding a whole file in one call makes the VAD
+/// return only the last speech burst (verified against sherpa-onnx 2.0.1 —
+/// a 6.85 s five-word file fed at once yields a single 0.31 s segment at the
+/// tail, while 512-sample chunks yield one segment per word), and feeding
+/// in 0.5 s or 1 s chunks merges neighbouring words into one segment, so
+/// the karaoke gate can no longer tell words apart across the gaps.
+/// Segment boundaries come from the audio itself, not from Whisper —
 /// that is what makes the gate independent of the recognizer's hallucinations.
 class SpeechDetector {
   SpeechDetector({required this.vadModelPath});
@@ -33,8 +39,11 @@ class SpeechDetector {
       bufferSizeInSeconds: 30,
     );
     try {
-      const windowSeconds = 10;
-      final window = sampleRate * windowSeconds;
+      // One VAD window per feed call (must match
+      // SileroVadModelConfig.windowSize, 512 samples at 16 kHz). Larger
+      // chunks merge speech bursts across the gaps; a single whole-file
+      // feed loses every segment but the last — see the class doc.
+      const feedChunkSamples = 512;
       final segments = <SpeechSegment>[];
       void drain() {
         while (!vad.isEmpty()) {
@@ -47,8 +56,8 @@ class SpeechDetector {
         }
       }
 
-      for (var offset = 0; offset < samples.length; offset += window) {
-        final end = math.min(offset + window, samples.length);
+      for (var offset = 0; offset < samples.length; offset += feedChunkSamples) {
+        final end = math.min(offset + feedChunkSamples, samples.length);
         vad.acceptWaveform(
             Float32List.sublistView(samples, offset, end));
         drain();

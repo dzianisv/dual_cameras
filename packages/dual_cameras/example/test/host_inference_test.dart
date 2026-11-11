@@ -14,8 +14,10 @@ import 'package:sherpa_onnx/sherpa_onnx.dart' as sherpa;
 ///
 /// Runs only on CI (or when STORYCAM_HOST_INFERENCE=1 locally). It downloads
 /// the exact production model files, decodes the committed real-speech
-/// Russian fixture, and asserts the five words, lang=ru, sane timestamps,
-/// VAD gating across the inter-word silences, and no words on silence/noise.
+/// Russian fixtures, and asserts the five number words (as digits — Whisper
+/// normalizes spoken numbers), the five Cyrillic words, lang=ru, sane
+/// timestamps, VAD gating across the inter-word silences, and no words on
+/// silence/noise.
 ///
 /// This is a host check only: it proves the model + decoder + VAD behave as
 /// the app needs. It does NOT prove anything about Android (camera, mic,
@@ -190,7 +192,11 @@ void main() {
       expect(result.detectedLanguage, 'ru');
       expect(result.timingsValid, isTrue);
       final text = result.words.map((w) => w.text).join(' ');
-      for (final word in ['один', 'два', 'три', 'четыре', 'пять']) {
+      // Whisper normalizes spoken number words to digits: the fixture says
+      // «один, два, три, четыре, пять» and the model correctly returns
+      // "1 2 3 4 5" (lang=ru). The Cyrillic words themselves are proven by
+      // the cyrillic_words.wav decode below.
+      for (final word in ['1', '2', '3', '4', '5']) {
         expect(text, contains(word), reason: 'missing $word in "$text"');
       }
       // The fixture is 6.850s: five words separated by 0.4s silences.
@@ -226,9 +232,52 @@ void main() {
       expect(background.detectedLanguage, 'ru');
       final backgroundText =
           background.words.map((w) => w.text).join(' ');
-      for (final word in ['один', 'два', 'три', 'четыре', 'пять']) {
+      for (final word in ['1', '2', '3', '4', '5']) {
         expect(backgroundText, contains(word),
             reason: 'background missing $word in "$backgroundText"');
+      }
+
+      // Cyrillic end-to-end: five non-number Russian words must come back
+      // as Cyrillic text (not digits, not Latin), with lang=ru.
+      const cyrillic = 'test/fixtures/cyrillic_words.wav';
+      expect(File(cyrillic).existsSync(), isTrue,
+          reason: 'missing $cyrillic');
+      final cyrillicResult = await Transcriber().transcribe(
+        wavPath: cyrillic,
+        model: model,
+      );
+      // ignore: avoid_print
+      print('host-inference cyrillic: lang=${cyrillicResult.detectedLanguage} '
+          'timingsValid=${cyrillicResult.timingsValid} '
+          'words=${cyrillicResult.words}');
+      expect(cyrillicResult.detectedLanguage, 'ru');
+      expect(cyrillicResult.timingsValid, isTrue);
+      final cyrillicText =
+          cyrillicResult.words.map((w) => w.text).join(' ');
+      for (final word in ['мама', 'дом', 'солнце', 'вода', 'спасибо']) {
+        expect(cyrillicText, contains(word),
+            reason: 'missing $word in "$cyrillicText"');
+      }
+      // 7.940 s fixture, 0.4 s gaps between words; no word may span a gap.
+      const cyrillicGaps = [
+        (1.097, 1.497),
+        (2.397, 2.797),
+        (3.947, 4.347),
+        (6.390, 6.790),
+      ];
+      var cyrillicPreviousStart = -1.0;
+      for (final word in cyrillicResult.words) {
+        expect(word.start, greaterThanOrEqualTo(0.0));
+        expect(word.end, lessThanOrEqualTo(7.940 + 0.5));
+        expect(word.start, greaterThanOrEqualTo(cyrillicPreviousStart));
+        cyrillicPreviousStart = word.start;
+        for (final (gapStart, gapEnd) in cyrillicGaps) {
+          final overlaps = word.start < gapEnd - 0.05 &&
+              word.end > gapStart + 0.05;
+          expect(overlaps, isFalse,
+              reason:
+                  '${word.text} [${word.start}, ${word.end}] overlaps silence gap [$gapStart, $gapEnd]');
+        }
       }
 
       // Silence and pink noise must yield no words (VAD rejects them before
