@@ -171,6 +171,21 @@ void main() {
 
   testWidgets('denied notifications keep progress and Stop available in app',
       (tester) async {
+    // The sheet is 85% of the viewport, and on the default 800x600 test
+    // surface the job card's Stop sits 1 px below the fold (y=601) —
+    // every scroll-based attempt to reach it failed: scrollUntilVisible
+    // with the default finder throws (several Scrollables), with
+    // find.byType(Scrollable).last and with an ancestor-scoped
+    // Scrollable it silently scrolled nothing (iterations 4 and 6), and
+    // ensureVisible cannot find a lazily-built ListView child at all
+    // (iteration 5). Give this test a phone-tall surface instead
+    // (a real phone is ~844 logical px tall; the 600 px default is the
+    // artificial part), so the card is visible and the Stop taps
+    // directly. The test proves the Stop action, not sheet scrolling.
+    tester.view.physicalSize = const Size(800, 1000);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
     jobs.notifications = false;
     jobs.jobs = [
       const CaptionJob(
@@ -183,15 +198,7 @@ void main() {
     expect(find.textContaining('Jobs still run'), findsOneWidget);
     // Tap the Stop in the sheet's job card (not the one on the main
     // screen behind the sheet): scope to the Card showing this job's
-    // label. The card sits below the fold in the sheet's ListView, so
-    // it has no element until scrolled into view — ensureVisible fails
-    // here with "No element" (iteration 5). scrollUntilVisible builds
-    // it by scrolling, but its scrollable must be the sheet's own
-    // Scrollable: scope it via an ancestor of the visible 'Caption
-    // language' text in the same sheet. (Guessing by type failed
-    // twice: the default finder throws with several Scrollables in
-    // the tree, and find.byType(Scrollable).last scrolled the wrong
-    // one — iteration 4 left the Stop 1 px below the viewport.)
+    // label.
     final sheetStop = find.descendant(
       of: find.ancestor(
         of: find.textContaining('Downloading model'),
@@ -199,11 +206,6 @@ void main() {
       ),
       matching: find.text('Stop'),
     );
-    await tester.scrollUntilVisible(sheetStop, 100.0,
-        scrollable: find.ancestor(
-          of: find.text('Caption language'),
-          matching: find.byType(Scrollable),
-        ));
     await tester.tap(sheetStop);
     await tester.pumpAndSettle();
     expect(jobs.stopped, ['one']);
