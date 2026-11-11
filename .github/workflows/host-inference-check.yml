@@ -1,0 +1,85 @@
+name: Host inference check (StoryCam multilingual captions)
+
+# Manual-only check: proves the exact multilingual Whisper + Silero VAD files
+# behave as the app needs, on a Linux host. It does NOT prove anything about
+# Android (camera, mic, background work, burn-in) — that still needs a phone.
+#
+# What it does:
+#  - downloads base-encoder.int8.onnx / base-decoder.int8.onnx / base-tokens.txt
+#    (sherpa-onnx-whisper-base) + silero_vad.onnx (vad) from HuggingFace
+#  - verifies size + SHA-256 against the Hub tree API (LFS oids)
+#  - decodes the committed real-speech Russian fixture
+#    (test/fixtures/russian_numbers.wav: five human Russian number clips
+#    from Wikimedia Commons, concatenated with 0.4s silences) plus the
+#    silence/noise fixtures; the English sanity wav is synthesized with
+#    espeak-ng (labeled synthesized in the evidence)
+#  - decodes with sherpa-onnx (language auto-detect, token timestamps) and
+#    asserts Russian words + lang=ru + sane timestamps + no words on silence
+#    or VAD-gated noise.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  host-check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Check out the repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install speech tools
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y espeak-ng ffmpeg
+          espeak-ng --version
+          ffmpeg -version | head -1
+          espeak-ng --voices=ru | head -5
+
+      - name: Install sherpa-onnx
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install sherpa-onnx
+          python -m pip show sherpa-onnx
+
+      - name: Verify committed fixtures
+        run: |
+          set -eux
+          cd packages/dual_cameras/example/test/fixtures
+          echo "e8a722f0e4d8cc0d0854f91d6ebf8b7286b0ebbde843e2e4d2bb5a038bd7a1b4  russian_numbers.wav" | sha256sum -c -
+          echo "35babfbd1a756e6765981cf9ca2094ea3ecbb4cdca30dde34f68ccde6cb76c30  silence.wav" | sha256sum -c -
+          echo "58db5ce8e890d50501359183d23e72956ee63aa9c4fc4b4055ab7085fbb9e54d  noise.wav" | sha256sum -c -
+
+      - name: Synthesize English sanity audio (espeak-ng; labeled synthesized)
+        run: |
+          set -eux
+          espeak-ng -v en -s 130 -w /tmp/en_22050.wav "one, two, three, four, five"
+          ffmpeg -y -loglevel error -i /tmp/en_22050.wav -ac 1 -ar 16000 /tmp/en.wav
+          ffprobe -v error -show_entries format=duration -of csv=p=0 /tmp/en.wav
+
+      - name: Run host inference check
+        run: |
+          python tools/host_inference_check.py \
+            --workdir /tmp/storycam-host-check \
+            --ru-wav packages/dual_cameras/example/test/fixtures/russian_numbers.wav \
+            --en-wav /tmp/en.wav \
+            --silence-wav packages/dual_cameras/example/test/fixtures/silence.wav \
+            --noise-wav packages/dual_cameras/example/test/fixtures/noise.wav \
+            --speech-label "real human speech: five Wikimedia Commons Shtooka clips (see test/fixtures/README.md)" \
+            --out /tmp/host-inference-evidence.json
+          cat /tmp/host-inference-evidence.json
+
+      - name: Upload evidence
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: host-inference-evidence
+          path: /tmp/host-inference-evidence.json
+          retention-days: 7
