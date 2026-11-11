@@ -405,7 +405,7 @@ class ModelManager {
       await receiptPartial.rename(receipt.path);
       complete = true;
     } finally {
-      if (complete || !canResume || received >= (expectedTotal ?? 0)) {
+      if (complete || !canResume || received >= expectedTotal) {
         await resetPartial();
       }
       if (await receiptPartial.exists()) await receiptPartial.delete();

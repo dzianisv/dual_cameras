@@ -639,10 +639,8 @@ class _DemoScreenState extends State<DemoScreen> with WidgetsBindingObserver {
       _update(() {
         _captionedFile = captioned;
         _captionSourceFile = mp4;
-        _captionStatus = 'Captions done — ${words.length} words' +
-            (result.detectedLanguage.isEmpty
-                ? ''
-                : ' (${result.detectedLanguage})');
+        _captionStatus =
+            'Captions done — ${words.length} words${result.detectedLanguage.isEmpty ? '' : ' (${result.detectedLanguage})'}';
       });
     } catch (e) {
       if (!mounted) return;
