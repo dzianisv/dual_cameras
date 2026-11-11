@@ -6,7 +6,10 @@ HuggingFace, verifies sizes and SHA-256 against the Hub tree API (LFS oids),
 then decodes real test audio with sherpa-onnx and asserts:
 
   * Russian speech decodes to text containing
-    one, two, three, four, five (один, два, три, четыре, пять)
+    one, two, three, four, five — either as Cyrillic words
+    (один, два, три, четыре, пять) or as digits ("1".."5"): Whisper's
+    number normalization is run-to-run nondeterministic for isolated
+    words (the Dart host test accepts either form for the same reason)
   * detected language is Russian (ru)
   * token timestamps are non-empty, monotonic, and within the audio duration
   * silence (and VAD-gated noise) yields no words
@@ -32,6 +35,8 @@ import hashlib
 import json
 import sys
 import urllib.request
+import wave
+from array import array
 
 # Attention-enabled Whisper export (clairemcw): the csukuangfj decoder has
 # no cross-attention outputs, so it cannot return token timestamps
@@ -45,8 +50,45 @@ FILES = [
     (BASE_REPO, "base-tokens.txt"),
     (VAD_REPO, "silero_vad.onnx"),
 ]
-RU_WORDS = ["один", "два", "три", "четыре", "пять"]
+# Each number as (Cyrillic word, digit): Whisper normalizes spoken numbers
+# to digits on some runs and leaves Cyrillic on others, so either form
+# counts (same accept-either rule as the Dart host inference test).
+RU_WORDS = [
+    ("один", "1"),
+    ("два", "2"),
+    ("три", "3"),
+    ("четыре", "4"),
+    ("пять", "5"),
+]
 EN_WORDS = ["one", "two", "three", "four", "five"]
+
+
+def ru_word_present(text: str, word: tuple[str, str]) -> bool:
+    """True if either the Cyrillic word or its digit appears in text."""
+    cyrillic, digit = word
+    if cyrillic in text:
+        return True
+    return digit in text.split()
+
+
+def read_wave_16k_mono(path: str) -> array:
+    """Read a 16 kHz mono wav as float32 samples in [-1, 1].
+
+    Stdlib only (array/wave): sherpa-onnx 2.0.1 has no read_wave helper
+    and numpy is not a declared dependency of the pip package, but the
+    pybind11 bindings accept array.array('f') wherever a float32 tensor
+    is expected (verified locally against 2.0.1).
+    """
+    with wave.open(path) as w:
+        assert w.getframerate() == 16000 and w.getnchannels() == 1, (
+            f"{path}: expected 16 kHz mono, got "
+            f"{w.getframerate()} Hz / {w.getnchannels()} ch"
+        )
+        raw = w.readframes(w.getnframes())
+    pcm = array("h")
+    pcm.frombytes(raw)
+    out = array("f", [s / 32768.0 for s in pcm])
+    return out
 
 
 def hf_tree(repo: str) -> dict[str, dict]:
@@ -221,75 +263,74 @@ def main() -> int:
     )
 
     def vad_segments(wav_path: str) -> list[tuple[float, float]]:
-        wave = sherpa_onnx.read_wave(wav_path)
-        assert wave.sample_rate == 16000, wave.sample_rate
+        samples = read_wave_16k_mono(wav_path)
         vad = sherpa_onnx.VoiceActivityDetector(
             vad_config, buffer_size_in_seconds=30
         )
         # The C SpeechSegment has start (a sample index) + samples; there is
         # no end field. Convert to seconds here, like the Dart detector.
         def to_seconds(seg) -> tuple[float, float]:
-            start = seg.start / wave.sample_rate
-            end = (seg.start + len(seg.samples)) / wave.sample_rate
+            start = seg.start / 16000
+            end = (seg.start + len(seg.samples)) / 16000
             return (start, end)
 
-        try:
-            vad.accept_waveform(wave.samples)
-            segments: list[tuple[float, float]] = []
-            while not vad.is_empty():
-                seg = vad.front()
-                segments.append(to_seconds(seg))
-                vad.pop()
-            vad.flush()
-            while not vad.is_empty():
-                seg = vad.front()
-                segments.append(to_seconds(seg))
-                vad.pop()
-            return segments
-        finally:
-            vad.free()
+        segments: list[tuple[float, float]] = []
 
+        def drain() -> None:
+            # NOTE: `empty` is a method in sherpa-onnx 2.0.1 Python
+            # (`vad.empty()`), while `front` is a property.
+            while not vad.empty():
+                seg = vad.front
+                segments.append(to_seconds(seg))
+                vad.pop()
+
+        # Feed in 512-sample windows (the VAD window size): feeding the
+        # whole file at once returns only the last speech burst — the same
+        # finding as the Dart detector fix (whole-feed VAD gave one
+        # segment [6.534, 6.848] for the five-word fixture).
+        for i in range(0, len(samples), 512):
+            vad.accept_waveform(samples[i : i + 512])
+            drain()
+        vad.flush()
+        drain()
+        return sorted(segments)
+
+    # sherpa-onnx 2.0.1 Python has no public OfflineRecognizerConfig
+    # constructor (OfflineRecognizer() takes no arguments) — the factory
+    # OfflineRecognizer.from_whisper is the API (verified locally).
     try:
-        whisper_config = sherpa_onnx.OfflineWhisperModelConfig(
+        recognizer = sherpa_onnx.OfflineRecognizer.from_whisper(
             encoder=paths["base-encoder.int8.onnx"],
             decoder=paths["base-decoder.int8.onnx"],
+            tokens=paths["base-tokens.txt"],
             language="",
             task="transcribe",
+            num_threads=4,
             tail_paddings=-1,
             enable_token_timestamps=True,
         )
         timestamps_flag = True
     except TypeError as exc:
         print(f"NOTE: enable_token_timestamps unsupported: {exc}", flush=True)
-        whisper_config = sherpa_onnx.OfflineWhisperModelConfig(
+        recognizer = sherpa_onnx.OfflineRecognizer.from_whisper(
             encoder=paths["base-encoder.int8.onnx"],
             decoder=paths["base-decoder.int8.onnx"],
+            tokens=paths["base-tokens.txt"],
             language="",
             task="transcribe",
+            num_threads=4,
             tail_paddings=-1,
         )
         timestamps_flag = False
     evidence["timestamps_flag_supported"] = timestamps_flag
-    recognizer = sherpa_onnx.OfflineRecognizer(
-        sherpa_onnx.OfflineRecognizerConfig(
-            model=sherpa_onnx.OfflineModelConfig(
-                whisper=whisper_config,
-                tokens=paths["base-tokens.txt"],
-                model_type="whisper",
-                num_threads=4,
-            )
-        )
-    )
 
     def decode(wav_path: str) -> dict:
-        wave = sherpa_onnx.read_wave(wav_path)
-        duration = len(wave.samples) / wave.sample_rate
+        samples = read_wave_16k_mono(wav_path)
+        duration = len(samples) / 16000
         stream = recognizer.create_stream()
-        stream.accept_waveform(
-            samples=wave.samples, sample_rate=wave.sample_rate
-        )
-        recognizer.decode(stream)
-        result = recognizer.get_result(stream)
+        stream.accept_waveform(16000, samples)
+        recognizer.decode_stream(stream)
+        result = stream.result
         tokens = list(result.tokens)
         timestamps = [float(t) for t in result.timestamps]
         words = aggregate_words(tokens, timestamps)
@@ -329,7 +370,7 @@ def main() -> int:
     lowered = ru["text"].lower()
     check(
         "russian_text",
-        all(w in lowered for w in RU_WORDS),
+        all(ru_word_present(lowered, w) for w in RU_WORDS),
         f"text={ru['text']!r}",
     )
     check("russian_lang", ru["lang"] == "ru", f"lang={ru['lang']!r}")
@@ -346,7 +387,12 @@ def main() -> int:
     )
     check(
         "russian_gated_words",
-        all(w in " ".join(x["text"] for x in ru["gated_words"]).lower() for w in RU_WORDS),
+        all(
+            ru_word_present(
+                " ".join(x["text"] for x in ru["gated_words"]).lower(), w
+            )
+            for w in RU_WORDS
+        ),
         f"gated={ru['gated_words']}",
     )
 
