@@ -207,8 +207,10 @@ void main() {
 
   testWidgets('caption language picker saves the choice',
       (tester) async {
-    final dir = await Directory.systemTemp.createTemp('caption-lang-');
-    addTearDown(() => dir.delete(recursive: true));
+    // Synchronous file IO: awaiting real async IO hangs inside
+    // testWidgets' fake-async zone, so use the sync dart:io calls.
+    final dir = Directory.systemTemp.createTempSync('caption-lang-');
+    addTearDown(() => dir.deleteSync(recursive: true));
     final store =
         CaptionLanguageStore(documentsDirectory: () async => dir);
     // Bounded pumps, not pumpAndSettle: in foreground mode the model
@@ -236,21 +238,24 @@ void main() {
         isTrue);
     await tester.tap(find.text('Русский'));
     await settle();
+    // Give the store's async save a moment to flush to disk.
+    await tester.pump(const Duration(seconds: 1));
     expect(
         tester
             .widget<ChoiceChip>(find.widgetWithText(ChoiceChip, 'Русский'))
             .selected,
         isTrue);
-    expect(await File('${dir.path}/caption_language.txt').readAsString(),
+    expect(File('${dir.path}/caption_language.txt').readAsStringSync(),
         'ru');
     expect(tester.takeException(), isNull);
   });
 
   testWidgets('caption language restores the saved choice on launch',
       (tester) async {
-    final dir = await Directory.systemTemp.createTemp('caption-lang-');
-    addTearDown(() => dir.delete(recursive: true));
-    await File('${dir.path}/caption_language.txt').writeAsString('ru');
+    // Synchronous file IO (see the test above).
+    final dir = Directory.systemTemp.createTempSync('caption-lang-');
+    addTearDown(() => dir.deleteSync(recursive: true));
+    File('${dir.path}/caption_language.txt').writeAsStringSync('ru');
     final store =
         CaptionLanguageStore(documentsDirectory: () async => dir);
 
