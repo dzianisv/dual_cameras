@@ -117,17 +117,26 @@ jobs:
             ## StoryCam ${{ github.ref_name }} test release
 
             Android ARM64 test build with the StoryCam capture interface and
-            fixes for caption-model downloads. Records the front and back cameras
+            multilingual on-device captions. Records the front and back cameras
             together in one portrait video, with live exposure and filter controls.
 
-            ### Changes since v0.3.0
-            - Redesigned camera controls with a full 9:16 preview, responsive
-              layouts and accessible labels.
-            - Fixed Internet permission for caption-model downloads in release builds.
+            ### Captions in this build
+            - Multilingual Whisper base model with automatic language detection —
+              Russian and English verified on host with real speech; the detected
+              language is shown when captions finish.
+            - Caption language setting (Auto / Русский / English) in the Captions
+              sheet, saved between sessions. Auto is the default. Single words are
+              the hardest case for automatic detection, so force a language for
+              short clips instead of guessing.
+            - Captions run in the foreground on Android. Silero VAD gates captions
+              to detected speech: silence and noise produce no captions, and the
+              karaoke highlight stops during pauses.
+            - Word timings are validated against the audio duration before burn-in.
+            - Model files are verified by size and SHA-256 after download and on every
+              cache hit; a mismatch is discarded and re-downloaded, never trusted.
             - Caption-model startup progress, retry and recovery from incomplete caches.
-            - Queued captions run independently of capture. The original video is
-              kept, and the next recording does not wait for caption processing.
-            - Live exposure controls and still capture while recording.
+            - The original video is kept, and the next recording does not wait for
+              caption processing.
 
             ### Install
             1. Download `storycam-test-arm64.apk` below.
@@ -137,11 +146,14 @@ jobs:
 
             ### Requirements
             - An ARM64 Android phone with concurrent front and back camera support.
-            - The caption model downloads about 100 MB on first use. Camera capture
-              remains available while it downloads.
+            - The caption models download about 160 MB on first use (multilingual
+              Whisper base int8 + Silero VAD). Camera capture remains available while
+              they download.
 
             ### Verification and limitations
-            CI runs analysis, UI/caption/controller tests, and verifies the APK's
+            CI runs analysis, UI/caption/controller tests, a host inference check that
+            decodes real Russian speech with the exact model files (words, detected
+            language, timestamps, silence/noise rejection), and verifies the APK's
             package, version, permissions and signature before publication.
             **This build has not been tested on a physical phone.** Real capture,
             gallery saving, audio sync, GPU performance and native caption inference
