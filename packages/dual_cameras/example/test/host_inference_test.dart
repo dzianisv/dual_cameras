@@ -37,7 +37,7 @@ import 'package:sherpa_onnx/sherpa_onnx.dart' as sherpa;
 ///
 /// Returns the lib dir. Throws [StateError] when the lib cannot be located.
 String _preloadNativeLib() {
-  final config = File('.dart_tool/package_config.json');
+  final config = File('.dart_tool/package_config.json').absolute;
   if (!config.existsSync()) {
     throw StateError(
         'package_config.json not found (cwd ${Directory.current.path})');
@@ -56,8 +56,12 @@ String _preloadNativeLib() {
               Platform.version.contains('aarch64')
           ? 'aarch64'
           : 'x64';
-  final libFile =
-      File.fromUri(pkgDir.resolve('linux/$arch/libsherpa-onnx-c-api.so'));
+  // Join with path separators, not Uri.resolve: a rootUri without a trailing
+  // slash makes resolve() replace the package dir segment instead of
+  // appending to it.
+  final sep = Platform.pathSeparator;
+  final libFile = File(
+      '${File.fromUri(pkgDir).path}${sep}linux$sep$arch${sep}libsherpa-onnx-c-api.so');
   if (!libFile.existsSync()) {
     throw StateError('native lib not found at ${libFile.path}');
   }
