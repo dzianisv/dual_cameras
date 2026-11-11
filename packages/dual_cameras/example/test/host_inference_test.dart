@@ -5,6 +5,7 @@ import 'dart:io';
 import 'package:crypto/crypto.dart' as crypto;
 import 'package:dual_cameras_example/captions/background_transcriber.dart';
 import 'package:dual_cameras_example/captions/model_manager.dart';
+import 'package:dual_cameras_example/captions/speech_detector.dart';
 import 'package:dual_cameras_example/captions/transcriber.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sherpa_onnx/sherpa_onnx.dart' as sherpa;
@@ -123,6 +124,60 @@ void main() {
       const noise = 'test/fixtures/noise.wav';
       for (final path in [fixture, silence, noise]) {
         expect(File(path).existsSync(), isTrue, reason: 'missing $path');
+      }
+
+      // Diagnostics (printed, not asserted): raw decode without the
+      // transcriber's VAD gate, so a failure can be attributed to the
+      // recognizer, the VAD, or the gate instead of guessed at.
+      final wave = sherpa.readWave(fixture);
+      var maxAbs = 0.0;
+      for (final s in wave.samples) {
+        if (s.abs() > maxAbs) maxAbs = s.abs();
+      }
+      // ignore: avoid_print
+      print('host-inference diag wave: sampleRate=${wave.sampleRate} '
+          'samples=${wave.samples.length} '
+          'duration=${(wave.samples.length / wave.sampleRate).toStringAsFixed(3)}s '
+          'maxAbs=${maxAbs.toStringAsFixed(4)}');
+      final vadSegments = SpeechDetector(vadModelPath: model.vad)
+          .detect(wave.samples, sampleRate: wave.sampleRate);
+      // ignore: avoid_print
+      print('host-inference diag vad segments: ${vadSegments.map((s) => '[${s.start.toStringAsFixed(3)}, ${s.end.toStringAsFixed(3)}]').join(', ')}');
+      final rawConfig = sherpa.OfflineRecognizerConfig(
+        model: sherpa.OfflineModelConfig(
+          whisper: sherpa.OfflineWhisperModelConfig(
+            encoder: model.encoder,
+            decoder: model.decoder,
+            language: '',
+            task: 'transcribe',
+            enableTokenTimestamps: true,
+          ),
+          tokens: model.tokens,
+          modelType: 'whisper',
+          numThreads: 4,
+        ),
+      );
+      final rawRecognizer = sherpa.OfflineRecognizer(rawConfig);
+      try {
+        final rawStream = rawRecognizer.createStream();
+        try {
+          rawStream.acceptWaveform(
+            samples: wave.samples,
+            sampleRate: wave.sampleRate,
+          );
+          rawRecognizer.decode(rawStream);
+          final raw = rawRecognizer.getResult(rawStream);
+          // ignore: avoid_print
+          print('host-inference diag raw decode: lang=${raw.lang} '
+              'text="${raw.text}" tokens=${raw.tokens.length} '
+              '${raw.tokens.take(12).toList()} '
+              'timestamps=${raw.timestamps.length} '
+              '${raw.timestamps.take(12).toList()}');
+        } finally {
+          rawStream.free();
+        }
+      } finally {
+        rawRecognizer.free();
       }
 
       final result = await Transcriber().transcribe(

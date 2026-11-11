@@ -79,7 +79,7 @@ class ModelManager {
   http.Client? _activeClient;
 
   static const _defaultWhisperBaseUrl =
-      'https://huggingface.co/csukuangfj/sherpa-onnx-whisper-base/resolve/main';
+      'https://huggingface.co/clairemcw/sherpa-onnx-whisper-base-attention/resolve/main';
   static const _defaultVadBaseUrl =
       'https://huggingface.co/csukuangfj/vad/resolve/main';
   static const _dirName = 'sherpa-whisper-base';
@@ -89,11 +89,22 @@ class ModelManager {
   /// Hub tree API (2026-11-11). The int8 encoder/decoder hashes are the
   /// files' LFS oids, which are the SHA-256 of the file content — the CI host
   /// check cross-checks this claim by hashing the downloaded bytes.
+  ///
+  /// Whisper source is clairemcw/sherpa-onnx-whisper-base-attention, NOT
+  /// csukuangfj/sherpa-onnx-whisper-base: the csukuangfj decoder has no
+  /// cross-attention outputs, so sherpa-onnx warns "Timestamps will not be
+  /// available" and returns no token timestamps (CI run 43002757885). The
+  /// clairemcw export was built with sherpa-onnx's
+  /// scripts/whisper/export-onnx-with-attention.py and carries the attention
+  /// outputs; encoder and decoder are a matched pair (the encoder emits the
+  /// cross-attention keys/values the decoder consumes), so both move
+  /// together. The csukuangfj pins that were replaced here were verified
+  /// against CI downloads first (encoder 0b8fb130…, decoder 9759d217… —
+  /// LFS oid == SHA-256 confirmed); see NOTES.md.
   /// base-tokens.txt and silero_vad.onnx have no content hash in the Hub API
   /// response (tokens only carries a git blob oid, which is not a content
-  /// hash; the VAD LFS oid was truncated in the API read), so only their
-  /// sizes are pinned here. Their SHA-256 must be taken from a CI download
-  /// and pinned afterwards — see NOTES.md.
+  /// hash), so only their sizes are pinned here. Their SHA-256 must be taken
+  /// from a CI download and pinned afterwards — see NOTES.md.
   static List<ModelFileSpec> _defaultFiles(
       String whisperBase, String vadBase) {
     return [
@@ -101,17 +112,17 @@ class ModelManager {
         key: 'encoder',
         name: 'base-encoder.int8.onnx',
         url: '$whisperBase/base-encoder.int8.onnx',
-        size: 29120534,
+        size: 29122009,
         sha256:
-            '0b8fb1304b6109976038efff5ace81720e00386f3ff6b54ee8c75291ca0a1e11',
+            '1eaf4df4dc40ec020926955b0f44eb817007fde8ea5702d8e5808df45e3cb895',
       ),
       ModelFileSpec(
         key: 'decoder',
         name: 'base-decoder.int8.onnx',
         url: '$whisperBase/base-decoder.int8.onnx',
-        size: 130672026,
+        size: 130804195,
         sha256:
-            '9759d217388a01b3a4c7c15533201067b48ae819c4daafc8624e64b9409dc02d',
+            '331c3f61b61ae3480e5e636b78033f9db5e5c4766ac1dcf8404e91698d447bff',
       ),
       ModelFileSpec(
         key: 'tokens',

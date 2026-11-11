@@ -33,7 +33,11 @@ import json
 import sys
 import urllib.request
 
-BASE_REPO = "csukuangfj/sherpa-onnx-whisper-base"
+# Attention-enabled Whisper export (clairemcw): the csukuangfj decoder has
+# no cross-attention outputs, so it cannot return token timestamps
+# (sherpa-onnx warns "Timestamps will not be available"). Encoder and
+# decoder are a matched pair — both come from this repo.
+BASE_REPO = "clairemcw/sherpa-onnx-whisper-base-attention"
 VAD_REPO = "csukuangfj/vad"
 FILES = [
     (BASE_REPO, "base-encoder.int8.onnx"),
