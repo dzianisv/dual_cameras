@@ -22,13 +22,12 @@ Word regions (seconds): [0–1.097], [1.497–2.437], [2.837–3.701],
 a gap — that is the proof VAD gating (not just the recognizer) is applied.
 
 Attribution: the clips are the Russian-pronunciation `Ru-*.ogg` series on
-Wikimedia Commons. The `два` and `три` clips are confirmed as The Shtooka
-Project audio, CC-BY-2.0-FR. The `один`, `четыре`, and `пять` clips follow
-the same series naming and were downloaded from the same Commons paths, but
-their individual license/source pages were not verified — the Commons API
-refused access during verification (2026-11-11). Their spoken content is
-verified by the host test itself (the decode must contain all five words).
-**Re-verify those three clips' licenses before publishing this repo.**
+Wikimedia Commons. Licenses verified via the Commons API 2026-11-11
+(all CC, attribution required): `один` CC BY 2.0 fr, `два` CC BY 2.0 fr
+(The Shtooka Project), `три` CC BY 2.0 fr (The Shtooka Project),
+`четыре` CC BY 2.0 fr, `пять` CC BY 3.0 us (Сергей Сахно, Vion Nicolas).
+Their spoken content is verified by the host test itself (the decode must
+contain all five words).
 
 ## cyrillic_words.wav — 7.940 s, 16 kHz mono s16
 SHA-256: `e6601f6d93f99632a40d30be5e282d51dbd8bf206ea5dffc1ec15f2ea37af272`
@@ -50,9 +49,11 @@ Word regions (seconds): [0–1.097], [1.497–2.397], [2.797–3.947],
 [4.347–6.390], [6.790–7.940]. Silence gaps: [1.097–1.497], [2.397–2.797],
 [3.947–4.347], [6.390–6.790].
 
-Attribution: same Commons series as the numbers fixture. These five clips'
-individual license/source pages were not verified — re-verify before
-publishing this repo.
+Attribution: same Commons series as the numbers fixture. Licenses verified
+via the Commons API 2026-11-11 (all CC, attribution required): `мама`
+CC BY 2.0 fr, `дом` CC BY 2.0 fr (Gulnara Streit), `солнце` CC BY 2.0 fr
+(Gulnara Streit), `вода` CC BY-SA 3.0 (Alexander Mikhalenko), `спасибо`
+CC BY 2.0 fr.
 
 ## silence.wav — 2.000 s, 16 kHz mono s16
 SHA-256: `35babfbd1a756e6765981cf9ca2094ea3ecbb4cdca30dde34f68ccde6cb76c30`
