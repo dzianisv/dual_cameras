@@ -3,7 +3,6 @@ import 'dart:io';
 import 'dart:ui' as ui;
 
 import 'package:dual_cameras_example/main.dart';
-import 'package:dual_cameras_example/captions/caption_language.dart';
 import 'package:dual_cameras_example/captions/caption_language_store.dart';
 import 'package:dual_cameras_example/captions/model_manager.dart';
 import 'package:dual_cameras_example/captions/caption_models.dart';
