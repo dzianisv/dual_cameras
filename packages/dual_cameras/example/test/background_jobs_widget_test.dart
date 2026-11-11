@@ -181,10 +181,20 @@ void main() {
     await sheet(tester);
     expect(find.text('Enable notifications in settings'), findsOneWidget);
     expect(find.textContaining('Jobs still run'), findsOneWidget);
-    // The job card sits below the language picker in the sheet's
-    // scrollable list; scroll it into view before tapping.
-    await tester.scrollUntilVisible(find.text('Stop').last, 100.0);
-    await tester.tap(find.text('Stop').last);
+    // Tap the Stop in the sheet's job card (not the one on the main
+    // screen behind the sheet): scope to the Card showing this job's
+    // label, and name the sheet's ListView explicitly — the tree has
+    // several Scrollables, so scrollUntilVisible cannot pick one.
+    final sheetStop = find.descendant(
+      of: find.ancestor(
+        of: find.textContaining('Downloading model'),
+        matching: find.byType(Card),
+      ),
+      matching: find.text('Stop'),
+    );
+    await tester.scrollUntilVisible(sheetStop, 100.0,
+        scrollable: find.byType(ListView));
+    await tester.tap(sheetStop);
     await tester.pumpAndSettle();
     expect(jobs.stopped, ['one']);
   });
