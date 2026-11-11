@@ -615,10 +615,11 @@ class _DemoScreenState extends State<DemoScreen> with WidgetsBindingObserver {
       // Let the progress state paint before the blocking decode.
       await Future<void>.delayed(const Duration(milliseconds: 150));
       if (!mounted) return;
-      final List<CaptionWord> words = await _transcriber.transcribe(
+      final result = await _transcriber.transcribe(
         wavPath: wav,
         model: model,
       );
+      final words = result.words;
       if (!mounted) return;
       if (words.isEmpty) {
         _update(
@@ -638,7 +639,10 @@ class _DemoScreenState extends State<DemoScreen> with WidgetsBindingObserver {
       _update(() {
         _captionedFile = captioned;
         _captionSourceFile = mp4;
-        _captionStatus = 'Captions done — ${words.length} words';
+        _captionStatus = 'Captions done — ${words.length} words' +
+            (result.detectedLanguage.isEmpty
+                ? ''
+                : ' (${result.detectedLanguage})');
       });
     } catch (e) {
       if (!mounted) return;

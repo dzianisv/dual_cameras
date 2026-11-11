@@ -11,8 +11,12 @@ then decodes real test audio with sherpa-onnx and asserts:
   * token timestamps are non-empty, monotonic, and within the audio duration
   * silence (and VAD-gated noise) yields no words
 
-The test speech is synthesized with espeak-ng in CI and is clearly labeled
-as synthesized in the evidence. This is a host check only: it proves the
+The test speech is the committed real-speech fixture
+(packages/dual_cameras/example/test/fixtures/russian_numbers.wav: five
+human Russian number clips from Wikimedia Commons, concatenated with 0.4s
+silences) for Russian, with matching silence/noise fixtures; the English
+sanity wav is synthesized with espeak-ng in CI and is clearly labeled as
+synthesized in the evidence. This is a host check only: it proves the
 model + decoder + VAD behave as the app needs. It does NOT prove anything
 about Android (camera, mic, background work, burn-in) — that still needs a
 phone.
@@ -103,25 +107,27 @@ def aggregate_words(tokens, timestamps):
     return words
 
 
-def gate_words(words, segments, padding=0.15):
-    """Mirror of the app's VAD gating: drop words with no overlap with any
-    speech segment (expanded by padding); clamp the word end to the end of
-    the speech segment it overlaps, so highlighting stops during silence."""
+def gate_words(words, segments, tolerance=0.05):
+    """Mirror of Dart applyVadGate: drop words with no real overlap with any
+    speech segment; clamp a kept word to the segment it overlaps most, so
+    highlighting stops during silence. A word straddling a boundary is
+    truncated to the segment, not dropped."""
     kept = []
     for word in words:
-        overlapping = [
-            seg
-            for seg in segments
-            if word["start"] < seg[1] + padding and word["end"] > seg[0] - padding
-        ]
-        if not overlapping:
+        best = None
+        best_overlap = 0.0
+        for seg in segments:
+            overlap = min(word["end"], seg[1]) - max(word["start"], seg[0])
+            if overlap > best_overlap:
+                best_overlap = overlap
+                best = seg
+        if best is None or best_overlap <= tolerance:
             continue
-        seg_end = max(seg[1] for seg in overlapping)
         kept.append(
             {
                 "text": word["text"],
-                "start": word["start"],
-                "end": min(word["end"], seg_end),
+                "start": max(word["start"], best[0]),
+                "end": min(word["end"], best[1]),
             }
         )
     return kept
@@ -135,6 +141,9 @@ def main() -> int:
     parser.add_argument("--silence-wav", required=True)
     parser.add_argument("--noise-wav", required=True)
     parser.add_argument("--out", required=True)
+    parser.add_argument("--speech-label", default=None,
+                        help="Label recorded in the evidence for the Russian "
+                        "test speech (default: synthesized with espeak-ng).")
     args = parser.parse_args()
 
     import os
@@ -144,7 +153,8 @@ def main() -> int:
     workdir = args.workdir
     os.makedirs(workdir, exist_ok=True)
     evidence: dict = {
-        "speech": "synthesized with espeak-ng in CI (not a human recording)",
+        "speech": args.speech_label
+        or "synthesized with espeak-ng in CI (not a human recording)",
         "sherpa_onnx_version": getattr(sherpa_onnx, "__version__", "unknown"),
         "files": [],
         "checks": {},
@@ -212,17 +222,24 @@ def main() -> int:
         vad = sherpa_onnx.VoiceActivityDetector(
             vad_config, buffer_size_in_seconds=30
         )
+        # The C SpeechSegment has start (a sample index) + samples; there is
+        # no end field. Convert to seconds here, like the Dart detector.
+        def to_seconds(seg) -> tuple[float, float]:
+            start = seg.start / wave.sample_rate
+            end = (seg.start + len(seg.samples)) / wave.sample_rate
+            return (start, end)
+
         try:
             vad.accept_waveform(wave.samples)
             segments: list[tuple[float, float]] = []
             while not vad.is_empty():
                 seg = vad.front()
-                segments.append((float(seg.start), float(seg.end)))
+                segments.append(to_seconds(seg))
                 vad.pop()
             vad.flush()
             while not vad.is_empty():
                 seg = vad.front()
-                segments.append((float(seg.start), float(seg.end)))
+                segments.append(to_seconds(seg))
                 vad.pop()
             return segments
         finally:

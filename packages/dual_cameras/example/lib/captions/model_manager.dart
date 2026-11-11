@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:crypto/crypto.dart' as crypto;
 import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
 
@@ -14,40 +15,122 @@ class ModelDownloadException implements Exception {
   String toString() => message;
 }
 
+/// One model file to download, with its pinned size and content hash.
+///
+/// [size] and [sha256] are verified after download and on every cache hit.
+/// A null [sha256] means the Hub API did not publish a content hash for the
+/// file (only its size is pinned); the receipt still records the hash of the
+/// bytes actually downloaded, so later corruption is detected and a pin can
+/// be added without re-downloading. A null [size] skips the size check.
+class ModelFileSpec {
+  const ModelFileSpec({
+    required this.key,
+    required this.name,
+    required this.url,
+    this.size,
+    this.sha256,
+  });
+
+  /// 'encoder' | 'decoder' | 'tokens' | 'vad'.
+  final String key;
+  final String name;
+  final String url;
+  final int? size;
+  final String? sha256;
+}
+
 /// Downloads the model once. Interrupted transfers retry automatically and
 /// resume only with a server validator, so bytes from different files cannot
 /// be combined. Neither network exceptions nor signed CDN URLs reach the UI.
+///
+/// The multilingual Whisper base model (not base.en) plus the Silero VAD
+/// model are downloaded into a fresh directory, so an old base.en cache can
+/// never be reused. Every file is verified by size and SHA-256 after download
+/// and on cache hit; a mismatch is discarded and re-downloaded, never trusted.
 class ModelManager {
   ModelManager({
     http.Client Function()? clientFactory,
     Future<Directory> Function()? documentsDirectory,
-    this.baseUrl = _defaultBaseUrl,
+    this.baseUrl = _defaultWhisperBaseUrl,
+    this.vadBaseUrl = _defaultVadBaseUrl,
     this.maxAttempts = 4,
     this.retryDelay = const Duration(seconds: 1),
+    List<ModelFileSpec>? files,
   })  : _clientFactory = clientFactory ?? http.Client.new,
         _documentsDirectory =
-            documentsDirectory ?? getApplicationDocumentsDirectory;
+            documentsDirectory ?? getApplicationDocumentsDirectory,
+        _files = files ?? _defaultFiles(baseUrl, vadBaseUrl);
 
   final http.Client Function() _clientFactory;
   final Future<Directory> Function() _documentsDirectory;
 
   /// Override only for controlled download integration tests.
   final String baseUrl;
+
+  /// Override only for controlled download integration tests.
+  final String vadBaseUrl;
   final int maxAttempts;
   final Duration retryDelay;
+  final List<ModelFileSpec> _files;
   Future<WhisperModelFiles>? _inFlight;
   final Set<void Function(double)> _listeners = {};
   double _progress = 0;
   bool _cancelled = false;
   http.Client? _activeClient;
 
-  static const _defaultBaseUrl =
-      'https://huggingface.co/csukuangfj/sherpa-onnx-whisper-base.en/resolve/main';
-  static const _encoderFile = 'base.en-encoder.int8.onnx';
-  static const _decoderFile = 'base.en-decoder.int8.onnx';
-  static const _tokensFile = 'base.en-tokens.txt';
-  static const _dirName = 'sherpa-whisper-base.en';
+  static const _defaultWhisperBaseUrl =
+      'https://huggingface.co/csukuangfj/sherpa-onnx-whisper-base/resolve/main';
+  static const _defaultVadBaseUrl =
+      'https://huggingface.co/csukuangfj/vad/resolve/main';
+  static const _dirName = 'sherpa-whisper-base';
   static const _timeout = Duration(seconds: 60);
+
+  /// Production file list with sizes and hashes pinned from the HuggingFace
+  /// Hub tree API (2026-11-11). The int8 encoder/decoder hashes are the
+  /// files' LFS oids, which are the SHA-256 of the file content — the CI host
+  /// check cross-checks this claim by hashing the downloaded bytes.
+  /// base-tokens.txt and silero_vad.onnx have no content hash in the Hub API
+  /// response (tokens only carries a git blob oid, which is not a content
+  /// hash; the VAD LFS oid was truncated in the API read), so only their
+  /// sizes are pinned here. Their SHA-256 must be taken from a CI download
+  /// and pinned afterwards — see NOTES.md.
+  static List<ModelFileSpec> _defaultFiles(
+      String whisperBase, String vadBase) {
+    return [
+      ModelFileSpec(
+        key: 'encoder',
+        name: 'base-encoder.int8.onnx',
+        url: '$whisperBase/base-encoder.int8.onnx',
+        size: 29120534,
+        sha256:
+            '0b8fb1304b6109976038efff5ace81720e00386f3ff6b54ee8c75291ca0a1e11',
+      ),
+      ModelFileSpec(
+        key: 'decoder',
+        name: 'base-decoder.int8.onnx',
+        url: '$whisperBase/base-decoder.int8.onnx',
+        size: 130672026,
+        sha256:
+            '9759d217388a01b3a4c7c15533201067b48ae819c4daafc8624e64b9409dc02d',
+      ),
+      ModelFileSpec(
+        key: 'tokens',
+        name: 'base-tokens.txt',
+        url: '$whisperBase/base-tokens.txt',
+        size: 816730,
+        // No content hash published by the Hub API; pin from CI download.
+        sha256: null,
+      ),
+      ModelFileSpec(
+        key: 'vad',
+        name: 'silero_vad.onnx',
+        url: '$vadBase/silero_vad.onnx',
+        size: 1807522,
+        // No content hash pinned yet; pin from CI download.
+        sha256: null,
+      ),
+    ];
+  }
 
   void cancel() {
     _cancelled = true;
@@ -81,12 +164,33 @@ class ModelManager {
     }
   }
 
-  Future<bool> _isComplete(File file) async {
+  static Future<String> _sha256Hex(File file) async {
+    final digest = await crypto.sha256.bind(file.openRead()).first;
+    return digest.toString();
+  }
+
+  /// A cached file is complete only if its receipt matches the pinned size
+  /// and hash, and the bytes on disk still hash to the receipt's hash.
+  /// Legacy plain-number receipts fail JSON parsing and are re-downloaded.
+  Future<bool> _isComplete(File file, ModelFileSpec spec) async {
     if (!await file.exists()) return false;
     final receipt = File('${file.path}.size');
     if (!await receipt.exists()) return false;
-    final expected = int.tryParse(await receipt.readAsString());
-    return expected != null && expected > 0 && await file.length() == expected;
+    try {
+      final data = jsonDecode(await receipt.readAsString()) as Map;
+      final size = data['size'] as int?;
+      final hash = data['sha256'] as String?;
+      if (size == null || size <= 0) return false;
+      if (await file.length() != size) return false;
+      if (spec.size != null && size != spec.size) return false;
+      if (spec.sha256 != null && hash != spec.sha256) return false;
+      if (hash != null && await _sha256Hex(file) != hash) return false;
+      return true;
+    } on FormatException {
+      return false;
+    } on TypeError {
+      return false;
+    }
   }
 
   Future<WhisperModelFiles> _prepare() async {
@@ -94,24 +198,27 @@ class ModelManager {
       final docs = await _documentsDirectory();
       final dir = Directory('${docs.path}/$_dirName');
       await dir.create(recursive: true);
-      const names = [_encoderFile, _decoderFile, _tokensFile];
-      final missing = <String>[];
-      for (final name in names) {
-        if (!await _isComplete(File('${dir.path}/$name'))) missing.add(name);
+      final paths = <String, String>{};
+      final missing = <ModelFileSpec>[];
+      for (final spec in _files) {
+        final file = File('${dir.path}/${spec.name}');
+        paths[spec.key] = file.path;
+        if (!await _isComplete(file, spec)) missing.add(spec);
       }
       for (var i = 0; i < missing.length; i++) {
         _checkCancelled();
-        final name = missing[i];
-        await _downloadWithRetry('$baseUrl/$name', File('${dir.path}/$name'),
+        final spec = missing[i];
+        await _downloadWithRetry(spec, File('${dir.path}/${spec.name}'),
             (p) => _report((i + p) / missing.length));
         _report((i + 1) / missing.length);
       }
       _checkCancelled();
       _report(1.0);
       return WhisperModelFiles(
-        encoder: '${dir.path}/$_encoderFile',
-        decoder: '${dir.path}/$_decoderFile',
-        tokens: '${dir.path}/$_tokensFile',
+        encoder: paths['encoder']!,
+        decoder: paths['decoder']!,
+        tokens: paths['tokens']!,
+        vad: paths['vad']!,
       );
     } on ModelDownloadException {
       rethrow;
@@ -124,20 +231,23 @@ class ModelManager {
     }
   }
 
-  Future<void> _downloadWithRetry(
-      String url, File dest, void Function(double) onProgress) async {
+  Future<void> _downloadWithRetry(ModelFileSpec spec, File dest,
+      void Function(double) onProgress) async {
     for (var attempt = 0; attempt < maxAttempts; attempt++) {
       _checkCancelled();
       final client = _clientFactory();
       _activeClient = client;
       try {
-        await _download(client, url, dest, onProgress);
+        await _download(client, spec, dest, onProgress);
         return;
       } on FileSystemException {
         rethrow;
-      } catch (_) {
+      } catch (error) {
         _checkCancelled();
         if (attempt + 1 >= maxAttempts) {
+          // Preserve a specific failure cause (e.g. a hash mismatch) instead
+          // of replacing it with the generic retry message.
+          if (error is ModelDownloadException) rethrow;
           throw const ModelDownloadException(
               'Speech model download interrupted after automatic retries. '
               'Check your connection and tap Retry. Saved download progress is kept.');
@@ -152,7 +262,7 @@ class ModelManager {
         'Speech model download could not start.');
   }
 
-  Future<void> _download(http.Client client, String url, File dest,
+  Future<void> _download(http.Client client, ModelFileSpec spec, File dest,
       void Function(double) onProgress) async {
     final partial = File('${dest.path}.part');
     final resume = File('${dest.path}.part.json');
@@ -176,7 +286,8 @@ class ModelManager {
             validator.isEmpty ||
             expectedTotal == null ||
             offset <= 0 ||
-            offset >= expectedTotal) {
+            offset >= expectedTotal ||
+            (spec.size != null && expectedTotal != spec.size)) {
           offset = 0;
         }
       }
@@ -191,7 +302,7 @@ class ModelManager {
       expectedTotal = null;
     }
     if (await receipt.exists()) await receipt.delete();
-    final request = http.Request('GET', Uri.parse(url));
+    final request = http.Request('GET', Uri.parse(spec.url));
     request.headers['Accept-Encoding'] = 'identity';
     if (offset > 0) {
       request.headers['Range'] = 'bytes=$offset-';
@@ -230,6 +341,15 @@ class ModelManager {
     } else {
       throw const ModelDownloadException('Speech model server unavailable.');
     }
+    // The file on the server must be the pinned file; a different size means
+    // it changed upstream and the pin no longer describes it.
+    if (spec.size != null &&
+        expectedTotal != null &&
+        expectedTotal != spec.size) {
+      await resetPartial();
+      throw const ModelDownloadException(
+          'Speech model changed on the server. Check for an app update.');
+    }
     final canResume =
         validator != null && expectedTotal != null && expectedTotal > 0;
     if (canResume) {
@@ -266,11 +386,26 @@ class ModelManager {
             'Speech model download was incomplete.');
       }
       await partial.rename(dest.path);
-      await receiptPartial.writeAsString('$received', flush: true);
+      // Verify the pinned size and hash before the file can become a cache
+      // hit. A mismatch is discarded, never trusted.
+      if (spec.size != null && received != spec.size) {
+        await dest.delete();
+        throw const ModelDownloadException(
+            'Speech model failed verification. Check your connection and retry.');
+      }
+      final digest = await _sha256Hex(dest);
+      if (spec.sha256 != null && digest != spec.sha256) {
+        await dest.delete();
+        throw const ModelDownloadException(
+            'Speech model failed verification. Check your connection and retry.');
+      }
+      await receiptPartial.writeAsString(
+          jsonEncode({'size': received, 'sha256': digest}),
+          flush: true);
       await receiptPartial.rename(receipt.path);
       complete = true;
     } finally {
-      if (complete || !canResume || received >= expectedTotal) {
+      if (complete || !canResume || received >= (expectedTotal ?? 0)) {
         await resetPartial();
       }
       if (await receiptPartial.exists()) await receiptPartial.delete();

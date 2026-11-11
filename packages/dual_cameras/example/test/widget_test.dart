@@ -16,7 +16,10 @@ class FakeModelManager extends ModelManager {
   Completer<WhisperModelFiles>? gate;
   void Function(double)? progress;
   static const files = WhisperModelFiles(
-      encoder: 'encoder', decoder: 'decoder', tokens: 'tokens');
+      encoder: 'encoder',
+      decoder: 'decoder',
+      tokens: 'tokens',
+      vad: 'vad');
   @override
   Future<WhisperModelFiles> ensureModel(
       {required void Function(double) onProgress}) async {

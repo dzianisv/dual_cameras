@@ -48,11 +48,12 @@ Future<void> runCaptionJob() async {
     final wav = await pipeline.extractAudio(mp4);
     checkCancelled();
     await progress('Transcribing on device', 35);
-    final words = await transcriber.transcribe(
+    final result = await transcriber.transcribe(
         wavPath: wav,
         model: model,
         onProgress: (value) =>
             progress('Transcribing on device', 35 + (value * 40).floor()));
+    final words = result.words;
     checkCancelled();
     if (words.isEmpty) {
       await channel
