@@ -3,6 +3,7 @@ import 'package:dual_cameras_example/captions/model_download_notifier.dart';
 import 'package:dual_cameras_example/captions/notification_center.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:permission_handler/permission_handler.dart';
 
 class _Shown {
   _Shown(this.id, this.title, this.body, this.details);
@@ -63,13 +64,22 @@ class _FakePlugin extends Fake implements FlutterLocalNotificationsPlugin {
 }
 
 void main() {
+  // The center's default permission check hits the real permission_handler
+  // channel, which has no mock in a plain unit test (it would deny every
+  // show). Inject a granted answer so show() reaches the fake plugin.
+  NotificationCenter centerFor(_FakePlugin plugin) => NotificationCenter(
+        plugin: plugin,
+        checkPermission: () async => PermissionStatus.granted,
+        requestPermission: () async => PermissionStatus.granted,
+      );
+
   group('NotificationCenter', () {
     late _FakePlugin plugin;
     late NotificationCenter center;
 
     setUp(() {
       plugin = _FakePlugin();
-      center = NotificationCenter(plugin: plugin);
+      center = centerFor(plugin);
     });
 
     test('dispatches a registered stop tap to its handler', () async {
@@ -119,8 +129,7 @@ void main() {
 
     setUp(() {
       plugin = _FakePlugin();
-      notifier =
-          SystemModelDownloadNotifier(center: NotificationCenter(plugin: plugin));
+      notifier = SystemModelDownloadNotifier(center: centerFor(plugin));
     });
 
     test('progress notification carries a Stop action', () async {
@@ -162,8 +171,7 @@ void main() {
 
     setUp(() {
       plugin = _FakePlugin();
-      notifier =
-          SystemCaptionJobNotifier(center: NotificationCenter(plugin: plugin));
+      notifier = SystemCaptionJobNotifier(center: centerFor(plugin));
     });
 
     test('progress notification carries a Stop action and stage bands',
@@ -192,25 +200,27 @@ void main() {
       expect(stops, 1);
     });
 
-    test('done clears the progress notification and reports the result',
+    test('done replaces the progress notification and reports the result',
         () async {
       await notifier.showProgress(CaptionStage.burning, .9);
       await notifier.showDone(12, 'ru');
-      expect(plugin.cancelled, contains(1002));
+      // Same notification id: the terminal notification replaces the
+      // progress one (no cancel — cancelling first would flash it away).
+      expect(plugin.shown, hasLength(2));
       expect(plugin.shown.last.title, contains('Captions added'));
       expect(plugin.shown.last.body, contains('12 words'));
       expect(plugin.shown.last.body, contains('ru'));
     });
 
-    test('no-speech and failed clear the progress notification', () async {
+    test('no-speech and failed replace the progress notification', () async {
       await notifier.showProgress(CaptionStage.transcribing, .5);
       await notifier.showNoSpeech();
-      expect(plugin.cancelled, contains(1002));
+      expect(plugin.shown, hasLength(2));
       expect(plugin.shown.last.body, contains('No speech detected'));
       await notifier.showProgress(CaptionStage.transcribing, .5);
       await notifier.showFailed('boom');
-      expect(plugin.cancelled, contains(1002));
-      expect(plugin.shown.last.body, contains('original video kept'));
+      expect(plugin.shown, hasLength(4));
+      expect(plugin.shown.last.body, contains('Original video kept'));
     });
   });
 }
