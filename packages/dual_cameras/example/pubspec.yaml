@@ -1,7 +1,7 @@
 name: dual_cameras_example
 description: "Demonstrates dual_cameras: front+back simultaneous capture."
 publish_to: 'none'
-version: 0.5.1+6
+version: 0.5.2+7
 
 environment:
   sdk: ^3.5.0
@@ -21,6 +21,9 @@ dependencies:
   # SHA-256 verification of downloaded model files.
   crypto: ^3.0.0
   path_provider: ^2.1.0
+  # Caption-model download progress lives in a system notification
+  # (v0.5.2), not as a banner on the camera screen.
+  flutter_local_notifications: ^19.0.0
 
 dev_dependencies:
   integration_test:

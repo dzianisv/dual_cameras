@@ -162,6 +162,13 @@ class RenderThread(
 
     fun startRecording(path: String, recordAudio: Boolean, hevc: Boolean) {
         handler.post {
+            if (recording) {
+                // Defensive: the Dart side already guards on isRecording, but
+                // a second start must never overwrite a live encoder/muxer —
+                // the first recording's file would never be finalized.
+                Log.w(TAG, "startRecording ignored: already recording")
+                return@post
+            }
             outputPath = path
             startNanos = System.nanoTime()
             val mux = Muxer(outputPath, expectAudio = recordAudio)
@@ -184,18 +191,26 @@ class RenderThread(
     fun stopRecordingResult(done: (String) -> Unit) {
         handler.post {
             recording = false
-            audioEncoder?.stop()
+            // Capture this recording's objects into locals first: the delayed
+            // teardown below must release THEM, never a newer recording's.
+            // A second recording started within the 150 ms flush window used
+            // to get its encoder/muxer released out from under it (v0.5.2).
+            val venc = videoEncoder
+            videoEncoder = null
+            val encSurface = encoderSurface
+            encoderSurface = null
+            val mux = muxer
+            muxer = null
+            val aenc = audioEncoder
             audioEncoder = null
-            videoEncoder?.signalEndOfStream()
+            aenc?.stop()
+            venc?.signalEndOfStream()
             val path = outputPath
             // Give the encoder a moment to flush EOS before tearing down.
             handler.postDelayed({
-                videoEncoder?.release()
-                videoEncoder = null
-                encoderSurface?.let { egl.releaseSurface(it) }
-                encoderSurface = null
-                muxer?.stopAndRelease()
-                muxer = null
+                venc?.release()
+                encSurface?.let { egl.releaseSurface(it) }
+                mux?.stopAndRelease()
                 done(path)
             }, 150)
         }

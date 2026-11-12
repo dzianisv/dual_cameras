@@ -4,6 +4,7 @@ import 'dart:ui' as ui;
 
 import 'package:dual_cameras_example/main.dart';
 import 'package:dual_cameras_example/captions/caption_language_store.dart';
+import 'package:dual_cameras_example/captions/model_download_notifier.dart';
 import 'package:dual_cameras_example/captions/model_manager.dart';
 import 'package:dual_cameras_example/captions/caption_models.dart';
 import 'package:dual_cameras_platform_interface/dual_cameras_platform_interface.dart';
@@ -31,6 +32,27 @@ class FakeModelManager extends ModelManager {
     if (gate != null) return gate!.future;
     onProgress(1);
     return files;
+  }
+}
+
+class FakeModelDownloadNotifier implements ModelDownloadNotifier {
+  final List<double> progresses = [];
+  int readyCalls = 0;
+  final List<String> failed = [];
+
+  @override
+  Future<void> showProgress(double progress) async {
+    progresses.add(progress);
+  }
+
+  @override
+  Future<void> showReady() async {
+    readyCalls++;
+  }
+
+  @override
+  Future<void> showFailed(String error) async {
+    failed.add(error);
   }
 }
 
@@ -144,26 +166,47 @@ void main() {
     await tester.pumpAndSettle();
   }
 
-  testWidgets('startup model progress and retry do not block camera capture',
+  testWidgets('model download reports to notification, never a top banner',
       (tester) async {
+    final downloads = FakeModelDownloadNotifier();
     model.fail = true;
-    await openCamera(tester);
-    expect(
-        find.textContaining('Caption model download failed'), findsOneWidget);
+    await tester.pumpWidget(DemoApp(
+        modelManager: model,
+        backgroundCaptions: false,
+        modelDownloadNotifier: downloads));
+    await tester.pumpAndSettle();
+    // No model state anywhere on the camera screen, even while the
+    // download fails (v0.5.2: the banner is gone for good).
+    expect(find.textContaining('Caption model download failed'), findsNothing);
+    expect(find.textContaining('Preparing captions'), findsNothing);
+    expect(find.text('Captions ready · on device'), findsNothing);
+    expect(downloads.failed, isNotEmpty);
+    // The failure + Retry live in the Captions sheet.
+    await tester.ensureVisible(find.text('Captions off'));
+    await tester.tap(find.text('Captions off'));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('Caption model download failed'),
+        findsOneWidget);
     model.fail = false;
     model.gate = Completer<WhisperModelFiles>();
     await tester.tap(find.text('Retry'));
     await tester.pump();
     model.progress!(.42);
     await tester.pump();
-    expect(find.textContaining('Preparing captions · 42%'), findsOneWidget);
+    expect(downloads.progresses, contains(.42));
+    await tester.tap(find.byTooltip('Close Captions'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('Open camera'));
+    await tester.pumpAndSettle();
     await tester.tap(find.byTooltip('Start recording'));
     await tester.pump();
     expect(fake.starts, 1);
     expect(model.calls, 2);
     model.gate!.complete(FakeModelManager.files);
     await tester.pumpAndSettle();
-    expect(find.text('Captions ready · on device'), findsOneWidget);
+    expect(downloads.readyCalls, 1);
+    expect(find.text('Captions ready · on device'), findsNothing);
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets(
@@ -200,6 +243,11 @@ void main() {
     model.gate!.completeError(Exception('Download interrupted'));
     await tester.pumpAndSettle();
     expect(find.textContaining('plain video kept'), findsOneWidget);
+    // The model failure + Retry live in the Captions sheet now (v0.5.2),
+    // not as a banner on the camera screen.
+    await tester.ensureVisible(find.text('Captions off'));
+    await tester.tap(find.text('Captions off'));
+    await tester.pumpAndSettle();
     expect(find.text('Retry'), findsOneWidget);
     expect(galleryCalls.where((call) => call == 'putVideo').length, 1);
     expect(tester.takeException(), isNull);
@@ -376,9 +424,11 @@ void main() {
     expect(galleryCalls.where((call) => call == 'putVideo').length, 1);
     saved.complete();
     await tester.pumpAndSettle();
-    await tester.tap(find.byTooltip('Start recording'));
-    await tester.pumpAndSettle();
+    // The tap that landed while the save was in flight was queued, not
+    // dropped (v0.5.2): clip 2 starts on its own once the original is
+    // saved, with no second tap.
     expect(fake.starts, 2);
+    expect(find.byTooltip('Stop recording'), findsOneWidget);
   });
 
   testWidgets('late model completion after disposal is safe', (tester) async {
@@ -453,6 +503,31 @@ void main() {
     expect(galleryCalls.where((call) => call == 'putVideo').length, 1);
     expect(find.text('Video saved to gallery'), findsOneWidget);
     expect(find.textContaining('/tmp/'), findsNothing);
+  });
+
+  testWidgets('hung camera command times out and the shutter recovers',
+      (tester) async {
+    fake.startGate = Completer<void>();
+    await tester.pumpWidget(DemoApp(
+        modelManager: model,
+        backgroundCaptions: false,
+        cameraCommandTimeout: const Duration(milliseconds: 100)));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('Open camera'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('Start recording'));
+    await tester.pump();
+    expect(fake.starts, 1);
+    // The native call never returns; the watchdog must surface the error
+    // and free the lock instead of dead-buttoning the screen (v0.5.2).
+    await tester.runAsync(
+        () async => Future<void>.delayed(const Duration(milliseconds: 300)));
+    await tester.pump();
+    expect(find.textContaining('Recording failed'), findsOneWidget);
+    expect(find.byTooltip('Start recording'), findsOneWidget);
+    fake.startGate!.complete();
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('filters, captions, settings close and back retain state',

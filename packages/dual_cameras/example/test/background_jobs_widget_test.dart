@@ -118,6 +118,9 @@ void main() {
     ];
     await launch(tester);
     expect(model.calls, 0);
+    // The top banner is gone (v0.5.2): job progress lives in the Captions
+    // sheet and the notification shade, not on the camera screen.
+    await sheet(tester);
     expect(find.text('Transcribing on device · 48%'), findsOneWidget);
     expect(
         tester

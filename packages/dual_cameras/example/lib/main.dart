@@ -12,6 +12,7 @@ import 'captions/caption_job_runner.dart';
 import 'captions/caption_language.dart';
 import 'captions/caption_language_store.dart';
 import 'captions/caption_pipeline.dart';
+import 'captions/model_download_notifier.dart';
 import 'captions/model_manager.dart';
 import 'captions/transcriber.dart';
 import 'ui/story_camera.dart';
@@ -27,12 +28,16 @@ class DemoApp extends StatelessWidget {
       this.modelManager,
       this.captionJobs,
       this.backgroundCaptions,
-      this.captionLanguageStore});
+      this.captionLanguageStore,
+      this.modelDownloadNotifier,
+      this.cameraCommandTimeout});
 
   final ModelManager? modelManager;
   final CaptionJobs? captionJobs;
   final bool? backgroundCaptions;
   final CaptionLanguageStore? captionLanguageStore;
+  final ModelDownloadNotifier? modelDownloadNotifier;
+  final Duration? cameraCommandTimeout;
 
   @override
   Widget build(BuildContext context) {
@@ -55,7 +60,9 @@ class DemoApp extends StatelessWidget {
           modelManager: modelManager,
           captionJobs: captionJobs,
           backgroundCaptions: backgroundCaptions,
-          captionLanguageStore: captionLanguageStore),
+          captionLanguageStore: captionLanguageStore,
+          modelDownloadNotifier: modelDownloadNotifier,
+          cameraCommandTimeout: cameraCommandTimeout),
     );
   }
 }
@@ -66,12 +73,16 @@ class DemoScreen extends StatefulWidget {
       this.modelManager,
       this.captionJobs,
       this.backgroundCaptions,
-      this.captionLanguageStore});
+      this.captionLanguageStore,
+      this.modelDownloadNotifier,
+      this.cameraCommandTimeout});
 
   final ModelManager? modelManager;
   final CaptionJobs? captionJobs;
   final bool? backgroundCaptions;
   final CaptionLanguageStore? captionLanguageStore;
+  final ModelDownloadNotifier? modelDownloadNotifier;
+  final Duration? cameraCommandTimeout;
 
   @override
   State<DemoScreen> createState() => _DemoScreenState();
@@ -84,6 +95,22 @@ class _DemoScreenState extends State<DemoScreen> with WidgetsBindingObserver {
   String? _error;
   bool _busy = false;
   Future<void>? _cameraOperation;
+  // A shutter tap that lands while a camera command is in flight is queued,
+  // not dropped (v0.5.2: a tap during a transient busy window used to vanish
+  // with no trace — the v0.5.1 phone defect. The button stays enabled while
+  // busy; the tap shows 'Please wait…' at once and fires when the lock frees).
+  // Fired only if the screen is still up, the camera is initialized, and
+  // nothing is recording by then; otherwise it is dropped.
+  bool _pendingRecord = false;
+  // Watchdog (v0.5.2): a camera command that never returns used to leave
+  // `_busy` true forever — a dead screen until the app was killed. Every
+  // platform call is now bounded; on timeout the error surfaces like any
+  // other command failure and `_busy` clears. The underlying native call is
+  // not cancelled (platform calls cannot be), so a very late completion can
+  // still flip the controller state afterwards.
+  static const _cameraCommandTimeout = Duration(seconds: 20);
+  Duration get _cameraTimeout =>
+      widget.cameraCommandTimeout ?? _cameraCommandTimeout;
   // Background caption jobs have no native side yet (no WorkManager worker
   // or `caption_jobs` channel handler exists in the repo or the shipped APK),
   // so on a real phone `enqueue` always fails with MissingPluginException
@@ -135,10 +162,15 @@ class _DemoScreenState extends State<DemoScreen> with WidgetsBindingObserver {
   final CaptionPipeline _captionPipeline = CaptionPipeline();
   late final ModelManager _modelManager = widget.modelManager ?? ModelManager();
   Future<WhisperModelFiles>? _modelFuture;
-  bool _modelReady = false;
-  double? _modelProgress;
   String? _modelError;
   final Transcriber _transcriber = Transcriber();
+  // Model-download progress lives in a system notification (v0.5.2), never
+  // as a banner on the camera screen. Lazily created so tests that inject a
+  // fake never touch the plugin.
+  ModelDownloadNotifier? _modelDownloadNotifier;
+  ModelDownloadNotifier get _notifier =>
+      _modelDownloadNotifier ??= widget.modelDownloadNotifier ??
+          SystemModelDownloadNotifier();
 
   // Caption language (v0.5.1): Auto by default; a picked language is
   // forced on the recognizer and persisted across sessions. Auto can
@@ -255,48 +287,10 @@ class _DemoScreenState extends State<DemoScreen> with WidgetsBindingObserver {
     }
   }
 
-  Widget _backgroundPreparation() {
-    final active = _backgroundJobs.where((job) => job.active).toList();
-    final latest = active.isNotEmpty
-        ? active.first
-        : (_backgroundJobs.isEmpty ? null : _backgroundJobs.first);
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 10),
-      child: Column(mainAxisSize: MainAxisSize.min, children: [
-        Row(children: [
-          Expanded(
-              child: TextButton(
-            style: TextButton.styleFrom(
-                alignment: Alignment.centerLeft, padding: EdgeInsets.zero),
-            onPressed: _captionsSheet,
-            child: Text(latest?.label ?? 'Captions run in the background',
-                maxLines: 2, overflow: TextOverflow.ellipsis),
-          )),
-          if (latest != null && latest.canStop)
-            TextButton(
-                onPressed: _pendingJobActions.contains(latest.id)
-                    ? null
-                    : () =>
-                        _jobAction(latest.id, () => _jobs.cancel(latest.id)),
-                child: const Text('Stop')),
-        ]),
-        if (active.isNotEmpty)
-          LinearProgressIndicator(
-              value: latest!.progress / 100,
-              minHeight: 3,
-              semanticsLabel: latest.label,
-              semanticsValue: '${latest.progress}%'),
-        if (!_notificationsEnabled && active.isNotEmpty)
-          const Text('Notifications are off. Track progress and Stop here.',
-              style: TextStyle(fontSize: 12)),
-      ]),
-    );
-  }
-
   List<Widget> _backgroundJobCards() => [
         const Text('Android keeps captions running when you leave StoryCam. '
             'Notifications show progress and Stop, then Open and Share when ready. '
-            'The speech model downloads on first use (about 100 MB). Originals are kept.'),
+            'The speech model downloads on first use (about 160 MB). Originals are kept.'),
         if (!_notificationsEnabled) ...[
           const SizedBox(height: 12),
           const Text(
@@ -367,73 +361,31 @@ class _DemoScreenState extends State<DemoScreen> with WidgetsBindingObserver {
   }
 
   Future<WhisperModelFiles> _loadModel() async {
-    _update(() {
-      _modelError = null;
-      _modelProgress = null;
-    });
+    _update(() => _modelError = null);
+    // Whole-percent throttle for the notification, as the banner used to do
+    // for repaints. A cached model reports 0 then 1 with nothing between,
+    // so no notification ever appears for it.
+    double? lastReported;
     try {
       final model = await _modelManager.ensureModel(onProgress: (progress) {
         final value = progress.clamp(0.0, 1.0).toDouble();
-        // Announce and repaint at whole percentages, not every network chunk.
-        if (_modelProgress == null ||
-            (value * 100).floor() != (_modelProgress! * 100).floor()) {
-          _update(() => _modelProgress = value);
+        if (lastReported == null ||
+            (value * 100).floor() != (lastReported! * 100).floor()) {
+          lastReported = value;
+          if (value > 0 && value < 1) {
+            unawaited(_notifier.showProgress(value));
+          }
         }
       });
-      _update(() {
-        _modelReady = true;
-        _modelProgress = 1;
-      });
+      unawaited(_notifier.showReady());
       return model;
     } catch (e) {
       _modelFuture =
           null; // Allow an explicit retry or a later caption attempt.
       _update(() => _modelError = '$e');
+      unawaited(_notifier.showFailed('$e'));
       rethrow;
     }
-  }
-
-  Widget _modelPreparation() {
-    if (_usesBackgroundJobs) return _backgroundPreparation();
-    final label = _modelReady
-        ? 'Captions ready · on device'
-        : _modelError != null
-            ? 'Caption model download failed'
-            : 'Preparing captions${_modelProgress == null ? '' : ' · ${(_modelProgress! * 100).floor()}%'}';
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 10),
-      child: Column(mainAxisSize: MainAxisSize.min, children: [
-        Row(children: [
-          Expanded(
-              child: Semantics(
-            liveRegion: true,
-            child: Text('$label${_modelReady ? '' : '\nFirst use: ~100 MB'}',
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(fontSize: 12, color: Color(0xFFCAC6D5))),
-          )),
-          if (_modelError != null)
-            TextButton(
-              onPressed: _prepareModel,
-              child: const Text('Retry'),
-            ),
-        ]),
-        const SizedBox(height: 6),
-        LinearProgressIndicator(
-          value: _modelReady
-              ? 1
-              : _modelError != null
-                  ? (_modelProgress ?? 0)
-                  : _modelProgress,
-          minHeight: 3,
-          color: _modelError != null ? Colors.orange : null,
-          semanticsLabel: label,
-          semanticsValue: _modelProgress == null
-              ? null
-              : '${(_modelProgress! * 100).floor()}%',
-        ),
-      ]),
-    );
   }
 
   Future<void> _bootstrap() async {
@@ -454,7 +406,13 @@ class _DemoScreenState extends State<DemoScreen> with WidgetsBindingObserver {
   }
 
   Future<T> _cameraCommand<T>(Future<T> Function() action) {
-    final future = action();
+    // Watchdog: bound every platform call so a hung one surfaces as an
+    // error instead of leaving `_busy` true forever. The raw call keeps
+    // running underneath (platform calls cannot be cancelled); only the
+    // wait is bounded, and disposal waits on this bounded future too.
+    final future = action().timeout(_cameraTimeout, onTimeout: () {
+      throw TimeoutException('Camera command timed out', _cameraTimeout);
+    });
     // Disposal can await this completion without inheriting the command's error;
     // the original future is still awaited and reported by its caller.
     _cameraOperation =
@@ -582,7 +540,21 @@ class _DemoScreenState extends State<DemoScreen> with WidgetsBindingObserver {
     } finally {
       _update(() => _busy = false);
       _flushTuning();
+      _firePendingRecord();
     }
+  }
+
+  /// Fire a shutter tap that was queued while a command was in flight.
+  /// Runs only once the lock is free (a tuning flush in the same `finally`
+  /// re-locks first; its own `finally` retries this). Dropped when the
+  /// screen is gone, the camera is not initialized, or a recording has
+  /// started meanwhile (the tap predates it).
+  void _firePendingRecord() {
+    if (!_pendingRecord || _busy || !mounted) return;
+    _pendingRecord = false;
+    final value = _controller.value;
+    if (!value.isInitialized || value.isRecording) return;
+    unawaited(_record());
   }
 
   /// Stop recording, save to gallery, then optionally run the auto-captions
@@ -898,9 +870,18 @@ class _DemoScreenState extends State<DemoScreen> with WidgetsBindingObserver {
               ],
             ),
             if (_usesBackgroundJobs) ..._backgroundJobCards(),
-            if (!_usesBackgroundJobs)
+            if (!_usesBackgroundJobs) ...[
               const Text(
-                  'The speech model downloads at startup (about 100 MB on first use). Captions run on device once ready. Your original video is always kept.'),
+                  'The speech model downloads at startup (about 160 MB on first use). Download progress is in the notification shade. Captions run on device once ready. Your original video is always kept.'),
+              if (_modelError != null) ...[
+                const SizedBox(height: 8),
+                Text('Caption model download failed: $_modelError'),
+                TextButton(
+                  onPressed: _prepareModel,
+                  child: const Text('Retry'),
+                ),
+              ],
+            ],
             if (_captionStatus != null) ...[
               const SizedBox(height: 16),
               Semantics(liveRegion: true, child: Text(_captionStatus!)),
@@ -971,16 +952,26 @@ class _DemoScreenState extends State<DemoScreen> with WidgetsBindingObserver {
               IgnorePointer(ignoring: _busy, child: _debugPanel()),
           ]);
 
-  Future<void> _record() => _guard(() async {
-        if (_controller.value.isRecording) {
-          await _stop();
-        } else {
-          await _cameraCommand(_controller.startRecording);
-          _update(() {
-            _status = 'Recording your story';
-          });
-        }
-      }, 'Recording');
+  Future<void> _record() {
+    if (_busy) {
+      // The shutter stays enabled while busy (v0.5.2): queue the tap and
+      // say so at once instead of dropping it silently. Fired from
+      // `_perform`'s finally once the lock frees.
+      _pendingRecord = true;
+      _update(() => _status = 'Please wait…');
+      return Future<void>.value();
+    }
+    return _guard(() async {
+      if (_controller.value.isRecording) {
+        await _stop();
+      } else {
+        await _cameraCommand(_controller.startRecording);
+        _update(() {
+          _status = 'Recording your story';
+        });
+      }
+    }, 'Recording');
+  }
 
   Future<void> _photo() => _guard(() async {
         final file = await _cameraCommand(_controller.takePhoto);
@@ -1006,7 +997,6 @@ class _DemoScreenState extends State<DemoScreen> with WidgetsBindingObserver {
           if (_visibleJobError != null) _visibleJobError!,
         ].join('\n');
         return StoryCamera(
-          preparation: _modelPreparation(),
           preview: DualCameraPreview(
             _controller,
             placeholder: LayoutBuilder(builder: (context, constraints) {
@@ -1032,13 +1022,11 @@ class _DemoScreenState extends State<DemoScreen> with WidgetsBindingObserver {
           captions: _captions,
           filterName: _filter == VideoFilter.none ? 'Original' : 'Moody',
           status: status,
-          onCapture: _busy
-              ? null
-              : value.isInitialized
-                  ? _record
-                  : (_caps?.isSupported ?? false)
-                      ? _start
-                      : null,
+          onCapture: value.isInitialized
+              ? _record
+              : (_caps?.isSupported ?? false)
+                  ? _start
+                  : null,
           onPhoto: ready ? _photo : null,
           onSwap: ready
               ? () => _guard(
