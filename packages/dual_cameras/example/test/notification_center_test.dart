@@ -216,7 +216,8 @@ void main() {
       await notifier.showProgress(CaptionStage.transcribing, .5);
       await notifier.showNoSpeech();
       expect(plugin.shown, hasLength(2));
-      expect(plugin.shown.last.body, contains('No speech detected'));
+      expect(plugin.shown.last.title, contains('No speech detected'));
+      expect(plugin.shown.last.body, contains('Original video kept'));
       await notifier.showProgress(CaptionStage.transcribing, .5);
       await notifier.showFailed('boom');
       expect(plugin.shown, hasLength(4));
