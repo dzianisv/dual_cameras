@@ -47,11 +47,8 @@ class SystemModelDownloadNotifier implements ModelDownloadNotifier {
   static const stopActionId = 'stop_model_download';
 
   final NotificationCenter _center;
-  void Function()? _onStop;
-
   @override
   set onStop(void Function()? value) {
-    _onStop = value;
     if (value != null) {
       _center.registerAction(stopActionId, value);
     } else {

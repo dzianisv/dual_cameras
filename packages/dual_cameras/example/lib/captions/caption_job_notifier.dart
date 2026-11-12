@@ -55,11 +55,8 @@ class SystemCaptionJobNotifier implements CaptionJobNotifier {
   static const stopActionId = 'stop_caption_job';
 
   final NotificationCenter _center;
-  void Function()? _onStop;
-
   @override
   set onStop(void Function()? value) {
-    _onStop = value;
     if (value != null) {
       _center.registerAction(stopActionId, value);
     } else {

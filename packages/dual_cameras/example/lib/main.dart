@@ -11,6 +11,7 @@ import 'captions/caption_jobs.dart';
 import 'captions/caption_job_runner.dart';
 import 'captions/caption_language.dart';
 import 'captions/caption_language_store.dart';
+import 'captions/caption_models.dart';
 import 'captions/caption_pipeline.dart';
 import 'captions/model_download_notifier.dart';
 import 'captions/model_manager.dart';
