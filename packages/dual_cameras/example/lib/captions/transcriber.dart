@@ -25,7 +25,8 @@ class Transcriber {
   /// Transcribe a 16 kHz mono WAV; returns word-level timings plus the
   /// detected language and whether the timings validated.
   /// Runs synchronously on the calling isolate (alpha-grade); callers should
-  /// paint a "Transcribing…" state first and yield a frame.
+  /// report progress through the caption notification first and yield a
+  /// frame.
   Future<TranscriptionResult> transcribe({
     required String wavPath,
     required WhisperModelFiles model,

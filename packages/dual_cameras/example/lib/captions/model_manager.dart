@@ -148,6 +148,10 @@ class ModelManager {
     _activeClient?.close();
   }
 
+  /// True when the in-flight download was cancelled by [cancel]. Cleared
+  /// when a fresh attempt starts, so a stop never poisons a later retry.
+  bool get isCancelled => _cancelled;
+
   void _checkCancelled() {
     if (_cancelled) throw const ModelDownloadException('Caption job stopped');
   }
@@ -155,8 +159,14 @@ class ModelManager {
   Future<WhisperModelFiles> ensureModel({
     required void Function(double progress) onProgress,
   }) async {
+    if (_inFlight == null) {
+      // A fresh attempt: a previous stop must not poison the retry. Only
+      // reset when nothing is in flight — a joiner of a dying attempt must
+      // still see the cancellation.
+      _cancelled = false;
+      _progress = 0;
+    }
     _checkCancelled();
-    if (_inFlight == null) _progress = 0;
     _listeners.add(onProgress);
     onProgress(_progress);
     final future = _inFlight ??= _prepare();

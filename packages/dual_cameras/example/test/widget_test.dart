@@ -3,6 +3,7 @@ import 'dart:io';
 import 'dart:ui' as ui;
 
 import 'package:dual_cameras_example/main.dart';
+import 'package:dual_cameras_example/captions/caption_job_notifier.dart';
 import 'package:dual_cameras_example/captions/caption_language_store.dart';
 import 'package:dual_cameras_example/captions/model_download_notifier.dart';
 import 'package:dual_cameras_example/captions/model_manager.dart';
@@ -16,6 +17,7 @@ import 'package:plugin_platform_interface/plugin_platform_interface.dart';
 class FakeModelManager extends ModelManager {
   int calls = 0;
   bool fail = false;
+  bool cancelCalled = false;
   Completer<WhisperModelFiles>? gate;
   void Function(double)? progress;
   static const files = WhisperModelFiles(
@@ -33,12 +35,33 @@ class FakeModelManager extends ModelManager {
     onProgress(1);
     return files;
   }
+
+  @override
+  void cancel() {
+    // Mirrors the real manager: abort the in-flight download. The gate is
+    // the fake's in-flight attempt — fail it with the same stop exception
+    // the real cancel produces, so the screen takes the stopped path.
+    cancelCalled = true;
+    if (gate != null && !gate!.isCompleted) {
+      gate!.completeError(
+          const ModelDownloadException('Caption job stopped'));
+    }
+    super.cancel();
+  }
 }
 
 class FakeModelDownloadNotifier implements ModelDownloadNotifier {
   final List<double> progresses = [];
   int readyCalls = 0;
+  int stoppedCalls = 0;
   final List<String> failed = [];
+  void Function()? _onStop;
+
+  @override
+  set onStop(void Function()? value) => _onStop = value;
+
+  /// Simulate the user tapping Stop on the progress notification.
+  void simulateStop() => _onStop?.call();
 
   @override
   Future<void> showProgress(double progress) async {
@@ -51,8 +74,53 @@ class FakeModelDownloadNotifier implements ModelDownloadNotifier {
   }
 
   @override
+  Future<void> showStopped() async {
+    stoppedCalls++;
+  }
+
+  @override
   Future<void> showFailed(String error) async {
     failed.add(error);
+  }
+}
+
+class FakeCaptionJobNotifier implements CaptionJobNotifier {
+  final List<(CaptionStage, double)> progresses = [];
+  final List<(int, String)> done = [];
+  int noSpeechCalls = 0;
+  final List<String> failed = [];
+  int clearCalls = 0;
+  void Function()? _onStop;
+
+  @override
+  set onStop(void Function()? value) => _onStop = value;
+
+  /// Simulate the user tapping Stop on the progress notification.
+  void simulateStop() => _onStop?.call();
+
+  @override
+  Future<void> showProgress(CaptionStage stage, double stageProgress) async {
+    progresses.add((stage, stageProgress));
+  }
+
+  @override
+  Future<void> showDone(int words, String language) async {
+    done.add((words, language));
+  }
+
+  @override
+  Future<void> showNoSpeech() async {
+    noSpeechCalls++;
+  }
+
+  @override
+  Future<void> showFailed(String error) async {
+    failed.add(error);
+  }
+
+  @override
+  Future<void> clear() async {
+    clearCalls++;
   }
 }
 
@@ -153,8 +221,12 @@ void main() {
     await fake.eventController.close();
   });
 
-  Future<void> openCamera(WidgetTester tester) async {
-    await tester.pumpWidget(DemoApp(modelManager: model, backgroundCaptions: false));
+  Future<void> openCamera(WidgetTester tester,
+      {CaptionJobNotifier? captions}) async {
+    await tester.pumpWidget(DemoApp(
+        modelManager: model,
+        backgroundCaptions: false,
+        captionJobNotifier: captions));
     await tester.pumpAndSettle();
     await tester.tap(find.byTooltip('Open camera'));
     await tester.pumpAndSettle();
@@ -213,11 +285,15 @@ void main() {
       'captions await startup download once and keep saved original on failure',
       (tester) async {
     model.gate = Completer<WhisperModelFiles>();
+    final captions = FakeCaptionJobNotifier();
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(
             const MethodChannel('dual_cameras_example/captions'),
             (call) async => '/tmp/audio.wav');
-    await tester.pumpWidget(DemoApp(modelManager: model, backgroundCaptions: false));
+    await tester.pumpWidget(DemoApp(
+        modelManager: model,
+        backgroundCaptions: false,
+        captionJobNotifier: captions));
     await tester.pump();
     await tester.ensureVisible(find.text('Captions off'));
     await tester.tap(find.text('Captions off'));
@@ -242,7 +318,10 @@ void main() {
     expect(fake.starts, 2); // Model preparation must not block the next clip.
     model.gate!.completeError(Exception('Download interrupted'));
     await tester.pumpAndSettle();
-    expect(find.textContaining('plain video kept'), findsOneWidget);
+    // The failure went to the caption notification (v0.5.3), not to
+    // in-app text: only clip 1's job had finished recording and failed.
+    expect(captions.failed, hasLength(1));
+    expect(find.textContaining('plain video kept'), findsNothing);
     // The model failure + Retry live in the Captions sheet now (v0.5.2),
     // not as a banner on the camera screen. Captions were enabled earlier
     // in this test, so the chip reads 'Captions on'.
@@ -250,6 +329,136 @@ void main() {
     await tester.tap(find.text('Captions on'));
     await tester.pumpAndSettle();
     expect(find.text('Retry'), findsOneWidget);
+    expect(galleryCalls.where((call) => call == 'putVideo').length, 1);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('stopping the model download cancels it and offers retry',
+      (tester) async {
+    final downloads = FakeModelDownloadNotifier();
+    model.gate = Completer<WhisperModelFiles>();
+    await tester.pumpWidget(DemoApp(
+        modelManager: model,
+        backgroundCaptions: false,
+        modelDownloadNotifier: downloads));
+    await tester.pump();
+    model.progress!(.42);
+    await tester.pump();
+    expect(downloads.progresses, contains(.42));
+    // No download state on the camera screen (v0.5.2).
+    expect(find.textContaining('Downloading caption model'), findsNothing);
+    // Stop from the notification (v0.5.3): cancels the real download.
+    downloads.simulateStop();
+    await tester.pumpAndSettle();
+    expect(model.cancelCalled, isTrue);
+    expect(downloads.stoppedCalls, 1);
+    expect(downloads.failed, isEmpty);
+    // The stop is offered retry in the Captions sheet, not a failure.
+    await tester.ensureVisible(find.text('Captions off'));
+    await tester.tap(find.text('Captions off'));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('Download stopped'), findsOneWidget);
+    expect(find.text('Retry'), findsOneWidget);
+    // Retry starts a fresh download: the stop must not poison it.
+    model.gate = Completer<WhisperModelFiles>();
+    await tester.tap(find.text('Retry'));
+    await tester.pump();
+    model.progress!(.9);
+    await tester.pump();
+    expect(downloads.progresses, contains(.9));
+    model.gate!.complete(FakeModelManager.files);
+    await tester.pumpAndSettle();
+    expect(downloads.readyCalls, 1);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('stopping a caption job aborts it and keeps the original',
+      (tester) async {
+    final captions = FakeCaptionJobNotifier();
+    final extracted = Completer<String>();
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(
+            const MethodChannel('dual_cameras_example/captions'),
+            (call) async {
+      if (call.method == 'extractAudio') return extracted.future;
+      throw StateError('unexpected ${call.method}');
+    });
+    await openCamera(tester, captions: captions);
+    await tester.ensureVisible(find.text('Captions off'));
+    await tester.tap(find.text('Captions off'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byType(SwitchListTile));
+    await tester.tap(find.byTooltip('Close Captions'));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.byTooltip('Start recording'));
+    await tester.tap(find.byTooltip('Start recording'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('Stop recording'));
+    await tester.pumpAndSettle();
+    // The job is in its extracting stage: progress went to the
+    // notification, nothing in-app — not on the camera screen, not in the
+    // Captions sheet.
+    expect(captions.progresses.map((p) => p.$1),
+        contains(CaptionStage.extracting));
+    expect(find.textContaining('Extracting audio'), findsNothing);
+    expect(find.textContaining('Preparing captions'), findsNothing);
+    await tester.ensureVisible(find.text('Captions on'));
+    await tester.tap(find.text('Captions on'));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('Extracting audio'), findsNothing);
+    expect(find.textContaining('Preparing captions'), findsNothing);
+    await tester.tap(find.byTooltip('Close Captions'));
+    await tester.pumpAndSettle();
+    // Stop from the notification (v0.5.3): the job aborts at the next
+    // stage boundary.
+    final clearsBeforeStop = captions.clearCalls;
+    captions.simulateStop();
+    await tester.pump();
+    expect(captions.clearCalls, greaterThan(clearsBeforeStop));
+    extracted.complete('/tmp/audio.wav');
+    await tester.pumpAndSettle();
+    // The aborted job never transcribed or burned anything, and the
+    // original is the only video saved.
+    expect(captions.done, isEmpty);
+    expect(captions.failed, isEmpty);
+    expect(galleryCalls.where((call) => call == 'putVideo').length, 1);
+    expect(find.textContaining('Extracting audio'), findsNothing);
+    expect(find.textContaining('Captions failed'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('stopping a caption job waiting on the model aborts it',
+      (tester) async {
+    final captions = FakeCaptionJobNotifier();
+    model.gate = Completer<WhisperModelFiles>();
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(
+            const MethodChannel('dual_cameras_example/captions'),
+            (call) async => '/tmp/audio.wav');
+    await openCamera(tester, captions: captions);
+    await tester.ensureVisible(find.text('Captions off'));
+    await tester.tap(find.text('Captions off'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byType(SwitchListTile));
+    await tester.tap(find.byTooltip('Close Captions'));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.byTooltip('Start recording'));
+    await tester.tap(find.byTooltip('Start recording'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('Stop recording'));
+    await tester.pumpAndSettle();
+    // The job is waiting on the model: progress shows preparing-model in
+    // the notification, nothing in-app.
+    expect(captions.progresses.map((p) => p.$1),
+        contains(CaptionStage.preparingModel));
+    expect(find.textContaining('Preparing speech model'), findsNothing);
+    captions.simulateStop();
+    await tester.pump();
+    model.gate!.complete(FakeModelManager.files);
+    await tester.pumpAndSettle();
+    // The model arrived after the stop: the job must not run.
+    expect(captions.done, isEmpty);
+    expect(captions.failed, isEmpty);
     expect(galleryCalls.where((call) => call == 'putVideo').length, 1);
     expect(tester.takeException(), isNull);
   });
@@ -371,6 +580,7 @@ void main() {
       (tester) async {
     final firstExtraction = Completer<String>();
     final extracted = <String>[];
+    final captions = FakeCaptionJobNotifier();
     fake.stopFiles.addAll(['/tmp/first.mp4', '/tmp/second.mp4']);
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(
@@ -380,7 +590,7 @@ void main() {
       if (source == '/tmp/first.mp4') return firstExtraction.future;
       throw StateError('No audio');
     });
-    await openCamera(tester);
+    await openCamera(tester, captions: captions);
     await tester.ensureVisible(find.text('Captions off'));
     await tester.tap(find.text('Captions off'));
     await tester.pumpAndSettle();
@@ -400,7 +610,10 @@ void main() {
     firstExtraction.completeError(StateError('No audio'));
     await tester.pumpAndSettle();
     expect(extracted, ['/tmp/first.mp4', '/tmp/second.mp4']);
-    expect(find.textContaining('plain video kept'), findsOneWidget);
+    // Both jobs failed at extraction: the failures went to the caption
+    // notification (v0.5.3), not to in-app text.
+    expect(captions.failed, hasLength(2));
+    expect(find.textContaining('plain video kept'), findsNothing);
     expect(tester.takeException(), isNull);
   });
 

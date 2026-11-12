@@ -6,7 +6,7 @@ import 'package:flutter/services.dart';
 import 'package:gal/gal.dart';
 import 'package:permission_handler/permission_handler.dart';
 
-import 'captions/caption_models.dart';
+import 'captions/caption_job_notifier.dart';
 import 'captions/caption_jobs.dart';
 import 'captions/caption_job_runner.dart';
 import 'captions/caption_language.dart';
@@ -14,6 +14,7 @@ import 'captions/caption_language_store.dart';
 import 'captions/caption_pipeline.dart';
 import 'captions/model_download_notifier.dart';
 import 'captions/model_manager.dart';
+import 'captions/notification_center.dart';
 import 'captions/transcriber.dart';
 import 'ui/story_camera.dart';
 
@@ -30,6 +31,7 @@ class DemoApp extends StatelessWidget {
       this.backgroundCaptions,
       this.captionLanguageStore,
       this.modelDownloadNotifier,
+      this.captionJobNotifier,
       this.cameraCommandTimeout});
 
   final ModelManager? modelManager;
@@ -37,6 +39,7 @@ class DemoApp extends StatelessWidget {
   final bool? backgroundCaptions;
   final CaptionLanguageStore? captionLanguageStore;
   final ModelDownloadNotifier? modelDownloadNotifier;
+  final CaptionJobNotifier? captionJobNotifier;
   final Duration? cameraCommandTimeout;
 
   @override
@@ -62,6 +65,7 @@ class DemoApp extends StatelessWidget {
           backgroundCaptions: backgroundCaptions,
           captionLanguageStore: captionLanguageStore,
           modelDownloadNotifier: modelDownloadNotifier,
+          captionJobNotifier: captionJobNotifier,
           cameraCommandTimeout: cameraCommandTimeout),
     );
   }
@@ -75,6 +79,7 @@ class DemoScreen extends StatefulWidget {
       this.backgroundCaptions,
       this.captionLanguageStore,
       this.modelDownloadNotifier,
+      this.captionJobNotifier,
       this.cameraCommandTimeout});
 
   final ModelManager? modelManager;
@@ -82,6 +87,7 @@ class DemoScreen extends StatefulWidget {
   final bool? backgroundCaptions;
   final CaptionLanguageStore? captionLanguageStore;
   final ModelDownloadNotifier? modelDownloadNotifier;
+  final CaptionJobNotifier? captionJobNotifier;
   final Duration? cameraCommandTimeout;
 
   @override
@@ -156,21 +162,50 @@ class _DemoScreenState extends State<DemoScreen> with WidgetsBindingObserver {
   VideoFilter _filter = VideoFilter.none;
 
   // Auto-captions (v0.2.0): on-device STT + karaoke burn-in, OFF by default.
+  // Caption processing state lives in a system notification (v0.5.3), never
+  // as in-app text: there is no _captionStatus anymore.
   bool _captions = false;
-  String? _captionStatus;
   String? _captionedFile;
   final CaptionPipeline _captionPipeline = CaptionPipeline();
   late final ModelManager _modelManager = widget.modelManager ?? ModelManager();
   Future<WhisperModelFiles>? _modelFuture;
   String? _modelError;
   final Transcriber _transcriber = Transcriber();
+  // Generation counter for foreground caption jobs (v0.5.3): every stop
+  // request bumps it; a job whose captured generation is stale aborts at
+  // the next stage boundary, and jobs queued behind it are dropped. A new
+  // recording captures the current generation, so a stop never cancels a
+  // later clip.
+  int _captionGeneration = 0;
+  // One notification center shared by both notifiers (v0.5.3): a single
+  // plugin instance and a single `initialize` call, so the two Stop actions
+  // cannot steal each other's taps. Lazily created so tests that inject
+  // fakes never touch the plugin.
+  NotificationCenter? _notificationCenter;
+  NotificationCenter get _center =>
+      _notificationCenter ??= NotificationCenter();
   // Model-download progress lives in a system notification (v0.5.2), never
   // as a banner on the camera screen. Lazily created so tests that inject a
   // fake never touch the plugin.
   ModelDownloadNotifier? _modelDownloadNotifier;
-  ModelDownloadNotifier get _notifier =>
-      _modelDownloadNotifier ??= widget.modelDownloadNotifier ??
-          SystemModelDownloadNotifier();
+  ModelDownloadNotifier get _notifier {
+    final notifier = _modelDownloadNotifier ??=
+        widget.modelDownloadNotifier ??
+            SystemModelDownloadNotifier(center: _center);
+    notifier.onStop = () => _modelManager.cancel();
+    return notifier;
+  }
+
+  // Caption-processing progress lives in a system notification (v0.5.3),
+  // never as in-app status text. Same lazy pattern as the download
+  // notifier.
+  CaptionJobNotifier? _captionJobNotifier;
+  CaptionJobNotifier get _captionNotifier {
+    final notifier = _captionJobNotifier ??= widget.captionJobNotifier ??
+        SystemCaptionJobNotifier(center: _center);
+    notifier.onStop = _stopCaptionJob;
+    return notifier;
+  }
 
   // Caption language (v0.5.1): Auto by default; a picked language is
   // forced on the recognizer and persisted across sessions. Auto can
@@ -199,6 +234,9 @@ class _DemoScreenState extends State<DemoScreen> with WidgetsBindingObserver {
   void initState() {
     super.initState();
     _bootstrap();
+    // A caption notification left over from a previous run (the app died
+    // mid-captioning) must not linger: no job exists for it anymore.
+    unawaited(_captionNotifier.clear());
     _languageStore.load().then((stored) {
       if (mounted) _update(() => _captionLanguage = stored);
     });
@@ -382,8 +420,18 @@ class _DemoScreenState extends State<DemoScreen> with WidgetsBindingObserver {
     } catch (e) {
       _modelFuture =
           null; // Allow an explicit retry or a later caption attempt.
-      _update(() => _modelError = '$e');
-      unawaited(_notifier.showFailed('$e'));
+      if (_modelManager.isCancelled) {
+        // The user stopped the download: no failure UI, just the retry in
+        // the Captions sheet. The message is self-contained (the sheet
+        // shows it as-is).
+        _update(() =>
+            _modelError = 'Download stopped — tap Retry to start it again.');
+        unawaited(_notifier.showStopped());
+      } else {
+        _update(
+            () => _modelError = 'Caption model download failed: $e');
+        unawaited(_notifier.showFailed('$e'));
+      }
       rethrow;
     }
   }
@@ -596,66 +644,94 @@ class _DemoScreenState extends State<DemoScreen> with WidgetsBindingObserver {
   }
 
   void _queueCaptions(String mp4) {
-    _update(() {
-      _captionJobs++;
-      if (_captionJobs == 1) _captionStatus = 'Preparing captions…';
-    });
+    final generation = _captionGeneration;
+    _update(() => _captionJobs++);
     _captionQueue = _captionQueue.then((_) async {
       if (!mounted) return;
-      await _captionVideo(mp4);
+      if (generation != _captionGeneration) {
+        // Stopped while queued: drop the job, keep the original video.
+        _update(() => _captionJobs--);
+        return;
+      }
+      await _captionVideo(mp4, generation);
       _update(() => _captionJobs--);
     });
   }
 
-  Future<void> _captionVideo(String mp4) async {
+  bool _captionAborted(int generation) => generation != _captionGeneration;
+
+  /// Stop button on the caption notification (v0.5.3). Bumps the
+  /// generation: the in-flight job aborts at the next stage boundary and
+  /// queued jobs are dropped. The transcription decode itself is
+  /// synchronous FFI and cannot be interrupted mid-decode, so a stop tapped
+  /// during transcription lands after the decode, before burn-in — no
+  /// captioned video is ever saved after a stop. The original video is
+  /// already in the gallery and stays intact.
+  void _stopCaptionJob() {
+    _captionGeneration++;
+    unawaited(_captionNotifier.clear());
+  }
+
+  Future<void> _captionVideo(String mp4, int generation) async {
     try {
-      _update(() => _captionStatus = 'Extracting audio…');
+      await _captionNotifier.showProgress(CaptionStage.extracting, 0);
+      if (!mounted || _captionAborted(generation)) return;
       final wav = await _captionPipeline.extractAudio(mp4);
-      if (!mounted) return;
+      if (!mounted || _captionAborted(generation)) return;
 
-      _update(() => _captionStatus = 'Preparing speech model…');
+      await _captionNotifier.showProgress(CaptionStage.preparingModel, 0);
+      if (!mounted || _captionAborted(generation)) return;
       final model = await _ensureModel();
+      if (!mounted || _captionAborted(generation)) return;
 
-      if (!mounted) return;
-      _update(() => _captionStatus = 'Transcribing… (on-device)');
-      // Let the progress state paint before the blocking decode.
+      await _captionNotifier.showProgress(CaptionStage.transcribing, 0);
+      if (!mounted || _captionAborted(generation)) return;
+      // Let the progress notification paint before the blocking decode.
       await Future<void>.delayed(const Duration(milliseconds: 150));
-      if (!mounted) return;
+      if (!mounted || _captionAborted(generation)) return;
       final result = await _transcriber.transcribe(
         wavPath: wav,
         model: model,
         language: _captionLanguage.code,
       );
+      if (!mounted || _captionAborted(generation)) return;
       final words = result.words;
-      if (!mounted) return;
       if (words.isEmpty) {
-        _update(
-            () => _captionStatus = 'No speech detected — keeping plain video');
+        await _captionNotifier.showNoSpeech();
         return;
       }
 
-      _update(
-          () => _captionStatus = 'Burning captions… (${words.length} words)');
+      await _captionNotifier.showProgress(CaptionStage.burning, 0);
+      if (!mounted || _captionAborted(generation)) return;
       final captioned = await _captionPipeline.burnCaptions(
         mp4Path: mp4,
         words: words,
       );
-      if (!mounted) return;
+      if (!mounted || _captionAborted(generation)) return;
       await Gal.putVideo(captioned);
-      if (!mounted) return;
+      if (!mounted || _captionAborted(generation)) return;
       _update(() {
         _captionedFile = captioned;
         _captionSourceFile = mp4;
-        _captionStatus =
-            'Captions done — ${words.length} words${result.detectedLanguage.isEmpty ? '' : ' (${result.detectedLanguage})'}';
       });
+      await _captionNotifier.showDone(
+          words.length, result.detectedLanguage);
     } catch (e) {
       if (!mounted) return;
-      _update(() {
-        _captionStatus =
-            'Captions failed — plain video kept. See settings for details.';
-        _error = '$e';
-      });
+      if (_captionAborted(generation) ||
+          (e is ModelDownloadException &&
+              e.message == 'Caption job stopped')) {
+        // The user stopped the job (or the model download it was waiting
+        // on): silent — the original video is intact and the notification
+        // is already gone. (Checked against the exception, not the
+        // manager's latch: the latch stays set until the next fresh model
+        // attempt, so it would misclassify a later, unrelated failure —
+        // e.g. at extractAudio — as a stop.)
+        await _captionNotifier.clear();
+        return;
+      }
+      _update(() => _error = '$e');
+      await _captionNotifier.showFailed('$e');
     }
   }
 
@@ -875,19 +951,17 @@ class _DemoScreenState extends State<DemoScreen> with WidgetsBindingObserver {
                   'The speech model downloads at startup (about 160 MB on first use). Download progress is in the notification shade. Captions run on device once ready. Your original video is always kept.'),
               if (_modelError != null) ...[
                 const SizedBox(height: 8),
-                Text('Caption model download failed: $_modelError'),
+                Text(_modelError!),
                 TextButton(
                   onPressed: _prepareModel,
                   child: const Text('Retry'),
                 ),
               ],
             ],
-            if (_captionStatus != null) ...[
-              const SizedBox(height: 16),
-              Semantics(liveRegion: true, child: Text(_captionStatus!)),
-            ],
-            if (_busy || _captionJobs > 0) const LinearProgressIndicator(),
-            if (_captionJobs > 1) Text('Caption jobs queued: $_captionJobs'),
+            // Caption processing state lives in the notification only
+            // (v0.5.3): no status text, no progress bar, no queue count
+            // here. The busy indicator below is for camera commands only.
+            if (_busy) const LinearProgressIndicator(),
           ]);
 
   void _settingsSheet() => _sheet(
@@ -941,7 +1015,6 @@ class _DemoScreenState extends State<DemoScreen> with WidgetsBindingObserver {
                   SelectableText('Caption source: $_captionSourceFile'),
                   SelectableText('Captioned: $_captionedFile'),
                 ],
-                if (_captionStatus != null) Text(_captionStatus!),
                 if (value.isInitialized)
                   FittedBox(
                       fit: BoxFit.scaleDown,
@@ -993,7 +1066,6 @@ class _DemoScreenState extends State<DemoScreen> with WidgetsBindingObserver {
             _status,
           if (value.thermal != ThermalLevel.nominal)
             'Thermal: ${value.thermal.name}',
-          if (_captionStatus != null) _captionStatus!,
           if (_visibleJobError != null) _visibleJobError!,
         ].join('\n');
         return StoryCamera(

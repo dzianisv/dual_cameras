@@ -1,11 +1,11 @@
-import 'dart:async';
-
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
-import 'package:permission_handler/permission_handler.dart';
+
+import 'notification_center.dart';
 
 /// Reports caption-model download progress through a system notification
 /// (v0.5.2: Den asked for the download status to live in the notification
-/// shade, not as a banner on top of the camera screen).
+/// shade, not as a banner on top of the camera screen; v0.5.3: the progress
+/// notification carries a Stop button that really cancels the download).
 ///
 /// Implementations must never throw: a notification failure must not break
 /// the download or the capture flow.
@@ -18,19 +18,24 @@ abstract class ModelDownloadNotifier {
   /// notification. No-op when nothing was shown.
   Future<void> showReady();
 
+  /// The user stopped the download: clear the progress notification. No
+  /// failure UI — the Captions sheet offers retry.
+  Future<void> showStopped();
+
   /// The download failed: show a persistent notification; the retry lives
   /// in the Captions sheet / settings, not in the notification.
   Future<void> showFailed(String error);
+
+  /// Called when the user taps Stop on the progress notification. The
+  /// handler must really cancel the in-flight download (not just dismiss
+  /// the notification). Set by the screen that owns the download.
+  set onStop(void Function()? value);
 }
 
 /// System notification implementation (Android notification shade).
 class SystemModelDownloadNotifier implements ModelDownloadNotifier {
-  SystemModelDownloadNotifier(
-      [FlutterLocalNotificationsPlugin? plugin,
-      Future<PermissionStatus> Function()? requestNotificationPermission])
-      : _plugin = plugin ?? FlutterLocalNotificationsPlugin(),
-        _requestNotificationPermission = requestNotificationPermission ??
-            Permission.notification.request;
+  SystemModelDownloadNotifier({NotificationCenter? center})
+      : _center = center ?? NotificationCenter();
 
   static const _notificationId = 1001;
   static const _channelId = 'storycam_model_download';
@@ -38,44 +43,20 @@ class SystemModelDownloadNotifier implements ModelDownloadNotifier {
   static const _channelDescription =
       'Progress while the on-device caption model downloads.';
 
-  final FlutterLocalNotificationsPlugin _plugin;
-  final Future<PermissionStatus> Function() _requestNotificationPermission;
-  bool _initialized = false;
-  bool _permissionChecked = false;
-  bool _permissionGranted = false;
+  /// Action id of the Stop button on the progress notification.
+  static const stopActionId = 'stop_model_download';
 
-  Future<void> _ensureInitialized() async {
-    if (_initialized) return;
-    try {
-      await _plugin.initialize(const InitializationSettings(
-        android: AndroidInitializationSettings('@mipmap/ic_launcher'),
-        iOS: DarwinInitializationSettings(),
-      ));
-    } catch (_) {
-      // Notifications are best effort; the Captions sheet still shows state.
-    }
-    _initialized = true;
-  }
+  final NotificationCenter _center;
+  void Function()? _onStop;
 
-  /// Android 13+ needs the runtime notification permission. Asked at most
-  /// once per app run, only when a download is actually in flight, so a
-  /// cached-model launch never prompts. A denial just means no notification
-  /// (the Captions sheet remains the fallback); it never throws.
-  Future<bool> _ensurePermission() async {
-    if (_permissionChecked) return _permissionGranted;
-    _permissionChecked = true;
-    try {
-      final status = await Permission.notification.status;
-      if (status.isGranted) {
-        _permissionGranted = true;
-      } else {
-        _permissionGranted =
-            (await _requestNotificationPermission()).isGranted;
-      }
-    } catch (_) {
-      _permissionGranted = false;
+  @override
+  set onStop(void Function()? value) {
+    _onStop = value;
+    if (value != null) {
+      _center.registerAction(stopActionId, value);
+    } else {
+      _center.unregisterAction(stopActionId);
     }
-    return _permissionGranted;
   }
 
   NotificationDetails _progressDetails(int percent) => NotificationDetails(
@@ -91,6 +72,19 @@ class SystemModelDownloadNotifier implements ModelDownloadNotifier {
           showProgress: true,
           maxProgress: 100,
           progress: percent,
+          actions: const [
+            AndroidNotificationAction(
+              stopActionId,
+              'Stop',
+              // Brings the app forward so the tap reaches the main isolate,
+              // where the ModelManager lives. A background-isolate callback
+              // could not cancel the download. Android dismisses the
+              // notification on tap; the abort then clears/replaces it
+              // deterministically.
+              showsUserInterface: true,
+              cancelNotification: true,
+            ),
+          ],
         ),
       );
 
@@ -98,53 +92,41 @@ class SystemModelDownloadNotifier implements ModelDownloadNotifier {
   Future<void> showProgress(double progress) async {
     if (progress >= 1) return showReady();
     if (progress <= 0) return;
-    try {
-      await _ensureInitialized();
-      if (!await _ensurePermission()) return;
-      await _plugin.show(
-        _notificationId,
-        'Downloading caption model',
-        '${(progress * 100).floor()}% · on device',
-        _progressDetails((progress * 100).floor()),
-      );
-    } catch (_) {
-      // Best effort only.
-    }
+    await _center.show(
+      _notificationId,
+      'Downloading caption model',
+      '${(progress * 100).floor()}% · on device',
+      _progressDetails((progress * 100).floor()),
+    );
   }
 
   @override
   Future<void> showReady() async {
-    try {
-      await _ensureInitialized();
-      await _plugin.cancel(_notificationId);
-    } catch (_) {
-      // Best effort only.
-    }
+    await _center.cancel(_notificationId);
+  }
+
+  @override
+  Future<void> showStopped() async {
+    await _center.cancel(_notificationId);
   }
 
   @override
   Future<void> showFailed(String error) async {
-    try {
-      await _ensureInitialized();
-      if (!await _ensurePermission()) return;
-      await _plugin.show(
-        _notificationId,
-        'Caption model download failed',
-        'Captions will keep the original video. Open Captions to retry.',
-        const NotificationDetails(
-          android: AndroidNotificationDetails(
-            _channelId,
-            _channelName,
-            channelDescription: _channelDescription,
-            importance: Importance.defaultImportance,
-            priority: Priority.defaultPriority,
-            ongoing: false,
-            autoCancel: true,
-          ),
+    await _center.show(
+      _notificationId,
+      'Caption model download failed',
+      'Captions will keep the original video. Open Captions to retry.',
+      const NotificationDetails(
+        android: AndroidNotificationDetails(
+          _channelId,
+          _channelName,
+          channelDescription: _channelDescription,
+          importance: Importance.defaultImportance,
+          priority: Priority.defaultPriority,
+          ongoing: false,
+          autoCancel: true,
         ),
-      );
-    } catch (_) {
-      // Best effort only.
-    }
+      ),
+    );
   }
 }
