@@ -128,13 +128,15 @@ jobs:
               sheet, saved between sessions. Auto is the default. Single words are
               the hardest case for automatic detection, so force a language for
               short clips instead of guessing.
+            - Model download and caption processing both show as system notifications with a progress bar and a Stop button that really cancels the work: stopping a download aborts it, stopping captioning abandons the job and keeps the original video. No processing status shows inside the app.
+            - Recording can't get stuck the same way: camera commands time out after 20 s with an error instead of a dead button, and a tap on the shutter while the camera is busy queues up and fires once it frees.
             - Captions run in the foreground on Android. Silero VAD gates captions
               to detected speech: silence and noise produce no captions, and the
               karaoke highlight stops during pauses.
             - Word timings are validated against the audio duration before burn-in.
             - Model files are verified by size and SHA-256 after download and on every
               cache hit; a mismatch is discarded and re-downloaded, never trusted.
-            - Caption-model startup progress, retry and recovery from incomplete caches.
+            - Caption-model download progress, retry and recovery from incomplete caches (shown in the notification, not in the app).
             - The original video is kept, and the next recording does not wait for
               caption processing.
 
@@ -157,7 +159,7 @@ jobs:
             package, version, permissions and signature before publication.
             **This build has not been tested on a physical phone.** Real capture,
             gallery saving, audio sync, GPU performance and native caption inference
-            still need device testing. Launcher artwork is unchanged.
+            still need device testing. Launcher artwork is unchanged. A stop tapped during the transcribe step itself takes effect after that step finishes, before burn-in — the decode can't be interrupted mid-word — but no captioned video is ever saved after a stop.
 
             This APK uses a **debug test signing key**, not a production key.
             Android may reject updating another test build signed with a different
