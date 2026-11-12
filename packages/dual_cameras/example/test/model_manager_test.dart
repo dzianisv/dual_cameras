@@ -415,6 +415,49 @@ void main() {
     expect(await File(files.encoder).readAsBytes(), [1, 2, 3]);
   });
 
+  test('a stopped download can be retried', () async {
+    // The latch reset in ensureModel: a stop must abort the in-flight
+    // attempt (the stop exception) without poisoning the next one.
+    var requests = 0;
+    final gate = Completer<void>();
+    final sendCalled = Completer<void>();
+    late ModelManager manager;
+    manager = ModelManager(
+        documentsDirectory: () async => temp,
+        retryDelay: Duration.zero,
+        files: _testFiles(),
+        clientFactory: () => MockClient.streaming((_, __) async {
+              requests++;
+              if (requests == 1) {
+                if (!sendCalled.isCompleted) sendCalled.complete();
+                // Hang in the stream until the test releases it.
+                return http.StreamedResponse(
+                    Stream<List<int>>.fromFuture(
+                        gate.future.then((_) => [1, 2, 3])),
+                    200,
+                    contentLength: 3);
+              }
+              return ok();
+            }));
+    final first = manager.ensureModel(onProgress: (_) {});
+    await sendCalled.future;
+    manager.cancel();
+    expect(manager.isCancelled, isTrue);
+    // The chunk arrives after the stop: the stream's per-chunk check
+    // throws the stop exception instead of completing the file.
+    gate.complete();
+    await expectLater(
+        first,
+        throwsA(isA<ModelDownloadException>().having(
+            (e) => e.message, 'message', 'Caption job stopped')));
+    expect(requests, 1);
+    // Retry: the stop must not poison the fresh attempt.
+    final files = await manager.ensureModel(onProgress: (_) {});
+    expect(manager.isCancelled, isFalse);
+    expect(await File(files.encoder).readAsBytes(), [1, 2, 3]);
+    expect(requests, 5);
+  });
+
   test('legacy plain-number receipt is re-downloaded', () async {
     final dir = await Directory('${temp.path}/sherpa-whisper-base').create();
     await File('${dir.path}/base-encoder.int8.onnx').writeAsBytes([1, 2, 3]);

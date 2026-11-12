@@ -7,7 +7,6 @@ class StoryCamera extends StatelessWidget {
   const StoryCamera({
     super.key,
     required this.preview,
-    required this.preparation,
     required this.initialized,
     required this.recording,
     required this.busy,
@@ -22,7 +21,7 @@ class StoryCamera extends StatelessWidget {
     required this.onSettings,
   });
 
-  final Widget preview, preparation;
+  final Widget preview;
   final bool initialized, recording, busy, captions;
   final String filterName, status;
   final VoidCallback? onCapture, onPhoto, onSwap, onFilters, onCaptions;
@@ -61,7 +60,6 @@ class StoryCamera extends StatelessWidget {
               ],
             ),
             const SizedBox(height: 8),
-            preparation,
             Expanded(
               child: LayoutBuilder(builder: (context, constraints) {
                 // A side rail gives the complete portrait canvas room on short
