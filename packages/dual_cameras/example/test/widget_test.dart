@@ -244,9 +244,10 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.textContaining('plain video kept'), findsOneWidget);
     // The model failure + Retry live in the Captions sheet now (v0.5.2),
-    // not as a banner on the camera screen.
-    await tester.ensureVisible(find.text('Captions off'));
-    await tester.tap(find.text('Captions off'));
+    // not as a banner on the camera screen. Captions were enabled earlier
+    // in this test, so the chip reads 'Captions on'.
+    await tester.ensureVisible(find.text('Captions on'));
+    await tester.tap(find.text('Captions on'));
     await tester.pumpAndSettle();
     expect(find.text('Retry'), findsOneWidget);
     expect(galleryCalls.where((call) => call == 'putVideo').length, 1);
@@ -520,8 +521,10 @@ void main() {
     expect(fake.starts, 1);
     // The native call never returns; the watchdog must surface the error
     // and free the lock instead of dead-buttoning the screen (v0.5.2).
-    await tester.runAsync(
-        () async => Future<void>.delayed(const Duration(milliseconds: 300)));
+    // Fake-async: advance the test clock so the 100 ms watchdog timer
+    // fires — a real `runAsync` delay leaves the fake clock still, so the
+    // timeout would never fire inside the test.
+    await tester.pump(const Duration(milliseconds: 300));
     await tester.pump();
     expect(find.textContaining('Recording failed'), findsOneWidget);
     expect(find.byTooltip('Start recording'), findsOneWidget);

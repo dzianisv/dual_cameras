@@ -195,7 +195,9 @@ void main() {
           id: 'one', state: 'running', stage: 'Downloading model', progress: 10)
     ];
     await launch(tester);
-    expect(find.textContaining('Track progress and Stop here'), findsOneWidget);
+    // v0.5.2: the top banner is gone — the "track progress here" text
+    // lives in the Captions sheet's job card, not on the camera screen.
+    expect(find.textContaining('Track progress and Stop here'), findsNothing);
     await sheet(tester);
     expect(find.text('Enable notifications in settings'), findsOneWidget);
     expect(find.textContaining('Jobs still run'), findsOneWidget);
