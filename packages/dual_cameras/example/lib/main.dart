@@ -17,9 +17,16 @@ import 'captions/model_download_notifier.dart';
 import 'captions/model_manager.dart';
 import 'captions/notification_center.dart';
 import 'captions/transcriber.dart';
+import 'crash_reporting.dart';
 import 'ui/story_camera.dart';
 
-void main() => runApp(const DemoApp());
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  // No-op when built without --dart-define SENTRY_DSN: Sentry is never
+  // initialized and the app boots exactly as before.
+  await CrashReporting.init();
+  runApp(const DemoApp());
+}
 
 @pragma('vm:entry-point')
 Future<void> captionJobMain() => runCaptionJob();
