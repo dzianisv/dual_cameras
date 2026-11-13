@@ -15,6 +15,12 @@
 # through `tools/emulator_tap.py` (a repo file, not inline shell) which
 # finds a node by text in `uiautomator dump` output and taps its center.
 #
+# SCREENSHOT RULE (run 43497670419, 2026-11-14): `adb shell screencap -p
+# /sdcard/...` fails with 'Transport endpoint is not connected' — the
+# emulator's sdcard is not mounted when the script runs. Screenshots go
+# through `adb exec-out screencap -p > file.png`, which streams the PNG
+# straight to the host and never touches the device filesystem.
+#
 # HOW TO APPLY (token scope): this file cannot be pushed with the
 # current gh token (no `workflow` scope). Apply it via the GitHub web
 # UI: repo → .github/workflows → Add file → Upload files (or create
@@ -74,28 +80,23 @@ jobs:
             adb shell pm grant app.storycam android.permission.RECORD_AUDIO || true
             adb shell am start -n app.storycam/.MainActivity
             sleep 20
-            adb shell screencap -p /sdcard/01-launch.png
-            adb pull /sdcard/01-launch.png 01-launch.png
+            adb exec-out screencap -p > 01-launch.png
             python3 tools/emulator_tap.py 'Captions'
             sleep 3
-            adb shell screencap -p /sdcard/02-captions-sheet.png
-            adb pull /sdcard/02-captions-sheet.png 02-captions-sheet.png
+            adb exec-out screencap -p > 02-captions-sheet.png
             adb shell input keyevent 4
             sleep 2
             python3 tools/emulator_tap.py 'Filters'
             sleep 3
-            adb shell screencap -p /sdcard/03-filters.png
-            adb pull /sdcard/03-filters.png 03-filters.png
+            adb exec-out screencap -p > 03-filters.png
             adb shell input keyevent 4
             sleep 2
             python3 tools/emulator_tap.py 'Start recording'
             sleep 6
-            adb shell screencap -p /sdcard/04-recording.png
-            adb pull /sdcard/04-recording.png 04-recording.png
+            adb exec-out screencap -p > 04-recording.png
             python3 tools/emulator_tap.py 'Stop recording'
             sleep 8
-            adb shell screencap -p /sdcard/05-after-recording.png
-            adb pull /sdcard/05-after-recording.png 05-after-recording.png
+            adb exec-out screencap -p > 05-after-recording.png
             adb logcat -d | grep -i -E "storycam|flutter|fatal|crash" | tail -50 || true
             ls -la *.png
 
