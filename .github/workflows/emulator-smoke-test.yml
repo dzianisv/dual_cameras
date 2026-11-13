@@ -1,8 +1,8 @@
 # Purpose: best-effort emulator smoke test for the StoryCam APK. It catches
 # launch crashes, permission failures, and startup model-download failures — it
 # does NOT prove concurrent cameras, mic audio, or caption inference:
-# emulator cameras are virtual, ARM translation is involved, and sherpa-onnx
-# runs through the native bridge. A real phone is still the proof gate
+# emulator cameras are virtual, and sherpa-onnx runs through the native
+# bridge. A real phone is still the proof gate
 # (see ~/workspace/storycam/PHONE_TEST_PLAN.md).
 #
 # BUG FIX 2026-11-14: the first-ever run (43491636991) failed before
@@ -29,7 +29,7 @@ permissions:
 
 jobs:
   smoke:
-    runs-on: macos-latest
+    runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
       - name: Check out the repo
@@ -48,11 +48,11 @@ jobs:
           channel: stable
           cache: true
 
-      - name: Build release APK (arm64)
+      - name: Build release APK (x86_64)
         working-directory: packages/dual_cameras/example
         run: |
           flutter pub get
-          flutter build apk --release --target-platform android-arm64
+          flutter build apk --release --target-platform android-x64
 
 #
 # X64 RULE (run 43505361133, 2026-11-14): the release APK is arm64-only,
@@ -65,16 +65,32 @@ jobs:
 # on the x86_64 emulator. The Play release AAB stays arm64 — this build
 # is emulator-only. Also give the emulator all 4 host cores and 4 GB RAM.
 #
-# MACOS RULE (run 43513063175, 2026-11-14): five Linux runs, five
-# failures, none of them the app. The Linux runner has no hardware
-# acceleration, so the emulator runs under swiftshader + (for arm64)
-# ARM translation: boot takes ~10 min, system_server / System UI ANR,
-# adb dump gets SIGKILLed (137), install verification times out. The
-# x86_64 build did not save it — the bottleneck is the emulator, not
-# the ABI. These workflows therefore run on macos-latest, where the
-# emulator is hardware-accelerated (HVF), and back on the arm64 AVD +
-# arm64 APK, which is also the real release ABI. Keep the 900 s boot
-# timeout as headroom; macOS boot is normally 1-2 min.
+# MACOS RULE — DEAD END (run 43518382001, 2026-11-14): the macOS move
+# failed the same way in both jobs. The emulator starts, then dies at
+# once: "HVF error: HV_UNSUPPORTED / failed to initialize HVF: Invalid
+# argument / QEMU main loop exits abnormally with code 1". The hosted
+# macOS runner (macos-26-arm64, MacCloud) is itself a VM with no nested
+# virtualization, so Hypervisor.framework is unavailable — there is no
+# hardware acceleration on macOS runners either. Do NOT move these
+# workflows back to macos-latest.
+#
+# KVM RULE (runs 43513063175 + 43518382001, 2026-11-14): the Linux
+# runner DOES expose /dev/kvm, but the runner user is not in the kvm
+# group (run 43513063175: "ProbeKVM: This user doesn't have permissions
+# to use KVM (/dev/kvm)", kvm group line ends with no users), so the
+# action silently added `-accel off` and the x86_64 emulator ran under
+# pure software emulation: ~10 min boot, System UI ANR, adb SIGKILLed.
+# Fix: `sudo chmod 666 /dev/kvm` in a step before the emulator step
+# (passwordless sudo on hosted runners; mode change takes effect
+# immediately, no re-login needed) and `disable-linux-hw-accel: false`
+# so the action can never silently fall back to `-accel off` again.
+# With KVM the x86_64 emulator boots in ~1-2 min.
+      - name: Enable KVM for the emulator
+        run: |
+          ls -l /dev/kvm || echo "no /dev/kvm on this runner"
+          sudo chmod 666 /dev/kvm 2>/dev/null || echo "chmod /dev/kvm skipped"
+          ls -l /dev/kvm || true
+
       - name: Emulator smoke test
         uses: reactivecircus/android-emulator-runner@v2
         with:
@@ -82,10 +98,11 @@ jobs:
           cores: 4
           ram-size: 4096
           heap-size: 1024
-          arch: arm64-v8a
+          arch: x86_64
           target: google_apis
           emulator-options: -no-snapshot-save -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back emulated -camera-front emulated
           disable-animations: true
+          disable-linux-hw-accel: false
           emulator-boot-timeout: 900
           script: |
             adb install -r packages/dual_cameras/example/build/app/outputs/flutter-apk/app-release.apk
