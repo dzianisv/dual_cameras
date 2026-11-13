@@ -10,7 +10,7 @@ import 'package:sentry_flutter/sentry_flutter.dart';
 /// if this file did not exist.
 ///
 /// Release tagging is left to the native SDKs: they fill the release from
-/// the app's versionName/versionCode (pubspec `0.5.3+8`), so the Dart code
+/// the app's versionName/versionCode (pubspec `0.5.4+9`), so the Dart code
 /// never hardcodes a version string that can drift from the pubspec.
 ///
 /// Only the main isolate is covered. The background caption isolate
