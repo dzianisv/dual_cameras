@@ -52,9 +52,9 @@ jobs:
             set -eux
             APK=packages/dual_cameras/example/build/app/outputs/flutter-apk/app-release.apk
             adb install -r "$APK"
-            adb shell pm grant com.romanslack.dual_cameras_example android.permission.CAMERA || true
-            adb shell pm grant com.romanslack.dual_cameras_example android.permission.RECORD_AUDIO || true
-            adb shell am start -n com.romanslack.dual_cameras_example/.MainActivity
+            adb shell pm grant app.storycam android.permission.CAMERA || true
+            adb shell pm grant app.storycam android.permission.RECORD_AUDIO || true
+            adb shell am start -n app.storycam/.MainActivity
             sleep 20
             adb shell screencap -p /sdcard/smoke-launch.png
             adb shell dumpsys activity activities | grep -i -A2 -B2 storycam || true
