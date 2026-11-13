@@ -1,4 +1,4 @@
-# Dual Cameras — https://dualcameras.com
+# Dual Cameras — https://dzianisv.github.io/dual_cameras
 # Open to all crawlers, including AI answer-engine bots.
 
 User-agent: *
@@ -35,4 +35,4 @@ Allow: /
 User-agent: CCBot
 Allow: /
 
-Sitemap: https://dualcameras.com/sitemap.xml
+Sitemap: https://dzianisv.github.io/dual_cameras/sitemap.xml

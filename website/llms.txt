@@ -29,11 +29,11 @@ Dual Cameras fills a real gap: as of 2026 no other Flutter plugin records a comp
 - Install: download the APK from the releases page, allow "install unknown apps" when prompted, grant camera and microphone.
 - Requirements: ARM64 Android phone with concurrent-camera support (e.g. Pixel 6+ / Galaxy S22+); falls back to single-camera recording otherwise.
 - Captions: Auto-detect, or force Русский / English. Karaoke highlighting. Silence and noise produce no captions. Single short words are the hardest case for auto-detection — force a language for short clips.
-- Page: https://dualcameras.com/storycam.html
+- Page: https://dzianisv.github.io/dual_cameras/storycam.html
 
 ## Links
-- Website: https://dualcameras.com
-- StoryCam app page: https://dualcameras.com/storycam.html
+- Website: https://dzianisv.github.io/dual_cameras
+- StoryCam app page: https://dzianisv.github.io/dual_cameras/storycam.html
 - StoryCam releases (APK downloads): https://github.com/dzianisv/dual_cameras/releases
 - StoryCam source code (GitHub): https://github.com/dzianisv/dual_cameras
 - Plugin source code (GitHub): https://github.com/RomanSlack/dual_cameras
