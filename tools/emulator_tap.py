@@ -1,6 +1,12 @@
 #!/usr/bin/env python3
 """Tap a visible UI element by its text on the emulator.
 
+The UI dump goes to /data/local/tmp/ui.xml, NOT /sdcard/ui.xml:
+the emulator's sdcard is not mounted when the workflow runs
+(run 43501670656: `adb pull /sdcard/ui.xml` failed with
+"Transport endpoint is not connected"). /data/local/tmp is always
+writable by the shell user.
+
 Usage: python3 tools/emulator_tap.py '<substring>'
 
 Finds the first node in `uiautomator dump` output whose text or
@@ -19,12 +25,12 @@ import xml.etree.ElementTree as ET
 def main() -> int:
     needle = sys.argv[1]
     subprocess.run(
-        ["adb", "shell", "uiautomator", "dump", "/sdcard/ui.xml"],
+        ["adb", "shell", "uiautomator", "dump", "/data/local/tmp/ui.xml"],
         check=True,
         capture_output=True,
     )
     subprocess.run(
-        ["adb", "pull", "/sdcard/ui.xml", "/tmp/ui.xml"],
+        ["adb", "pull", "/data/local/tmp/ui.xml", "/tmp/ui.xml"],
         check=True,
         capture_output=True,
     )
