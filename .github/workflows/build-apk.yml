@@ -60,13 +60,20 @@ jobs:
         working-directory: ${{ env.EXAMPLE_DIR }}
         run: flutter build apk --release --target-platform android-arm64
 
+      # Play requires AAB for new apps: built alongside the APK (which stays
+      # the sideload test artifact). Same debug signing as the APK for now;
+      # a production-signed AAB ships with the Play submission.
+      - name: Build release app bundle (arm64)
+        working-directory: ${{ env.EXAMPLE_DIR }}
+        run: flutter build appbundle --release --target-platform android-arm64
+
       - name: Verify StoryCam APK and test signing
         working-directory: ${{ env.EXAMPLE_DIR }}
         run: |
           AAPT2=$(ls "$ANDROID_HOME"/build-tools/*/aapt2 | sort -V | tail -1)
           APK=build/app/outputs/flutter-apk/app-release.apk
           "$AAPT2" dump badging "$APK" > badging.txt
-          grep -q "package: name='com.romanslack.dual_cameras_example'" badging.txt
+          grep -q "package: name='app.storycam'" badging.txt
           grep -q "android.permission.CAMERA" badging.txt
           grep -q "android.permission.RECORD_AUDIO" badging.txt
           grep -q "android.permission.INTERNET" badging.txt
@@ -81,11 +88,23 @@ jobs:
           grep -q "CN=Android Debug" signing.txt
           echo "APK OK: StoryCam + package + CAMERA, RECORD_AUDIO, INTERNET + debug certificate"
 
+      - name: Verify StoryCam app bundle
+        working-directory: ${{ env.EXAMPLE_DIR }}
+        run: |
+          AAB=build/app/outputs/bundle/release/app-release.aab
+          test -s "$AAB"
+          unzip -l "$AAB" | grep -q "base/manifest/AndroidManifest.xml"
+          unzip -p "$AAB" base/manifest/AndroidManifest.xml | strings | grep -q "app.storycam"
+          unzip -l "$AAB" | grep -q "base/lib/arm64-v8a/"
+          echo "AAB OK: app.storycam + arm64-v8a, $(du -h "$AAB" | cut -f1)"
+
       - name: Prepare APK artifact
         working-directory: ${{ env.EXAMPLE_DIR }}
         run: |
           cp build/app/outputs/flutter-apk/app-release.apk storycam-test-arm64.apk
           sha256sum storycam-test-arm64.apk > SHA256SUMS
+          cp build/app/outputs/bundle/release/app-release.aab storycam-play-release.aab
+          sha256sum storycam-play-release.aab > SHA256SUMS.aab
           printf 'commit=%s\nref=%s\nsigning=debug test key\n' "$GITHUB_SHA" "$GITHUB_REF" > build-info.txt
 
       - name: Upload StoryCam test APK
@@ -95,6 +114,8 @@ jobs:
           path: |
             packages/dual_cameras/example/storycam-test-arm64.apk
             packages/dual_cameras/example/SHA256SUMS
+            packages/dual_cameras/example/storycam-play-release.aab
+            packages/dual_cameras/example/SHA256SUMS.aab
             packages/dual_cameras/example/build-info.txt
             packages/dual_cameras/example/badging.txt
             packages/dual_cameras/example/signing.txt
