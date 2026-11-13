@@ -29,7 +29,7 @@ permissions:
 
 jobs:
   smoke:
-    runs-on: ubuntu-latest
+    runs-on: macos-latest
     timeout-minutes: 45
     steps:
       - name: Check out the repo
@@ -52,7 +52,7 @@ jobs:
         working-directory: packages/dual_cameras/example
         run: |
           flutter pub get
-          flutter build apk --release --target-platform android-x64
+          flutter build apk --release --target-platform android-arm64
 
 #
 # X64 RULE (run 43505361133, 2026-11-14): the release APK is arm64-only,
@@ -64,6 +64,17 @@ jobs:
 # emulator workflows therefore build an x86_64 APK, which runs natively
 # on the x86_64 emulator. The Play release AAB stays arm64 — this build
 # is emulator-only. Also give the emulator all 4 host cores and 4 GB RAM.
+#
+# MACOS RULE (run 43513063175, 2026-11-14): five Linux runs, five
+# failures, none of them the app. The Linux runner has no hardware
+# acceleration, so the emulator runs under swiftshader + (for arm64)
+# ARM translation: boot takes ~10 min, system_server / System UI ANR,
+# adb dump gets SIGKILLed (137), install verification times out. The
+# x86_64 build did not save it — the bottleneck is the emulator, not
+# the ABI. These workflows therefore run on macos-latest, where the
+# emulator is hardware-accelerated (HVF), and back on the arm64 AVD +
+# arm64 APK, which is also the real release ABI. Keep the 900 s boot
+# timeout as headroom; macOS boot is normally 1-2 min.
       - name: Emulator smoke test
         uses: reactivecircus/android-emulator-runner@v2
         with:
@@ -71,7 +82,7 @@ jobs:
           cores: 4
           ram-size: 4096
           heap-size: 1024
-          arch: x86_64
+          arch: arm64
           target: google_apis
           emulator-options: -no-snapshot-save -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back emulated -camera-front emulated
           disable-animations: true
