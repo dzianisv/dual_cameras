@@ -18,6 +18,12 @@ android {
         isCoreLibraryDesugaringEnabled = true
     }
 
+    // Target ABI for this build, driven by the STORYCAM_ABI env var.
+    // Default "arm64-v8a" (the Play release build). The emulator
+    // workflows set STORYCAM_ABI=x86_64. See the packaging block below
+    // for why this must stay in sync with the excludes.
+    val targetAbi = System.getenv("STORYCAM_ABI") ?: "arm64-v8a"
+
     defaultConfig {
         // StoryCam's Play identity. Play forbids changing the applicationId
         // after the first release, so this was set before the first upload
@@ -31,21 +37,27 @@ android {
         versionCode = flutter.versionCode
         versionName = flutter.versionName
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
-        // StoryCam ships ARM64 only: the sherpa-onnx / plugin AARs carry
-        // armeabi-v7a and x86_64 .so files that would otherwise leak into
-        // the APK (run 43006787011 shipped all three ABIs, ~40 MB extra).
-        // NOTE: ndk.abiFilters alone did NOT strip them — run 43008152191
-        // (a49a302) still shipped all three ABIs at the same 95.7 MB.
-        // AGP's packaging exclusion is what actually drops AAR jniLibs.
+        // StoryCam ships one ABI per build: the sherpa-onnx / plugin AARs
+        // carry armeabi-v7a and x86_64 .so files that would otherwise leak
+        // into the APK (run 43006787011 shipped all three ABIs, ~40 MB
+        // extra). NOTE: ndk.abiFilters alone did NOT strip them — run
+        // 43008152191 (a49a302) still shipped all three ABIs at the same
+        // 95.7 MB. AGP's packaging exclusion is what actually drops AAR
+        // jniLibs. Both follow targetAbi (see above): the unconditional
+        // excludes used to strip x86_64 too, so the x86_64 emulator build
+        // shipped with NO native libs and crashed on launch ("Could not
+        // find 'libflutter.so'. Looked for: [x86_64, arm64-v8a], but only
+        // found: []" — run 43528021798).
         ndk {
-            abiFilters += "arm64-v8a"
+            abiFilters += targetAbi
         }
     }
 
     packaging {
         jniLibs {
-            excludes += "lib/armeabi-v7a/*"
-            excludes += "lib/x86_64/*"
+            for (abi in listOf("armeabi-v7a", "arm64-v8a", "x86_64")) {
+                if (abi != targetAbi) excludes += "lib/$abi/*"
+            }
         }
     }
 

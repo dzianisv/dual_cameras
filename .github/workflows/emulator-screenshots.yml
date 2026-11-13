@@ -67,8 +67,15 @@ jobs:
           channel: stable
           cache: true
 
+      # STORYCAM_ABI=x86_64: build.gradle.kts strips every ABI except the
+      # target one — without this the x86_64 APK ships with NO native libs
+      # and crashes on launch ("Could not find 'libflutter.so'", run
+      # 43528021798). The Play release build (build-apk.yml) leaves the
+      # var unset and stays arm64-v8a.
       - name: Build release APK (x86_64)
         working-directory: packages/dual_cameras/example
+        env:
+          STORYCAM_ABI: x86_64
         run: |
           flutter pub get
           flutter build apk --release --target-platform android-x64
@@ -130,6 +137,7 @@ jobs:
             adb shell pm grant app.storycam android.permission.RECORD_AUDIO || true
             adb shell am start -n app.storycam/.MainActivity
             sleep 30
+            adb shell pidof app.storycam || (adb logcat -d | grep -i -E "storycam|flutter|fatal|crash" | tail -30; exit 1)
             python3 tools/emulator_tap.py 'Wait' || true
             sleep 15
             adb exec-out screencap -p > 01-launch.png
