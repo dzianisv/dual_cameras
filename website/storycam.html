@@ -1,0 +1,454 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>StoryCam — record front &amp; back camera at once, with Russian &amp; English on-device captions</title>
+<meta name="description" content="StoryCam is a free Android app that records the front and back cameras at the same time into one portrait video — with filters and on-device captions in Russian and English. No account, no cloud: captions run on your phone. Test build, free download.">
+<meta name="keywords" content="StoryCam, dual camera app Android, record front and back camera at once, front and back camera simultaneously, video captions Russian, русские субтитры на видео, субтитры на русском, on-device captions, Whisper captions Android, dual camera recording app, BeReal style camera app, picture-in-picture video app">
+<meta name="author" content="Roman Slack">
+<meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1">
+<meta name="theme-color" content="#027DFD">
+<link rel="canonical" href="https://dualcameras.com/storycam.html">
+
+<!-- Open Graph -->
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Dual Cameras">
+<meta property="og:url" content="https://dualcameras.com/storycam.html">
+<meta property="og:title" content="StoryCam — two cameras, one video, captions in Russian and English">
+<meta property="og:description" content="Free Android app: record the front and back cameras at the same time, add filters, and burn in on-device captions in Russian or English. No account, no cloud.">
+<meta property="og:image" content="https://dualcameras.com/assets/demo-back-primary.jpg">
+<meta property="og:image:width" content="1080">
+<meta property="og:image:height" content="1920">
+<meta property="og:image:alt" content="StoryCam dual-camera capture: back camera full-frame with a circular selfie inset.">
+<meta property="og:locale" content="en_US">
+<meta property="og:locale:alternate" content="ru_RU">
+
+<!-- Twitter / X -->
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="StoryCam — dual-camera video with Russian &amp; English captions, on-device">
+<meta name="twitter:description" content="Free Android test build: front + back cameras in one video, filters, and on-device captions in Russian and English.">
+<meta name="twitter:image" content="https://dualcameras.com/assets/demo-back-primary.jpg">
+<meta name="twitter:image:alt" content="StoryCam dual-camera capture with selfie inset.">
+
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><rect width='24' height='24' rx='6' fill='%23027DFD'/><circle cx='9' cy='12' r='4.5' fill='white'/><circle cx='16' cy='9' r='2.5' fill='white'/></svg>">
+<link rel="apple-touch-icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><rect width='24' height='24' rx='6' fill='%23027DFD'/><circle cx='9' cy='12' r='4.5' fill='white'/><circle cx='16' cy='9' r='2.5' fill='white'/></svg>">
+
+<!-- Structured data: the StoryCam app + FAQ, for Google rich results and AI answer engines.
+     Honest by design: no aggregateRating and no download count — the app has neither yet.
+     It is a free test build, sideloaded, not on Google Play. -->
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@graph": [
+    {
+      "@type": "MobileApplication",
+      "@id": "https://dualcameras.com/storycam.html#app",
+      "name": "StoryCam",
+      "alternateName": "StoryCam — Dual Camera",
+      "description": "Free Android app that records the front and back cameras at the same time into one portrait video, with filters and on-device captions in Russian and English. Captions run entirely on the phone with the Whisper speech model; no audio leaves the device.",
+      "url": "https://dualcameras.com/storycam.html",
+      "applicationCategory": "MultimediaApplication",
+      "operatingSystem": "Android",
+      "softwareVersion": "0.5.3",
+      "inLanguage": ["en", "ru"],
+      "isAccessibleForFree": true,
+      "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
+      "downloadUrl": "https://github.com/dzianisv/dual_cameras/releases/download/v0.5.3/storycam-test-arm64.apk",
+      "installUrl": "https://github.com/dzianisv/dual_cameras/releases/tag/v0.5.3",
+      "license": "https://opensource.org/licenses/MIT",
+      "author": { "@id": "https://romanslack.com/#person" },
+      "featureList": [
+        "Simultaneous front and back camera recording",
+        "Picture-in-picture, circle inset and split layouts",
+        "Live filters and exposure controls",
+        "On-device captions in Russian and English (Whisper)",
+        "Karaoke-style caption highlighting",
+        "Download and caption progress as system notifications with a Stop button"
+      ]
+    },
+    {
+      "@type": "FAQPage",
+      "@id": "https://dualcameras.com/storycam.html#faq",
+      "mainEntity": [
+        {
+          "@type": "Question",
+          "name": "Is StoryCam on Google Play?",
+          "acceptedAnswer": { "@type": "Answer", "text": "Not yet. StoryCam is currently a free Android test build that you sideload from GitHub: download the APK, allow install from unknown sources when prompted, and open it. A Google Play release is planned." }
+        },
+        {
+          "@type": "Question",
+          "name": "How do Russian captions work in StoryCam?",
+          "acceptedAnswer": { "@type": "Answer", "text": "Captions run entirely on your phone with the Whisper speech model — no audio is uploaded. The first time you turn captions on, the app downloads about 160 MB of caption models. You can leave the language on Auto or force Русский or English. Single short words are the hardest case for automatic detection, so force a language for short clips." }
+        },
+        {
+          "@type": "Question",
+          "name": "Which phones does StoryCam work on?",
+          "acceptedAnswer": { "@type": "Answer", "text": "StoryCam needs an ARM64 Android phone with concurrent front-and-back camera support, for example Pixel 6 and newer or Galaxy S22 and newer. If the phone cannot run both cameras at once, the app falls back to single-camera recording." }
+        },
+        {
+          "@type": "Question",
+          "name": "Do my videos or audio leave the phone?",
+          "acceptedAnswer": { "@type": "Answer", "text": "No. Captions are transcribed on-device, and nothing is uploaded. The original video is always kept, and the captioned copy is saved next to it." }
+        },
+        {
+          "@type": "Question",
+          "name": "How do I stop a model download or captioning in StoryCam?",
+          "acceptedAnswer": { "@type": "Answer", "text": "Both run as system notifications with a progress bar and a Stop button. Stopping a download aborts it (you can retry from the Captions sheet); stopping captioning abandons the job and keeps your original video — no captioned video is ever saved after a stop." }
+        }
+      ]
+    }
+  ]
+}
+</script>
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+
+<style>
+  :root {
+    --bg: #ffffff; --ink: #0b0b0c; --muted: #5b626b; --faint: #8a909a;
+    --line: #ececef; --surface: #f7f8fa; --blue: #027DFD; --green: #3DDC84;
+    --maxw: 1120px; --radius: 16px;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html { scroll-behavior: smooth; -webkit-text-size-adjust: 100%; overflow-x: hidden; }
+  body {
+    font-family: "Inter", -apple-system, "Segoe UI", Roboto, sans-serif;
+    color: var(--ink); background: var(--bg); line-height: 1.6;
+    overflow-x: hidden; -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility;
+  }
+  .mono { font-family: "JetBrains Mono", ui-monospace, Menlo, monospace; }
+  a { color: inherit; text-decoration: none; }
+  .wrap { max-width: var(--maxw); margin: 0 auto; padding: 0 24px; }
+  section { padding: 96px 0; }
+  .eyebrow {
+    font-size: 13px; font-weight: 700; letter-spacing: 1.6px; text-transform: uppercase;
+    color: var(--blue); display: inline-flex; align-items: center; gap: 9px;
+  }
+  .eyebrow::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--blue); }
+  h2 { font-size: clamp(28px, 4vw, 40px); font-weight: 800; letter-spacing: -1px; line-height: 1.1; }
+  .lead { color: var(--muted); font-size: 18px; max-width: 620px; }
+
+  header {
+    position: sticky; top: 0; z-index: 50;
+    background: rgba(255,255,255,0.82);
+    backdrop-filter: saturate(180%) blur(12px);
+    border-bottom: 1px solid var(--line);
+  }
+  .nav { display: flex; align-items: center; justify-content: space-between; height: 64px; }
+  .brand { font-weight: 700; font-size: 15px; letter-spacing: -0.2px; display: flex; align-items: center; gap: 10px; }
+  .brand .mark { width: 26px; height: 26px; border-radius: 7px; background: var(--blue); position: relative; flex: none; }
+  .brand .mark::before { content:""; position:absolute; width:13px; height:13px; border-radius:50%; background:#fff; left:4px; top:6px; }
+  .brand .mark::after { content:""; position:absolute; width:8px; height:8px; border-radius:50%; background:#fff; right:4px; top:4px; }
+  .nav nav { display: flex; align-items: center; gap: 30px; }
+  .nav nav a { font-size: 14.5px; color: var(--muted); font-weight: 500; }
+  .nav nav a:hover { color: var(--ink); }
+  .btn {
+    display: inline-flex; align-items: center; gap: 9px; font-weight: 600; font-size: 14.5px;
+    padding: 10px 18px; border-radius: 10px; border: 1px solid var(--ink); background: var(--ink); color: #fff;
+    transition: transform .12s ease, opacity .12s ease;
+  }
+  .btn:hover { opacity: 0.88; }
+  .btn.ghost { background: transparent; color: var(--ink); border-color: var(--line); }
+  .btn.ghost:hover { border-color: var(--ink); opacity: 1; }
+  @media (max-width: 720px) { .nav nav a.hide-sm { display: none; } }
+
+  .hero { padding: 72px 0 88px; }
+  .hero-grid { display: grid; grid-template-columns: 1.05fr 0.95fr; gap: 56px; align-items: center; }
+  .hero-copy { min-width: 0; }
+  .hero h1 {
+    font-size: clamp(40px, 5.4vw, 68px); font-weight: 800; letter-spacing: -2.5px; line-height: 0.98;
+    margin: 20px 0 0;
+  }
+  .hero h1 .accent { color: var(--blue); }
+  .hero p.tagline { margin: 22px 0 0; font-size: 19px; color: var(--muted); max-width: 540px; }
+  .hero p.tagline b { color: var(--ink); font-weight: 600; }
+  .cta { margin-top: 30px; display: flex; gap: 12px; flex-wrap: wrap; }
+  .meta-row { margin-top: 26px; display: flex; align-items: center; gap: 18px; flex-wrap: wrap; color: var(--faint); font-size: 13.5px; }
+  .meta-row .tag { display: inline-flex; align-items: center; gap: 7px; }
+  .meta-row .dotg { width: 7px; height: 7px; border-radius: 50%; background: var(--green); }
+  .meta-row .dotb { width: 7px; height: 7px; border-radius: 50%; background: var(--blue); }
+  .note {
+    margin-top: 22px; background: var(--surface); border: 1px solid var(--line); border-radius: 12px;
+    padding: 14px 18px; font-size: 14px; color: var(--muted); max-width: 560px;
+  }
+  .note b { color: var(--ink); }
+
+  .devices { display: flex; justify-content: center; align-items: flex-start; gap: clamp(16px, 1.8vw, 26px); flex-wrap: wrap; }
+  .phone {
+    width: clamp(190px, 21vw, 264px); aspect-ratio: 9 / 19.2;
+    background: #0c0d0f; border-radius: clamp(28px, 3.4vw, 40px);
+    padding: clamp(7px, 0.8vw, 10px); position: relative; flex: none;
+    box-shadow: 0 34px 60px -26px rgba(17,24,39,0.34), 0 12px 24px -14px rgba(17,24,39,0.20);
+  }
+  .phone .screen { width: 100%; height: 100%; border-radius: clamp(22px, 2.7vw, 31px); overflow: hidden; position: relative; background:#000; }
+  .phone .screen img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .phone .notch {
+    position: absolute; top: clamp(10px,1.1vw,14px); left: 50%; transform: translateX(-50%);
+    width: 34%; height: 18px; background: #0c0d0f; border-radius: 12px; z-index: 2;
+  }
+  .phone .cap {
+    position: absolute; bottom: 14px; left: 50%; transform: translateX(-50%);
+    background: rgba(12,13,15,0.62); color: #fff; font-size: 11px; font-weight: 600;
+    padding: 6px 12px; border-radius: 999px; white-space: nowrap; z-index: 2;
+  }
+
+  .features-head { display: flex; flex-direction: column; gap: 16px; margin-bottom: 56px; }
+  .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1px; background: var(--line); border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; }
+  .cell { background: #fff; padding: 30px 28px; }
+  .cell .ico { width: 34px; height: 34px; border-radius: 9px; background: #eaf3ff; display: grid; place-items: center; margin-bottom: 18px; }
+  .cell .ico svg { width: 18px; height: 18px; stroke: var(--blue); stroke-width: 2; fill: none; }
+  .cell h3 { font-size: 16.5px; font-weight: 700; letter-spacing: -0.3px; margin-bottom: 7px; }
+  .cell p { font-size: 14.5px; color: var(--muted); line-height: 1.55; }
+
+  .ru { background: var(--surface); border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+  .ru .wrap { max-width: 760px; }
+  .ru h2 { margin-top: 16px; }
+  .ru p { color: var(--muted); font-size: 17px; margin-top: 18px; }
+  .ru ul { margin: 18px 0 0 20px; color: var(--muted); font-size: 16.5px; line-height: 1.8; }
+  .ru ul b { color: var(--ink); }
+
+  .steps { counter-reset: step; max-width: 760px; margin-top: 40px; display: flex; flex-direction: column; gap: 20px; }
+  .step { display: flex; gap: 18px; align-items: flex-start; }
+  .step::before {
+    counter-increment: step; content: counter(step);
+    flex: none; width: 32px; height: 32px; border-radius: 50%;
+    background: var(--blue); color: #fff; font-weight: 700; font-size: 15px;
+    display: grid; place-items: center; margin-top: 2px;
+  }
+  .step h3 { font-size: 17px; font-weight: 700; }
+  .step p { color: var(--muted); font-size: 15px; margin-top: 4px; }
+  .step code { font-size: 14px; color: var(--ink); background: var(--surface); padding: 1px 6px; border-radius: 5px; }
+
+  .faq-head { text-align: center; max-width: 640px; margin: 0 auto 48px; }
+  .faq-list { max-width: 760px; margin: 0 auto; }
+  .faq-item { border-top: 1px solid var(--line); padding: 26px 0; }
+  .faq-item:last-child { border-bottom: 1px solid var(--line); }
+  .faq-item h3 { font-size: 18px; font-weight: 700; letter-spacing: -0.3px; margin-bottom: 10px; }
+  .faq-item p { color: var(--muted); font-size: 15.5px; line-height: 1.6; }
+  .faq-item code { font-size: 14px; color: var(--ink); background: var(--surface); padding: 1px 6px; border-radius: 5px; }
+
+  footer { border-top: 1px solid var(--line); padding: 56px 0 48px; }
+  .foot { display: flex; justify-content: space-between; align-items: flex-start; gap: 32px; flex-wrap: wrap; }
+  .foot .by { max-width: 420px; }
+  .foot .by .brand { margin-bottom: 14px; }
+  .foot .by p { color: var(--muted); font-size: 14.5px; }
+  .foot .links { display: flex; gap: 40px; }
+  .foot .col h4 { font-size: 12px; text-transform: uppercase; letter-spacing: 1px; color: var(--faint); margin-bottom: 14px; }
+  .foot .col a { display: block; color: var(--muted); font-size: 14.5px; padding: 4px 0; }
+  .foot .col a:hover { color: var(--ink); }
+  .legal { margin-top: 44px; padding-top: 24px; border-top: 1px solid var(--line); display: flex; justify-content: space-between; flex-wrap: wrap; gap: 12px; color: var(--faint); font-size: 13px; }
+
+  @media (max-width: 900px) {
+    section { padding: 72px 0; }
+    .hero-grid { grid-template-columns: 1fr; gap: 44px; text-align: center; }
+    .hero-grid > * { min-width: 0; }
+    .hero-copy { display: flex; flex-direction: column; align-items: center; }
+    .hero h1, .hero p.tagline { margin-left: auto; margin-right: auto; }
+    .cta, .meta-row { justify-content: center; }
+    .note { margin-left: auto; margin-right: auto; text-align: left; }
+    .grid { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="wrap nav">
+    <a class="brand" href="index.html"><span class="mark"></span> Dual Cameras</a>
+    <nav>
+      <a href="#features" class="hide-sm">Features</a>
+      <a href="#captions" class="hide-sm">Captions</a>
+      <a href="#install" class="hide-sm">Install</a>
+      <a href="#faq" class="hide-sm">FAQ</a>
+      <a href="index.html" class="hide-sm">For developers</a>
+      <a class="btn" href="https://github.com/dzianisv/dual_cameras/releases/download/v0.5.3/storycam-test-arm64.apk" rel="noopener">Download APK</a>
+    </nav>
+  </div>
+</header>
+
+<a id="top"></a>
+<section class="hero">
+  <div class="wrap hero-grid">
+    <div class="hero-copy">
+      <span class="eyebrow">StoryCam · Android · Free · Test build</span>
+      <h1>Two cameras.<br>One video.<br><span class="accent">Captions included.</span></h1>
+      <p class="tagline">StoryCam records the <b>front and back cameras at the same time</b> into one portrait video — with filters, and <b>on-device captions in Russian and English</b>. No account, no cloud, no upload: your voice never leaves your phone.</p>
+
+      <div class="cta">
+        <a class="btn" href="https://github.com/dzianisv/dual_cameras/releases/download/v0.5.3/storycam-test-arm64.apk" rel="noopener">Download StoryCam 0.5.3 (APK)</a>
+        <a class="btn ghost" href="https://github.com/dzianisv/dual_cameras/releases" target="_blank" rel="noopener">All releases</a>
+      </div>
+
+      <div class="meta-row">
+        <span class="tag"><span class="dotg"></span> Android · ARM64 · free</span>
+        <span class="tag"><span class="dotb"></span> Captions: Русский · English</span>
+      </div>
+
+      <p class="note"><b>Test build, not on Google Play yet.</b> Sideload the APK from GitHub (allow “install unknown apps” when prompted). It uses a debug test signing key, so a future install may ask you to reinstall first — your videos stay in the gallery. Caption models (~160&nbsp;MB) download on first use.</p>
+    </div>
+
+    <div class="devices">
+      <div class="phone">
+        <div class="notch"></div>
+        <div class="screen">
+          <img src="assets/demo-back-primary.jpg" alt="StoryCam dual-camera capture: back camera full-frame with a circular selfie inset">
+          <div class="cap">Back · selfie inset</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="features" style="padding-top:0">
+  <div class="wrap">
+    <div class="features-head">
+      <span class="eyebrow">What it does</span>
+      <h2>Record both sides of the moment.</h2>
+      <p class="lead">Your reaction and the scene, in one take, in one file — captioned before you share it.</p>
+    </div>
+    <div class="grid">
+      <div class="cell">
+        <div class="ico"><svg viewBox="0 0 24 24"><rect x="3" y="6" width="18" height="12" rx="2"/><circle cx="9" cy="12" r="2.5"/></svg></div>
+        <h3>Front + back at once</h3>
+        <p>Both cameras record together into a single portrait MP4. Picture-in-picture, circle inset, or split — swap the lead camera live while recording.</p>
+      </div>
+      <div class="cell">
+        <div class="ico"><svg viewBox="0 0 24 24"><path d="M12 3l8 4v5c0 5-3.5 8-8 9-4.5-1-8-4-8-9V7z"/></svg></div>
+        <h3 id="captions">Captions in Russian &amp; English</h3>
+        <p>On-device Whisper speech recognition adds burned-in captions with karaoke highlighting. Auto-detect, or force Русский or English. Silence stays silent — no captions over quiet parts.</p>
+      </div>
+      <div class="cell">
+        <div class="ico"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><rect x="13" y="13" width="6" height="5" rx="1.5"/></svg></div>
+        <h3>Filters &amp; exposure</h3>
+        <p>Live filters and exposure controls while you record, so the clip looks finished before you ever open an editor.</p>
+      </div>
+      <div class="cell">
+        <div class="ico"><svg viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h10"/></svg></div>
+        <h3>Notifications, not pop-ups</h3>
+        <p>The caption-model download and the captioning itself run as system notifications with a progress bar and a Stop button. Stop any time — your original video is always kept.</p>
+      </div>
+      <div class="cell">
+        <div class="ico"><svg viewBox="0 0 24 24"><path d="M12 3l8 4v5c0 5-3.5 8-8 9-4.5-1-8-4-8-9V7z"/></svg></div>
+        <h3>Private by design</h3>
+        <p>Captions are transcribed on your phone. No account, no server, no audio upload — ever.</p>
+      </div>
+      <div class="cell">
+        <div class="ico"><svg viewBox="0 0 24 24"><path d="M3 12h4l3 8 4-16 3 8h4"/></svg></div>
+        <h3>In sync, every time</h3>
+        <p>Audio and video share one clock, so lips match across long clips. Record again right after stopping — no waiting for captions to finish.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="ru" lang="ru">
+  <div class="wrap">
+    <span class="eyebrow">Русские субтитры</span>
+    <h2>Субтитры на русском — прямо на телефоне.</h2>
+    <p>StoryCam записывает переднюю и заднюю камеры одновременно и добавляет субтитры на русском или английском — без интернета и без загрузки аудио на сервер. Распознавание речи (Whisper) работает на самом телефоне.</p>
+    <ul>
+      <li><b>Русский и английский:</b> автоопределение языка или принудительный выбор — «Русский» или English.</li>
+      <li><b>Караоке-подсветка:</b> слова подсвечиваются по мере произнесения.</li>
+      <li><b>Тишина — без субтитров:</b> паузы и шум не превращаются в слова.</li>
+      <li><b>Уведомления с кнопкой «Стоп»:</b> загрузка модели и добавление субтитров видны в шторке уведомлений, с прогрессом и остановкой. Оригинальное видео всегда сохраняется.</li>
+    </ul>
+    <p>StoryCam — бесплатное тестовое приложение для Android. Скачайте APK с GitHub и установите вручную: Google Play — позже.</p>
+  </div>
+</section>
+
+<section id="install">
+  <div class="wrap">
+    <span class="eyebrow">Install</span>
+    <h2 style="margin-top:16px">Three steps to your first dual video.</h2>
+    <div class="steps">
+      <div class="step">
+        <div>
+          <h3>Download the APK</h3>
+          <p>Get <a href="https://github.com/dzianisv/dual_cameras/releases/download/v0.5.3/storycam-test-arm64.apk" style="color:var(--blue);font-weight:600">StoryCam 0.5.3 for Android (ARM64)</a> from GitHub Releases. It is free, and there is no account to create.</p>
+        </div>
+      </div>
+      <div class="step">
+        <div>
+          <h3>Allow the install</h3>
+          <p>Open the file and allow “install unknown apps” when Android asks. StoryCam needs camera and microphone permission — nothing else.</p>
+        </div>
+      </div>
+      <div class="step">
+        <div>
+          <h3>Record, then caption</h3>
+          <p>Tap the shutter to record with both cameras. Turn captions on in the Captions sheet, pick Auto, Русский, or English — the models (~160&nbsp;MB) download once, then captions run on-device.</p>
+        </div>
+      </div>
+    </div>
+    <p class="lead" style="margin-top:36px">Needs an ARM64 Android phone with concurrent-camera support (for example Pixel 6 and newer, or Galaxy S22 and newer). Without it, StoryCam falls back to single-camera recording.</p>
+  </div>
+</section>
+
+<section id="faq" style="padding-top:0">
+  <div class="wrap">
+    <div class="faq-head">
+      <span class="eyebrow">FAQ</span>
+      <h2 style="margin-top:14px">Questions, answered.</h2>
+    </div>
+    <div class="faq-list">
+      <div class="faq-item">
+        <h3>Is StoryCam on Google Play?</h3>
+        <p>Not yet. StoryCam is currently a free Android test build that you sideload from GitHub: download the APK, allow install from unknown sources when prompted, and open it. A Google Play release is planned.</p>
+      </div>
+      <div class="faq-item">
+        <h3>How do Russian captions work in StoryCam?</h3>
+        <p>Captions run entirely on your phone with the Whisper speech model — no audio is uploaded. The first time you turn captions on, the app downloads about 160&nbsp;MB of caption models. You can leave the language on Auto or force Русский or English. Single short words are the hardest case for automatic detection, so force a language for short clips.</p>
+      </div>
+      <div class="faq-item">
+        <h3>Which phones does StoryCam work on?</h3>
+        <p>StoryCam needs an ARM64 Android phone with concurrent front-and-back camera support, for example Pixel 6 and newer or Galaxy S22 and newer. If the phone cannot run both cameras at once, the app falls back to single-camera recording.</p>
+      </div>
+      <div class="faq-item">
+        <h3>Do my videos or audio leave the phone?</h3>
+        <p>No. Captions are transcribed on-device, and nothing is uploaded. The original video is always kept, and the captioned copy is saved next to it.</p>
+      </div>
+      <div class="faq-item">
+        <h3>How do I stop a model download or captioning in StoryCam?</h3>
+        <p>Both run as system notifications with a progress bar and a Stop button. Stopping a download aborts it (you can retry from the Captions sheet); stopping captioning abandons the job and keeps your original video — no captioned video is ever saved after a stop.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <div class="foot">
+      <div class="by">
+        <a class="brand" href="#top"><span class="mark"></span> StoryCam</a>
+        <p>A free Android app for recording the front and back cameras at the same time, with on-device captions in Russian and English. Built on the open-source Dual Cameras Flutter plugin.</p>
+      </div>
+      <div class="links">
+        <div class="col">
+          <h4>StoryCam</h4>
+          <a href="https://github.com/dzianisv/dual_cameras/releases/download/v0.5.3/storycam-test-arm64.apk" rel="noopener">Download test APK</a>
+          <a href="https://github.com/dzianisv/dual_cameras/releases" target="_blank" rel="noopener">All releases</a>
+          <a href="https://github.com/dzianisv/dual_cameras" target="_blank" rel="noopener">Source code</a>
+        </div>
+        <div class="col">
+          <h4>Project</h4>
+          <a href="index.html">Dual Cameras plugin</a>
+          <a href="https://pub.dev/packages/dual_cameras" target="_blank" rel="noopener">pub.dev</a>
+          <a href="https://romanslack.com" target="_blank" rel="noopener">romanslack.com</a>
+        </div>
+      </div>
+    </div>
+    <div class="legal">
+      <span>© <span id="yr"></span> Roman Slack · MIT License</span>
+      <span>StoryCam test build · not on Google Play yet.</span>
+    </div>
+  </div>
+</footer>
+
+<script>
+  document.getElementById('yr').textContent = new Date().getFullYear();
+</script>
+</body>
+</html>
