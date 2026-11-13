@@ -95,6 +95,7 @@ jobs:
           target: google_apis
           emulator-options: -no-snapshot-save -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back emulated -camera-front emulated
           disable-animations: true
+          emulator-boot-timeout: 900
           script: |
             adb install -r packages/dual_cameras/example/build/app/outputs/flutter-apk/app-release.apk
             adb shell pm grant app.storycam android.permission.CAMERA || true
