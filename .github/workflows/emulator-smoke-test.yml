@@ -13,6 +13,12 @@
 # is therefore self-contained on one line: no variables, no functions,
 # no heredocs across lines. Do not reintroduce multi-line shell
 # constructs in this script — they silently do nothing or fail.
+#
+# SCREENSHOT RULE (run 43497670419, 2026-11-14): `adb shell screencap -p
+# /sdcard/...` fails with 'Transport endpoint is not connected' — the
+# emulator's sdcard is not mounted when the script runs. Screenshots go
+# through `adb exec-out screencap -p > file.png`, which streams the PNG
+# straight to the host and never touches the device filesystem.
 name: StoryCam emulator smoke test
 
 on:
@@ -62,10 +68,9 @@ jobs:
             adb shell pm grant app.storycam android.permission.RECORD_AUDIO || true
             adb shell am start -n app.storycam/.MainActivity
             sleep 20
-            adb shell screencap -p /sdcard/smoke-launch.png
+            adb exec-out screencap -p > smoke-launch.png
             adb shell dumpsys activity activities | grep -i -A2 -B2 storycam || true
             adb logcat -d | grep -i -E "storycam|flutter|fatal|crash" | tail -50 || true
-            adb pull /sdcard/smoke-launch.png smoke-launch.png || true
 
       - name: Upload launch screenshot
         uses: actions/upload-artifact@v4
