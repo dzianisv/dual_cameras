@@ -1,7 +1,6 @@
 import 'package:dual_cameras_example/crash_reporting.dart';
 import 'package:dual_cameras_example/main.dart';
 import 'package:dual_cameras_platform_interface/dual_cameras_platform_interface.dart';
-import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
