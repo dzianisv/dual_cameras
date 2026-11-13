@@ -52,12 +52,25 @@ jobs:
         working-directory: packages/dual_cameras/example
         run: |
           flutter pub get
-          flutter build apk --release --target-platform android-arm64
+          flutter build apk --release --target-platform android-x64
 
+#
+# X64 RULE (run 43505361133, 2026-11-14): the release APK is arm64-only,
+# and on the x86_64 emulator it runs under ARM translation (libhoudini).
+# With no hardware acceleration and 2 cores that starves system_server
+# into a persistent "Process system isn't responding" ANR and adb itself
+# starts dying (dump killed with 137, daemon connection errors), so the
+# 'Wait' tap could not even run and 'Captions' was never found. The
+# emulator workflows therefore build an x86_64 APK, which runs natively
+# on the x86_64 emulator. The Play release AAB stays arm64 — this build
+# is emulator-only. Also give the emulator all 4 host cores and 4 GB RAM.
       - name: Emulator smoke test
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: 34
+          cores: 4
+          ram-size: 4096
+          heap-size: 1024
           arch: x86_64
           target: google_apis
           emulator-options: -no-snapshot-save -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back emulated -camera-front emulated
@@ -71,7 +84,7 @@ jobs:
             adb exec-out screencap -p > smoke-launch.png
             adb shell dumpsys activity activities | grep -i -A2 -B2 storycam || true
             adb logcat -d | grep -i -E "storycam|flutter|fatal|crash" | tail -50 || true
-
+            
       - name: Upload launch screenshot
         uses: actions/upload-artifact@v4
         if: always()
