@@ -1,0 +1,108 @@
+# Purpose: capture Play screenshots from real tested flows on the CI
+# emulator. Same app, same build as the smoke test — but it taps through
+# the camera screen, the Captions sheet, the Filters sheet, and a
+# recording, saving one screenshot per step. It does NOT prove concurrent
+# cameras, mic audio, or caption inference: emulator cameras are
+# virtual, ARM translation is involved, and sherpa-onnx runs through the
+# native bridge. A real phone is still the proof gate and the source of
+# the best screenshots (see ~/workspace/storycam/PHONE_TEST_PLAN.md).
+#
+# SHELL RULE (learned the hard way, run 43491636991): the
+# android-emulator-runner executes each line of `script:` as a SEPARATE
+# `sh -c` call. Variables, functions, and heredocs do NOT survive
+# across lines — a variable assigned on one line is empty on the next.
+# Every command below is therefore self-contained on one line. Taps go
+# through `tools/emulator_tap.py` (a repo file, not inline shell) which
+# finds a node by text in `uiautomator dump` output and taps its center.
+#
+# HOW TO APPLY (token scope): this file cannot be pushed with the
+# current gh token (no `workflow` scope). Apply it via the GitHub web
+# UI: repo → .github/workflows → Add file → Upload files (or create
+# new file and paste), commit to the branch, then dispatch:
+#   gh workflow run emulator-screenshots.yml --ref <branch>
+# Screenshots land in the `emulator-play-screenshots` artifact
+# (14-day retention). Review every screenshot visually before copying
+# any of them into docs/play-assets/screenshots/ — a shot with a black
+# preview, a cut-off button, or the wrong language is rejected, not
+# shipped.
+name: StoryCam emulator screenshots
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  screenshots:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Check out the repo
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: 3.47.7
+          channel: stable
+          cache: true
+
+      - name: Build release APK (arm64)
+        working-directory: packages/dual_cameras/example
+        run: |
+          flutter pub get
+          flutter build apk --release --target-platform android-arm64
+
+      - name: Emulator screenshots
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          arch: x86_64
+          target: google_apis
+          emulator-options: -no-snapshot-save -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back emulated -camera-front emulated
+          disable-animations: true
+          script: |
+            adb install -r packages/dual_cameras/example/build/app/outputs/flutter-apk/app-release.apk
+            adb shell pm grant app.storycam android.permission.CAMERA || true
+            adb shell pm grant app.storycam android.permission.RECORD_AUDIO || true
+            adb shell am start -n app.storycam/.MainActivity
+            sleep 20
+            adb shell screencap -p /sdcard/01-launch.png
+            adb pull /sdcard/01-launch.png 01-launch.png
+            python3 tools/emulator_tap.py 'Captions'
+            sleep 3
+            adb shell screencap -p /sdcard/02-captions-sheet.png
+            adb pull /sdcard/02-captions-sheet.png 02-captions-sheet.png
+            adb shell input keyevent 4
+            sleep 2
+            python3 tools/emulator_tap.py 'Filters'
+            sleep 3
+            adb shell screencap -p /sdcard/03-filters.png
+            adb pull /sdcard/03-filters.png 03-filters.png
+            adb shell input keyevent 4
+            sleep 2
+            python3 tools/emulator_tap.py 'Start recording'
+            sleep 6
+            adb shell screencap -p /sdcard/04-recording.png
+            adb pull /sdcard/04-recording.png 04-recording.png
+            python3 tools/emulator_tap.py 'Stop recording'
+            sleep 8
+            adb shell screencap -p /sdcard/05-after-recording.png
+            adb pull /sdcard/05-after-recording.png 05-after-recording.png
+            adb logcat -d | grep -i -E "storycam|flutter|fatal|crash" | tail -50 || true
+            ls -la *.png
+
+      - name: Upload screenshots
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: emulator-play-screenshots
+          path: '*.png'
+          retention-days: 14
