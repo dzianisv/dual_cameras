@@ -21,6 +21,14 @@
 # through `adb exec-out screencap -p > file.png`, which streams the PNG
 # straight to the host and never touches the device filesystem.
 #
+# ANR RULE (run 43501670656, 2026-11-14): the launch shot showed a
+# "Process system isn't responding" dialog — the SYSTEM process, not
+# the app. The emulator has no hardware acceleration and 2 cores, so
+# system_server starves during app startup. Dismiss it with a
+# best-effort tap on 'Wait' (|| true: absent when no dialog) after
+# launch and after starting recording, and give startup 30 s + 15 s
+# to settle before the first shot.
+#
 # HOW TO APPLY (token scope): this file cannot be pushed with the
 # current gh token (no `workflow` scope). Apply it via the GitHub web
 # UI: repo → .github/workflows → Add file → Upload files (or create
@@ -79,7 +87,9 @@ jobs:
             adb shell pm grant app.storycam android.permission.CAMERA || true
             adb shell pm grant app.storycam android.permission.RECORD_AUDIO || true
             adb shell am start -n app.storycam/.MainActivity
-            sleep 20
+            sleep 30
+            python3 tools/emulator_tap.py 'Wait' || true
+            sleep 15
             adb exec-out screencap -p > 01-launch.png
             python3 tools/emulator_tap.py 'Captions'
             sleep 3
@@ -93,6 +103,8 @@ jobs:
             sleep 2
             python3 tools/emulator_tap.py 'Start recording'
             sleep 6
+            python3 tools/emulator_tap.py 'Wait' || true
+            sleep 3
             adb exec-out screencap -p > 04-recording.png
             python3 tools/emulator_tap.py 'Stop recording'
             sleep 8
