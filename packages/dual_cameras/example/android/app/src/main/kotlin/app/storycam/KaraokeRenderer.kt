@@ -1,4 +1,4 @@
-package com.romanslack.dual_cameras_example
+package app.storycam
 
 import android.graphics.Canvas
 import android.graphics.Color

@@ -5,7 +5,7 @@ plugins {
 }
 
 android {
-    namespace = "com.romanslack.dual_cameras_example"
+    namespace = "app.storycam"
     compileSdk = flutter.compileSdkVersion
     ndkVersion = flutter.ndkVersion
 
@@ -19,8 +19,11 @@ android {
     }
 
     defaultConfig {
-        // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
-        applicationId = "com.romanslack.dual_cameras_example"
+        // StoryCam's Play identity. Play forbids changing the applicationId
+        // after the first release, so this was set before the first upload
+        // (renamed from the plugin demo's com.romanslack.dual_cameras_example
+        // in 0.5.4 — no production users existed yet, so the rename was free).
+        applicationId = "app.storycam"
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
         minSdk = flutter.minSdkVersion

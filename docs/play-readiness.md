@@ -24,15 +24,17 @@ who can supply it, and what this PR already prepared.
 1. **Google Play developer account** — $25 one-time fee, identity
    verification, and sign-in with his Google account. No agent can do
    this: it needs his account and his payment.
-2. **Package-name decision** — the app is still
-   `com.romanslack.dual_cameras_example` (the plugin demo's id).
-   **Recommendation: rename to a StoryCam identity (`app.storycam`)
-   before the first production upload.** Play forbids changing the
-   applicationId after the first release, and renaming now is cheap:
-   there are no production users, and test builds use the debug key so
-   there is no upgrade continuity to preserve. Renaming means updating
-   `android/app/build.gradle.kts` (namespace + applicationId) and the
-   package-name grep in `.github/workflows/build-apk.yml`.
+2. **Package name** — done: the app is now `app.storycam`
+   (renamed from the plugin demo's
+   `com.romanslack.dual_cameras_example` before the first production
+   upload, when there were no production users and test builds used
+   the debug key, so there was no upgrade continuity to preserve).
+   Play forbids changing the applicationId after the first release,
+   so this id is now permanent. The rename updated
+   `android/app/build.gradle.kts` (namespace + applicationId), the
+   Kotlin package (`app.storycam`), and the package-name checks in
+   `.github/workflows/build-apk.yml` and
+   `.github/workflows/emulator-smoke-test.yml`.
 3. **Production signing key** — CI signs the release build with the
    debug key (`signingConfig = signingConfigs.getByName("debug")`).
    A production upload keystore + Play App Signing enrollment is needed.
