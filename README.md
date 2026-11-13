@@ -38,6 +38,14 @@
 - **Author:** [Roman Slack](https://romanslack.com) — [GitHub](https://github.com/RomanSlack) · [LinkedIn](https://www.linkedin.com/in/roman-slack-a91a6a266/)
 - **License:** MIT (open-source from day one)
 
+## 🎥 StoryCam — the Android app built on this plugin
+
+**StoryCam** is a free Android app (this fork's example app) that records the front and back cameras at the same time into one portrait video, with live filters and on-device captions in Russian and English. Captions run entirely on the phone with Whisper — no account, no cloud, no audio upload.
+
+- **App page:** [dzianisv.github.io/dual_cameras/storycam.html](https://dzianisv.github.io/dual_cameras/storycam.html)
+- **Test releases (APK download):** [github.com/dzianisv/dual_cameras/releases](https://github.com/dzianisv/dual_cameras/releases)
+- **Status:** test build, sideload only — not on Google Play yet.
+
 ---
 
 ## The gap this fills
