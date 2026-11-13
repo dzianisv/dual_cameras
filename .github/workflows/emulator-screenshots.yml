@@ -102,7 +102,7 @@ jobs:
           cores: 4
           ram-size: 4096
           heap-size: 1024
-          arch: arm64
+          arch: arm64-v8a
           target: google_apis
           emulator-options: -no-snapshot-save -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back emulated -camera-front emulated
           disable-animations: true
