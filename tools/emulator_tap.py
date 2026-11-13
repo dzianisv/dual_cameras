@@ -7,6 +7,15 @@ the emulator's sdcard is not mounted when the workflow runs
 "Transport endpoint is not connected"). /data/local/tmp is always
 writable by the shell user.
 
+The dump is retried (run 43513063175): on the no-KVM software
+emulator system_server starves during app startup and
+`uiautomator dump` gets SIGKILLed (exit 137) — the first dump
+died that way while the "System UI isn't responding" dialog was
+up, which then made the `adb pull` fail too (no ui.xml was ever
+written) and failed the whole screenshots job. The kill is
+transient: a retry a few seconds later usually succeeds once
+the system settles. The pull is retried for the same reason.
+
 Usage: python3 tools/emulator_tap.py '<substring>'
 
 Finds the first node in `uiautomator dump` output whose text or
@@ -19,21 +28,37 @@ loudly instead of screenshotting the wrong screen.
 
 import subprocess
 import sys
+import time
 import xml.etree.ElementTree as ET
+
+DUMP_ATTEMPTS = 3
+RETRY_DELAY_S = 10
+
+
+def run_with_retries(args, attempts=DUMP_ATTEMPTS):
+    """Run an adb command, retrying transient kills (exit 137 etc.)."""
+    last_error = None
+    for attempt in range(1, attempts + 1):
+        try:
+            return subprocess.run(args, check=True, capture_output=True)
+        except subprocess.CalledProcessError as exc:
+            last_error = exc
+            print(
+                f"attempt {attempt}/{attempts} failed: {' '.join(args)} "
+                f"-> exit {exc.returncode}",
+                file=sys.stderr,
+            )
+            if attempt < attempts:
+                time.sleep(RETRY_DELAY_S)
+    raise last_error
 
 
 def main() -> int:
     needle = sys.argv[1]
-    subprocess.run(
-        ["adb", "shell", "uiautomator", "dump", "/data/local/tmp/ui.xml"],
-        check=True,
-        capture_output=True,
+    run_with_retries(
+        ["adb", "shell", "uiautomator", "dump", "/data/local/tmp/ui.xml"]
     )
-    subprocess.run(
-        ["adb", "pull", "/data/local/tmp/ui.xml", "/tmp/ui.xml"],
-        check=True,
-        capture_output=True,
-    )
+    run_with_retries(["adb", "pull", "/data/local/tmp/ui.xml", "/tmp/ui.xml"])
     root = ET.parse("/tmp/ui.xml").getroot()
     for node in root.iter("node"):
         text = (node.get("text") or "") + (node.get("content-desc") or "")
