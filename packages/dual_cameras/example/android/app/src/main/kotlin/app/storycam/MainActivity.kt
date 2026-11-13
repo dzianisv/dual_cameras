@@ -1,4 +1,4 @@
-package com.romanslack.dual_cameras_example
+package app.storycam
 
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
