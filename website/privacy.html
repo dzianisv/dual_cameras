@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>StoryCam Privacy Policy</title>
+<meta name="description" content="StoryCam privacy policy: the app has no account, no ads, and no analytics. Videos stay on your phone; captions run on-device.">
+<link rel="canonical" href="https://dzianisv.github.io/dual_cameras/privacy.html">
+<style>
+  body { font-family: system-ui, -apple-system, "Segoe UI", sans-serif; max-width: 680px; margin: 0 auto; padding: 32px 20px 64px; line-height: 1.6; color: #1a1a1a; }
+  h1 { font-size: 28px; line-height: 1.25; }
+  h2 { font-size: 19px; margin-top: 32px; }
+  a { color: #027DFD; }
+  .meta { color: #666; font-size: 14px; }
+  footer { margin-top: 48px; color: #666; font-size: 14px; }
+</style>
+</head>
+<body>
+<h1>StoryCam Privacy Policy</h1>
+<p class="meta">Effective: 13 November 2026 · App version 0.5.3 (test release)</p>
+
+<p>StoryCam records the front and back cameras together and can add
+on-device captions to your videos. This policy explains what the app
+does with your data. Short version: <strong>it doesn't collect any</strong>.</p>
+
+<h2>No account, no ads, no analytics</h2>
+<p>StoryCam has no account system, shows no ads, and ships no analytics
+or tracking SDKs. There is nothing to sign into and nothing that reports
+your usage back to us.</p>
+
+<h2>Your videos stay on your phone</h2>
+<p>Videos and photos you record are saved to your device's gallery.
+They are never uploaded anywhere by the app. Captioning — speech
+detection, transcription, and burning captions into the video — runs
+entirely on your phone.</p>
+
+<h2>Caption model download</h2>
+<p>On first use, the app downloads the caption models (about 160 MB)
+once, from Hugging Face (huggingface.co). Like any file download, this
+exposes your IP address to Hugging Face's servers; no personal data,
+account information, or video or audio content is sent. The downloaded
+files are verified by size and SHA-256 before use, and re-verified on
+every launch.</p>
+
+<h2>Crash reports (only in builds that enable them)</h2>
+<p>Some builds include opt-in crash reporting (Sentry). Test builds
+distributed from GitHub do <strong>not</strong> have it enabled. When a
+build does enable it, a crash sends: the app version, your Android
+version and device model, and the stack trace of the crash. It never
+sends video, audio, captions, or anything you recorded. Crash reports
+are kept by Sentry under its own retention policy and are used only to
+fix bugs.</p>
+
+<h2>Permissions the app asks for</h2>
+<p>Camera and microphone (to record), notifications (to show download
+and captioning progress with a Stop button), and gallery access (to
+save your videos). Denying notifications only means progress is shown
+in the app instead — recording still works.</p>
+
+<h2>Children</h2>
+<p>The app collects no data from anyone, including children.</p>
+
+<h2>Changes</h2>
+<p>If this policy changes, the new version will be published on this
+page with a new effective date.</p>
+
+<h2>Contact</h2>
+<p>Questions or requests: open an issue at
+<a href="https://github.com/dzianisv/dual_cameras/issues">github.com/dzianisv/dual_cameras/issues</a>.</p>
+
+<footer><a href="index.html">← Back to Dual Cameras</a></footer>
+</body>
+</html>

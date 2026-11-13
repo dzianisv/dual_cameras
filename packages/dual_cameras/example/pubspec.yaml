@@ -24,6 +24,10 @@ dependencies:
   # Caption-model download progress lives in a system notification
   # (v0.5.2), not as a banner on the camera screen.
   flutter_local_notifications: ^19.0.0
+  # Crash reporting (Sentry). The DSN is read from --dart-define
+  # SENTRY_DSN at build time and never committed; with no DSN the
+  # integration is fully disabled (see lib/crash_reporting.dart).
+  sentry_flutter: ^9.30.1
 
 dev_dependencies:
   integration_test:
