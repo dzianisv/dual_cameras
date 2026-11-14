@@ -200,9 +200,28 @@ jobs:
             python3 tools/emulator_tap.py 'Wait' || true
             sleep 3
             adb exec-out screencap -p > 04-recording.png
+# SHARE STEP (issue #14, 2026-11-14): after Stop, the Share button
+# appears once _busy clears (the workflow sleeps 8 s above). Tapping
+# 'Share' IS the visibility proof — emulator_tap.py exits 1 when the
+# text is not found. The chooser assert then proves the share sheet
+# opened without crashing the app; a target list is NOT required — on
+# a bare emulator image the chooser still opens showing "No apps can
+# perform this action", and that passes. The assert script prints every
+# visible text node so the CI log records the actual target list.
+# This does NOT prove the video was attached (intent resolution matches
+# action + type only, not EXTRA_STREAM) — attachment is proven ONLY by
+# the owner's real-phone test. The pidof check proves sharing did not
+# kill the app.
             python3 tools/emulator_tap.py 'Stop recording'
             sleep 8
             adb exec-out screencap -p > 05-after-recording.png
+            python3 tools/emulator_tap.py 'Share'
+            sleep 2
+            adb exec-out screencap -p > 06-share-sheet.png
+            python3 tools/assert_share_chooser.py
+            adb shell pidof app.storycam || (adb logcat -d | grep -i -E "storycam|flutter|fatal|crash" | tail -30; exit 1)
+            adb shell input keyevent 4
+            sleep 1
             adb logcat -d | grep -i -E "storycam|flutter|fatal|crash" | tail -50 || true
             ls -la *.png
 

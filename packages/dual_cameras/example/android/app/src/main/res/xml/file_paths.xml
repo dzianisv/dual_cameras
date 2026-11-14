@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Share sheet (issue #14): FileProvider roots for the just-recorded
+     video. Recordings land in cacheDir (upstream dual_cameras_android
+     writes dcr_*.mp4 there); files-path covers any other app-private
+     file. Both roots are asserted in ShareChannel before sharing. -->
+<paths xmlns:android="http://schemas.android.com/apk/res/android">
+    <cache-path name="shared" path="." />
+    <files-path name="shared" path="." />
+</paths>
