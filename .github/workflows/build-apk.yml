@@ -61,20 +61,27 @@ jobs:
       # keystore as the STORYCAM_KEYSTORE_BASE64 secret (plus the three
       # STORYCAM_* password/alias secrets), decode it outside the repo and
       # hand the four env vars to the Gradle signing config. Until then the
-      # secrets are unset, this step is skipped, and the build takes the
+      # secrets are unset, this step exits early, and the build takes the
       # debug fallback. No secret value is ever echoed: the values travel
       # only through env vars and $GITHUB_ENV (GitHub masks secrets in logs).
+      # NOTE: `secrets` cannot be referenced in a step `if:` (GitHub
+      # rejects the workflow at parse time), so the presence check lives
+      # in the shell below: an unset secret arrives as an empty env var
+      # and the step exits early, leaving the debug fallback in place.
       # NOTE: once this step first activates, the "Verify StoryCam APK"
       # step's CN=Android Debug assertion must become conditional on the
       # signing path — a release-signed tag build would fail it as written.
       - name: Install release keystore from secrets (if provided)
-        if: ${{ secrets.STORYCAM_KEYSTORE_BASE64 != '' }}
         env:
           STORYCAM_KEYSTORE_BASE64: ${{ secrets.STORYCAM_KEYSTORE_BASE64 }}
           STORYCAM_KEYSTORE_PASSWORD: ${{ secrets.STORYCAM_KEYSTORE_PASSWORD }}
           STORYCAM_KEY_ALIAS: ${{ secrets.STORYCAM_KEY_ALIAS }}
           STORYCAM_KEY_PASSWORD: ${{ secrets.STORYCAM_KEY_PASSWORD }}
         run: |
+          if [ -z "$STORYCAM_KEYSTORE_BASE64" ]; then
+            echo "No release keystore secret set; using the debug fallback."
+            exit 0
+          fi
           KEYSTORE_PATH="$RUNNER_TEMP/storycam-release.keystore"
           printf '%s' "$STORYCAM_KEYSTORE_BASE64" | base64 -d > "$KEYSTORE_PATH"
           {
