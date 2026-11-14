@@ -22,16 +22,20 @@ PIL, per-channel diff threshold 8/255, region x40-280/y120-420 in
     post-resume after-recording pair, 3 s apart:  2.19%
     cross-leg idle vs after-recording (~35-40 s): 10.65% / 12.40%
     identical file vs itself (frozen simulation):  0.00%
-Thresholds chosen from that calibration: the pre-background check needs
-1.0% (the method must prove it can see motion on this emulator run —
-8.96% measured — or the run fails loudly instead of passing on a
-meaningless comparison); the post-resume checks need 0.1% (4.4x below
-the smallest live sample, 0.44%, and a frozen preview scores exactly
-0.00%). The 0.44% idle leg is the closest live sample, so the margin is
-thin: a live-but-quiet 3 s window can false-fail. That fails closed and
-loud, never as a silent pass — acceptable for a regression guard. This
-test guards "no worse", not "fixed": it already passes on unfixed code,
-and Den's phone is the proof gate for the fix.
+Later smoke runs added two more live pre-background samples: 3.87%
+(run 43566987624) and 0.69% (run 43568028069). The live 3 s window
+varies a lot (0.44–8.96%) — the test pattern moves in bursts — so the
+threshold is the same 0.1% for every check: 4.4x below the smallest live
+sample (0.44%), while a frozen preview scores exactly 0.00%. (The
+pre-check was first set at 1.0% from the single 8.96% sample; run
+43568028069 failed it at 0.69% live motion, proving 1.0% miscalibrated.
+Unified at 0.1%.) The pre-check's job is unchanged: if it shows no
+motion, the run fails loudly instead of passing on a meaningless
+comparison. Caveat: a live-but-quiet 3 s window can still false-fail
+below 0.1%. That fails closed and loud, never as a silent pass — acceptable
+for a regression guard. This test guards "no worse", not "fixed": it
+already passes on unfixed code, and Den's phone is the proof gate for
+the fix.
 """
 
 import argparse
