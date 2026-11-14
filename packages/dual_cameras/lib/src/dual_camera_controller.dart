@@ -80,6 +80,14 @@ class DualCameraController extends ValueNotifier<DualCameraValue> {
   StreamSubscription<DualCameraEvent>? _eventSub;
   bool _disposed = false;
 
+  /// Params of the last successful [initialize], kept so [reinitialize] can
+  /// bring the same session back up after the OS tore it down (issue #13).
+  RecordingConfig? _lastConfig;
+
+  /// True once [initialize] has succeeded at least once. [reinitialize] is
+  /// a no-op until then — the camera was never opened.
+  bool _everInitialized = false;
+
   /// Probe whether this device can run front+back concurrently without bringing
   /// the pipeline up. Cheap; safe to call before [initialize].
   static Future<CameraCapabilities> probeSupport() =>
@@ -106,11 +114,64 @@ class DualCameraController extends ValueNotifier<DualCameraValue> {
       maxDurationMs: maxDuration.inMilliseconds,
     );
     final result = await _platform.initialize(config);
+    _lastConfig = config;
+    _everInitialized = true;
     value = value.copyWith(
       isInitialized: true,
       textureId: result.textureId,
       capabilities: result.capabilities,
     );
+  }
+
+  /// Re-establish the camera session after the OS tore it down while the
+  /// app was backgrounded (issue #13: Android disconnects the camera and
+  /// destroys the preview surface; on resume nothing rebinds it).
+  ///
+  /// Returns `false` (no-op) if the camera was never opened. Otherwise the
+  /// native session is disposed and re-initialized with the last init
+  /// params; the event subscription stays alive across the swap, so
+  /// ready/thermal/stats events keep flowing. A recording cannot survive a
+  /// torn-down session, so [DualCameraValue.isRecording] is cleared — the
+  /// caller reads it before calling and surfaces the interruption.
+  ///
+  /// On failure the value is marked uninitialized with the error instead of
+  /// keeping the stale texture id, so the UI shows a retry instead of a
+  /// frozen preview.
+  Future<bool> reinitialize() async {
+    if (_disposed || !_everInitialized) return false;
+    final config = _lastConfig;
+    if (config == null) return false;
+    try {
+      // Best effort: the torn-down session may already be gone. Native
+      // initialize() releases whatever is left first in any case.
+      await _platform.dispose();
+    } catch (_) {
+      // Fall through to re-initialize.
+    }
+    try {
+      final result = await _platform.initialize(config);
+      value = DualCameraValue(
+        isInitialized: true,
+        isRecording: false,
+        textureId: result.textureId,
+        capabilities: result.capabilities,
+        thermal: value.thermal,
+        stats: null,
+        errorMessage: null,
+      );
+      return true;
+    } catch (e) {
+      value = DualCameraValue(
+        isInitialized: false,
+        isRecording: false,
+        textureId: null,
+        capabilities: value.capabilities,
+        thermal: value.thermal,
+        stats: null,
+        errorMessage: '$e',
+      );
+      return false;
+    }
   }
 
   Future<void> startRecording() async {

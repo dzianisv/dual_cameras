@@ -82,6 +82,11 @@ class DualCamerasPlugin : FlutterPlugin, DualCameraHostApi {
       return
     }
     try {
+      // A second initialize() (e.g. resume re-init, issue #13) must not
+      // leak the previous session: release it before overwriting
+      // surfaceProducer / renderThread / cameraSource. Safe when nothing
+      // is initialized yet — every release is null-guarded.
+      releaseSession()
       val (w, h) = resolutionFor(config.resolution)
       compositeW = w
       compositeH = h

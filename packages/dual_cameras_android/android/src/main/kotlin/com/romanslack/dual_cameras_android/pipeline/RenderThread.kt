@@ -296,8 +296,18 @@ class RenderThread(
         }
         drawCount++
         // Latest from both cameras; re-query the transform every frame (§12).
-        backSt.updateTexImage()
-        backSt.getTransformMatrix(backMatrix)
+        // The back update is guarded like the front one: a frame that lands
+        // after teardown (camera unbound, texture released) must drop this
+        // draw, not kill the GL thread — updateTexImage() on an abandoned
+        // texture throws, and an uncaught throw here is a FATAL EXCEPTION
+        // on dcr-gl (smoke run 43566987624). The next draw after re-init
+        // uses fresh textures.
+        try {
+            backSt.updateTexImage()
+            backSt.getTransformMatrix(backMatrix)
+        } catch (_: Throwable) {
+            return
+        }
         try {
             frontSt.updateTexImage()
             frontSt.getTransformMatrix(frontMatrix)
