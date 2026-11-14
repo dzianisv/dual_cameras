@@ -35,7 +35,7 @@ Audited 2026-11-15 against main `828f887b` with PR #32 applied
   the throwaway cert, not the debug key. The real keystore swaps in
   via the `STORYCAM_KEYSTORE_BASE64` secret with no code change. The
   published v0.5.9 release still carries the old title and the old
-  `storycam-test-arm64.apk` asset until it is re-released (parent act
+  test-named APK asset until it is re-released (parent act
   after this PR merges); the new title is `v0.5.9 - StoryCam` and the
   new asset is `storycam-0.5.9-arm64.apk`.
 - **Privacy policy live**: https://dzianisv.github.io/dual_cameras/privacy.html
@@ -77,10 +77,10 @@ Audited 2026-11-15 against main `828f887b` with PR #32 applied
 - Release signing wiring + publish-build naming (issue #32, this PR):
   `release` signingConfig from env/CI secrets with a debug fallback,
   CI throwaway-keystore proof job, APK asset renamed to
-  `storycam-<version>-arm64.apk`, release title without "test", and
-  "test build" wording removed from the release body, website, and
-  docs. `prerelease: true` stays for 0.5.9 (first Play submission is
-  on the internal track).
+  `storycam-<version>-arm64.apk`, release title without the old
+  "test" qualifier, and the old test-named wording removed from the
+  release body, website, and docs. `prerelease: true` stays for 0.5.9
+  (first Play submission is on the internal track).
 
 ## Only Den can supply
 
