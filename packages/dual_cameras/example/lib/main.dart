@@ -719,6 +719,7 @@ class _DemoScreenState extends State<DemoScreen> with WidgetsBindingObserver {
       });
     } catch (e) {
       _update(() {
+        _lastVideo = null;
         _status = 'Could not save video. See settings for details.';
         _error = '$e';
       });
