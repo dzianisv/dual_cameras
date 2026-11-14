@@ -1,0 +1,135 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="980" viewBox="0 0 1400 980">
+  <defs>
+    <linearGradient id="vid" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#4a6b7a"/>
+      <stop offset="0.55" stop-color="#2e4552"/>
+      <stop offset="1" stop-color="#1c2b36"/>
+    </linearGradient>
+    <clipPath id="phoneClip"><rect x="90" y="140" width="360" height="700" rx="28"/></clipPath>
+    <clipPath id="mapClip2"><circle cx="168" cy="252" r="48"/></clipPath>
+  </defs>
+  <style>
+    .t { font-family: Arial, Helvetica, sans-serif; }
+    .title { font-size: 30px; font-weight: bold; fill: #111; }
+    .sub { font-size: 17px; fill: #555; }
+    .ph { font-size: 26px; font-weight: bold; fill: #fff; }
+    .small { font-size: 15px; fill: #666; }
+    .label { font-size: 16px; font-weight: bold; fill: #444; }
+    .chip { font-size: 16px; fill: #222; }
+    .badge { font-size: 14px; font-weight: bold; fill: #fff; }
+    .opt { font-size: 20px; font-weight: bold; fill: #111; }
+    .optsub { font-size: 15px; fill: #666; }
+    .seg { font-size: 16px; fill: #111; }
+    .segSel { font-size: 16px; font-weight: bold; fill: #fff; }
+    .note { font-size: 16px; fill: #444; }
+    .menu { font-size: 15px; fill: #fff; }
+    .menuHint { font-size: 13px; fill: #bbb; }
+    .sec { font-size: 14px; font-weight: bold; fill: #888; letter-spacing: 1px; }
+  </style>
+  <rect width="1400" height="980" fill="#ffffff"/>
+  <text x="700" y="48" text-anchor="middle" class="t title">StoryCam — Map &amp; compass wireframe v2 (for approval)</text>
+  <text x="700" y="78" text-anchor="middle" class="t sub">Instagram-story style: the video fills the whole screen, everything is an overlay.</text>
+
+  <!-- ============ LEFT: full-bleed camera screen ============ -->
+  <text x="270" y="125" text-anchor="middle" class="t label">Camera screen — full screen, no empty space</text>
+  <rect x="90" y="140" width="360" height="700" rx="28" fill="url(#vid)"/>
+  <g clip-path="url(#phoneClip)">
+    <!-- scene hints -->
+    <circle cx="335" cy="215" r="26" fill="#ffffff" opacity="0.18"/>
+    <path d="M90 520 Q 200 460 270 500 T 450 490 V 840 H 90 Z" fill="#000000" opacity="0.14"/>
+    <path d="M90 600 Q 220 540 330 580 T 450 570 V 840 H 90 Z" fill="#000000" opacity="0.12"/>
+    <!-- bottom menu bar -->
+    <rect x="90" y="720" width="360" height="120" fill="#000000" opacity="0.55"/>
+    <line x1="90" y1="720" x2="450" y2="720" stroke="#ffffff" stroke-width="1" opacity="0.25"/>
+  </g>
+  <!-- header over video -->
+  <text x="118" y="182" class="t ph">StoryCam</text>
+  <!-- NEW: map circle top-left -->
+  <g clip-path="url(#mapClip2)">
+    <rect x="120" y="204" width="96" height="96" fill="#dce8d8"/>
+    <path d="M120 232 H216 M120 268 H216 M148 204 V300 M182 204 V300" stroke="#fff" stroke-width="7"/>
+    <path d="M120 232 H216 M120 268 H216 M148 204 V300 M182 204 V300" stroke="#b9c9b4" stroke-width="1"/>
+    <rect x="150" y="234" width="30" height="32" fill="#c8d8c2"/>
+  </g>
+  <circle cx="168" cy="252" r="48" fill="none" stroke="#fff" stroke-width="2.5"/>
+  <polygon points="168,236 162,249 174,249" fill="#fff" stroke="#222" stroke-width="1"/>
+  <circle cx="168" cy="256" r="7" fill="#2b7de9" stroke="#fff" stroke-width="2"/>
+  <text x="168" y="218" text-anchor="middle" class="t" font-size="13" font-weight="bold" fill="#ff8a9a">N</text>
+  <rect x="192" y="200" width="52" height="22" rx="11" fill="#e94f64"/>
+  <text x="218" y="215" text-anchor="middle" class="t badge">NEW</text>
+  <!-- selfie circle -->
+  <circle cx="362" cy="500" r="46" fill="#d5d5d5" stroke="#fff" stroke-width="2"/>
+  <text x="362" y="505" text-anchor="middle" class="t small">FRONT</text>
+  <!-- record button -->
+  <circle cx="270" cy="662" r="38" fill="#e94f64" stroke="#fff" stroke-width="3"/>
+  <!-- bottom text menu -->
+  <text x="120" y="766" text-anchor="middle" class="t menu">Map</text>
+  <text x="175" y="766" text-anchor="middle" class="t menu">Front</text>
+  <text x="228" y="766" text-anchor="middle" class="t menu">Rear</text>
+  <text x="295" y="766" text-anchor="middle" class="t menu">Captions</text>
+  <text x="385" y="766" text-anchor="middle" class="t menu" font-weight="bold">Settings</text>
+  <text x="270" y="802" text-anchor="middle" class="t menuHint">tap an item — the Settings dialog opens at that section</text>
+  <!-- phone outline -->
+  <rect x="90" y="140" width="360" height="700" rx="28" fill="none" stroke="#222" stroke-width="2"/>
+  <text x="270" y="868" text-anchor="middle" class="t" font-size="14" fill="#666">Video fills the whole screen — no empty space at the bottom.</text>
+  <text x="270" y="892" text-anchor="middle" class="t" font-size="14" font-weight="bold" fill="#c0392b">Captions chip is gone from the screen — it lives in Settings now.</text>
+
+  <!-- ============ RIGHT: settings dialog ============ -->
+  <text x="910" y="125" text-anchor="middle" class="t label">Settings dialog — opens from the bottom menu</text>
+  <rect x="548" y="128" width="724" height="624" rx="24" fill="#9aa4ab"/>
+  <rect x="560" y="140" width="700" height="600" rx="20" fill="#fff" stroke="#222" stroke-width="2"/>
+  <text x="590" y="185" class="t" font-size="26" font-weight="bold" fill="#111">Settings</text>
+  <line x1="1198" y1="168" x2="1218" y2="188" stroke="#222" stroke-width="2.5"/>
+  <line x1="1218" y1="168" x2="1198" y2="188" stroke="#222" stroke-width="2.5"/>
+  <!-- MAP -->
+  <text x="590" y="222" class="t sec">MAP &amp; COMPASS</text>
+  <text x="590" y="258" class="t opt">Compass mode</text>
+  <text x="590" y="280" class="t optsub">How the map turns as you move</text>
+  <rect x="980" y="240" width="120" height="38" rx="19" fill="#222"/>
+  <text x="1040" y="264" text-anchor="middle" class="t segSel">Heading-up</text>
+  <rect x="1104" y="240" width="110" height="38" rx="19" fill="#fff" stroke="#222" stroke-width="1.5"/>
+  <text x="1159" y="264" text-anchor="middle" class="t seg">North-up</text>
+  <text x="590" y="322" class="t opt">Location circle</text>
+  <text x="590" y="344" class="t optsub">Show the map on the camera screen</text>
+  <rect x="1140" y="306" width="74" height="36" rx="18" fill="#2b7de9"/>
+  <circle cx="1188" cy="324" r="14" fill="#fff"/>
+  <text x="1130" y="330" text-anchor="end" class="t seg" fill="#2b7de9">On</text>
+  <line x1="590" y1="362" x2="1230" y2="362" stroke="#ddd" stroke-width="1"/>
+  <!-- FRONT -->
+  <text x="590" y="392" class="t sec">FRONT CAMERA</text>
+  <text x="590" y="424" class="t opt">Mirror selfie</text>
+  <text x="590" y="446" class="t optsub">Flip the front preview like a mirror</text>
+  <rect x="1140" y="408" width="74" height="36" rx="18" fill="#2b7de9"/>
+  <circle cx="1188" cy="426" r="14" fill="#fff"/>
+  <text x="1130" y="432" text-anchor="end" class="t seg" fill="#2b7de9">On</text>
+  <line x1="590" y1="466" x2="1230" y2="466" stroke="#ddd" stroke-width="1"/>
+  <!-- REAR -->
+  <text x="590" y="496" class="t sec">REAR CAMERA</text>
+  <text x="590" y="528" class="t opt">Video quality</text>
+  <text x="590" y="550" class="t optsub">Recording resolution</text>
+  <rect x="1020" y="510" width="90" height="38" rx="19" fill="#222"/>
+  <text x="1065" y="534" text-anchor="middle" class="t segSel">1080p</text>
+  <rect x="1114" y="510" width="100" height="38" rx="19" fill="#fff" stroke="#222" stroke-width="1.5"/>
+  <text x="1164" y="534" text-anchor="middle" class="t seg">4K</text>
+  <line x1="590" y1="570" x2="1230" y2="570" stroke="#ddd" stroke-width="1"/>
+  <!-- CAPTIONS -->
+  <text x="590" y="600" class="t sec">CAPTIONS</text>
+  <text x="590" y="632" class="t opt">Captions</text>
+  <text x="590" y="654" class="t optsub">On-device captions, added after recording</text>
+  <rect x="1140" y="616" width="74" height="36" rx="18" fill="#ccc"/>
+  <circle cx="1156" cy="634" r="14" fill="#fff"/>
+  <text x="1130" y="640" text-anchor="end" class="t seg" fill="#888">Off</text>
+  <text x="590" y="692" class="t opt">Language</text>
+  <rect x="960" y="676" width="80" height="38" rx="19" fill="#222"/>
+  <text x="1000" y="700" text-anchor="middle" class="t segSel">Auto</text>
+  <rect x="1044" y="676" width="84" height="38" rx="19" fill="#fff" stroke="#222" stroke-width="1.5"/>
+  <text x="1086" y="700" text-anchor="middle" class="t seg">Русский</text>
+  <rect x="1132" y="676" width="82" height="38" rx="19" fill="#fff" stroke="#222" stroke-width="1.5"/>
+  <text x="1173" y="700" text-anchor="middle" class="t seg">English</text>
+  <!-- note under dialog -->
+  <rect x="560" y="770" width="700" height="106" rx="16" fill="#fff8e1" stroke="#d4a017" stroke-width="1.5"/>
+  <text x="590" y="802" class="t note">Tap Map / Front / Rear / Captions in the bottom menu — the dialog</text>
+  <text x="590" y="828" class="t note">opens at that section. Front &amp; Rear rows are proposals — tell me</text>
+  <text x="590" y="854" text-anchor="start" class="t note">what belongs there and I will redraw before any code is written.</text>
+  <text x="700" y="920" text-anchor="middle" class="t sub">Wireframe v2 for approval — no code until you say this is right.</text>
+</svg>

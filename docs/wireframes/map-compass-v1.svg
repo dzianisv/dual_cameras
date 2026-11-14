@@ -1,0 +1,106 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="980" viewBox="0 0 1400 980">
+  <style>
+    .t { font-family: Arial, Helvetica, sans-serif; }
+    .title { font-size: 30px; font-weight: bold; fill: #111; }
+    .sub { font-size: 17px; fill: #555; }
+    .ph { font-size: 26px; font-weight: bold; fill: #111; }
+    .small { font-size: 15px; fill: #666; }
+    .label { font-size: 16px; fill: #444; }
+    .chip { font-size: 16px; fill: #222; }
+    .badge { font-size: 14px; font-weight: bold; fill: #fff; }
+    .opt { font-size: 20px; font-weight: bold; fill: #111; }
+    .optsub { font-size: 15px; fill: #666; }
+    .seg { font-size: 16px; fill: #111; }
+    .segSel { font-size: 16px; font-weight: bold; fill: #fff; }
+    .note { font-size: 16px; fill: #444; }
+  </style>
+  <rect width="1400" height="980" fill="#ffffff"/>
+  <text x="700" y="48" text-anchor="middle" class="t title">StoryCam — Map &amp; compass wireframe (for approval)</text>
+  <text x="700" y="78" text-anchor="middle" class="t sub">Layout only, not final design. The map circle is the new part — everything else is the current camera screen.</text>
+
+  <!-- ============ LEFT: camera screen ============ -->
+  <text x="270" y="125" text-anchor="middle" class="t label" font-weight="bold">Camera screen (after recording stops)</text>
+  <rect x="90" y="140" width="360" height="700" rx="28" fill="#fff" stroke="#222" stroke-width="2"/>
+  <!-- header -->
+  <text x="118" y="182" class="t ph">StoryCam</text>
+  <line x1="398" y1="168" x2="422" y2="168" stroke="#222" stroke-width="2"/>
+  <line x1="398" y1="176" x2="422" y2="176" stroke="#222" stroke-width="2"/>
+  <line x1="398" y1="184" x2="422" y2="184" stroke="#222" stroke-width="2"/>
+  <text x="118" y="210" class="t small">Captions ready · on device</text>
+  <rect x="110" y="220" width="320" height="3" fill="#e87a8a"/>
+  <!-- preview -->
+  <rect x="110" y="232" width="320" height="330" rx="16" fill="#e9e9e9" stroke="#bbb" stroke-width="1"/>
+  <text x="315" y="290" text-anchor="middle" class="t small">BACK CAMERA</text>
+  <text x="315" y="312" text-anchor="middle" class="t small">live preview</text>
+  <line x1="110" y1="400" x2="430" y2="400" stroke="#ccc" stroke-width="1"/>
+  <line x1="270" y1="232" x2="270" y2="562" stroke="#ccc" stroke-width="1"/>
+  <text x="270" y="540" text-anchor="middle" class="t small">test pattern / real scene</text>
+  <!-- selfie circle -->
+  <circle cx="362" cy="492" r="48" fill="#d5d5d5" stroke="#999" stroke-width="1.5"/>
+  <text x="362" y="497" text-anchor="middle" class="t small">FRONT</text>
+  <!-- NEW: map circle top-left -->
+  <defs>
+    <clipPath id="mapClip"><circle cx="168" cy="296" r="52"/></clipPath>
+  </defs>
+  <g clip-path="url(#mapClip)">
+    <rect x="116" y="244" width="104" height="104" fill="#dce8d8"/>
+    <path d="M116 280 H220 M116 320 H220 M150 244 V348 M185 244 V348" stroke="#fff" stroke-width="7"/>
+    <path d="M116 280 H220 M116 320 H220 M150 244 V348 M185 244 V348" stroke="#b9c9b4" stroke-width="1"/>
+    <rect x="152" y="282" width="31" height="36" fill="#c8d8c2"/>
+  </g>
+  <circle cx="168" cy="296" r="52" fill="none" stroke="#222" stroke-width="2.5"/>
+  <polygon points="168,278 162,292 174,292" fill="#fff" stroke="#222" stroke-width="1"/>
+  <circle cx="168" cy="300" r="7" fill="#2b7de9" stroke="#fff" stroke-width="2"/>
+  <text x="168" y="258" text-anchor="middle" class="t" font-size="13" font-weight="bold" fill="#c0392b">N</text>
+  <rect x="196" y="240" width="52" height="22" rx="11" fill="#e94f64"/>
+  <text x="222" y="255" text-anchor="middle" class="t badge">NEW</text>
+  <!-- record -->
+  <circle cx="270" cy="622" r="40" fill="#e94f64" stroke="#222" stroke-width="2"/>
+  <circle cx="270" cy="622" r="40" fill="none" stroke="#fff" stroke-width="2"/>
+  <text x="270" y="692" text-anchor="middle" class="t label">Start recording</text>
+  <!-- chips -->
+  <rect x="118" y="712" width="160" height="36" rx="18" fill="#fff" stroke="#222" stroke-width="1.5"/>
+  <text x="198" y="735" text-anchor="middle" class="t chip">Filters · Original</text>
+  <rect x="292" y="712" width="128" height="36" rx="18" fill="#fff" stroke="#222" stroke-width="1.5"/>
+  <text x="356" y="735" text-anchor="middle" class="t chip">Captions off</text>
+  <text x="270" y="868" text-anchor="middle" class="t" font-size="14" fill="#666">Share button appears here after recording (#14)</text>
+  <text x="270" y="892" text-anchor="middle" class="t" font-size="14" font-weight="bold" fill="#c0392b">Map circle, top-left — rotates with compass, dot = you</text>
+
+  <!-- ============ RIGHT: options ============ -->
+  <text x="910" y="125" text-anchor="middle" class="t label" font-weight="bold">Options — Map &amp; compass (proposal, to confirm)</text>
+  <rect x="560" y="140" width="700" height="330" rx="20" fill="#fafafa" stroke="#222" stroke-width="2"/>
+  <text x="590" y="182" class="t ph">Options</text>
+  <text x="590" y="212" class="t small">MAP &amp; COMPASS</text>
+  <line x1="590" y1="228" x2="1230" y2="228" stroke="#ddd" stroke-width="1"/>
+  <!-- option 1 -->
+  <text x="590" y="268" class="t opt">Compass mode</text>
+  <text x="590" y="292" class="t optsub">How the map turns as you move</text>
+  <rect x="980" y="248" width="120" height="38" rx="19" fill="#222"/>
+  <text x="1040" y="272" text-anchor="middle" class="t segSel">Heading-up</text>
+  <rect x="1104" y="248" width="110" height="38" rx="19" fill="#fff" stroke="#222" stroke-width="1.5"/>
+  <text x="1159" y="272" text-anchor="middle" class="t seg">North-up</text>
+  <line x1="590" y1="312" x2="1230" y2="312" stroke="#ddd" stroke-width="1"/>
+  <!-- option 2 -->
+  <text x="590" y="352" class="t opt">Location circle</text>
+  <text x="590" y="376" class="t optsub">Show the map on the camera screen</text>
+  <rect x="1140" y="332" width="74" height="36" rx="18" fill="#2b7de9"/>
+  <circle cx="1188" cy="350" r="14" fill="#fff"/>
+  <text x="1130" y="354" text-anchor="end" class="t seg" fill="#2b7de9">On</text>
+  <line x1="590" y1="396" x2="1230" y2="396" stroke="#ddd" stroke-width="1"/>
+  <text x="590" y="432" class="t small">Heading-up: map rotates, you stay pointing up. North-up: map fixed, needle turns.</text>
+  <!-- note -->
+  <rect x="560" y="500" width="700" height="150" rx="16" fill="#fff8e1" stroke="#d4a017" stroke-width="1.5"/>
+  <text x="590" y="536" class="t opt">Please confirm the two options</text>
+  <text x="590" y="566" class="t note">The two options above are my reading of your message.</text>
+  <text x="590" y="592" class="t note">If you meant different ones — for example map style</text>
+  <text x="590" y="618" class="t note">(streets / satellite) or something else — tell me and</text>
+  <text x="590" y="644" class="t note">I will redraw before any implementation starts.</text>
+  <!-- behavior -->
+  <rect x="560" y="680" width="700" height="160" rx="16" fill="#f2f2f2" stroke="#bbb" stroke-width="1"/>
+  <text x="590" y="716" class="t opt">How it behaves</text>
+  <text x="590" y="746" class="t note">• Blue dot stays centered — that is your current location.</text>
+  <text x="590" y="772" class="t note">• Turn the phone / camera and the map turns with the compass.</text>
+  <text x="590" y="798" class="t note">• Tap the circle to open the full map (later, if you want it).</text>
+  <text x="590" y="824" class="t note">• Needs location permission; nothing is shared or uploaded.</text>
+  <text x="700" y="920" text-anchor="middle" class="t sub">Wireframe for approval — no code will be written until you say this is right.</text>
+</svg>
