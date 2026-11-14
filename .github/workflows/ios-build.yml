@@ -1,0 +1,62 @@
+# Purpose: compile the iOS native code (plugin + example app) on every PR
+# that touches the iOS surface. #23's Swift shipped review-only because
+# nothing compiled it on the PR — this job is the check that catches that.
+# It proves the Swift compiles; it proves nothing about lenses on device
+# (the simulator has no camera hardware — lenses() falls back to [1.0]).
+#
+# MACOS SCOPE — COMPILE-ONLY (issue #24): this job runs on macOS ONLY because Xcode exists nowhere else. It compiles; it never boots an emulator or a simulator. The MACOS RULE in emulator-*.yml still stands: macOS runners have no nested virtualization (HVF dead end, run 43518382001) — do NOT move the emulator jobs here, and do NOT "fix" this job back to ubuntu (no Xcode there).
+name: Build iOS (simulator, no codesign)
+
+on:
+  pull_request:
+    paths:
+      - 'packages/dual_cameras_ios/**'
+      - 'packages/dual_cameras/**'
+      - 'packages/dual_cameras_platform_interface/**'
+      - 'packages/dual_cameras/example/**'
+      - '.github/workflows/ios-build.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'packages/dual_cameras_ios/**'
+      - 'packages/dual_cameras/**'
+      - 'packages/dual_cameras_platform_interface/**'
+      - 'packages/dual_cameras/example/**'
+      - '.github/workflows/ios-build.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  EXAMPLE_DIR: packages/dual_cameras/example
+
+jobs:
+  build-ios:
+    runs-on: macos-latest
+    steps:
+      - name: Check out the repo
+        uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          # Latest 3.47.x patch at implementation time (issue #24):
+          # 3.47.9, released 2026-10-29 — the latest patch in the 3.47
+          # series (Flutter CHANGELOG; Shorebird's Flutter versions page
+          # lists 3.47.9 as the latest stable). 3.47.8 was the TLS
+          # security fix; 3.47.9 is the hotfix after it.
+          flutter-version: 3.47.9
+          channel: stable
+          cache: true
+
+      - name: Fetch packages
+        working-directory: ${{ env.EXAMPLE_DIR }}
+        run: flutter pub get
+
+      - name: Record Xcode version
+        run: xcodebuild -version
+
+      - name: Build iOS (simulator, no codesign)
+        working-directory: ${{ env.EXAMPLE_DIR }}
+        run: flutter build ios --simulator --no-codesign

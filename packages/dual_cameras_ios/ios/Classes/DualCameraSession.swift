@@ -52,14 +52,15 @@ final class DualCameraSession: NSObject,
         dataQueue.async { self.compositor.setFilter(filter: filter) }
     }
 
-    /// Lens probe (issue #20): the ratios the camera API offers for one
-    /// facing. DiscoverySession lists the device types that exist for the
-    /// position (ultrawide 0.5x, wide 1x); the list is then intersected with
-    /// what the bound device can actually reach, so a pill never promises a
-    /// lens the session cannot use. The session still binds the plain
-    /// wide-angle device (see addCamera), so on current hardware the rear
-    /// list is [1.0] and the 0.5x ultrawide needs the triple-camera virtual
-    /// device bound as the back input — a session rework, not done here.
+    /// Lens probe (issue #20, rear 0.5x in #24): the ratios the camera API
+    /// offers for one facing. DiscoverySession lists the device types that
+    /// exist for the position (ultrawide 0.5x, wide 1x); the list is then
+    /// intersected with what the bound device can actually reach, so a pill
+    /// never promises a lens the session cannot use. The rear 0.5x comes
+    /// from the bound device itself: addCamera binds .builtInTripleCamera
+    /// as the back input, and when its minAvailableVideoZoomFactor is
+    /// <= 0.5 the rear list gains 0.5 (a wide-angle-bound device reports
+    /// 1.0, so the rear list stays [1.0]).
     /// Front adds the 1.5x zoom preset when the bound device's zoom range
     /// covers it (Den, wireframe v5).
     func lenses(front: Bool) -> [LensOption] {
@@ -76,6 +77,12 @@ final class DualCameraSession: NSObject,
         if let device = front ? frontDevice : backDevice {
             let minZ = Double(device.minAvailableVideoZoomFactor)
             let maxZ = Double(device.maxAvailableVideoZoomFactor)
+            // Rear 0.5x (issue #24): derived from the bound back device,
+            // before the zoom-range filter below (the filter then keeps it:
+            // 0.5 >= minZ and 0.5 <= maxZ). Mirrors the front 1.5x
+            // derivation. A wide-angle-bound device reports minZ 1.0, so
+            // no 0.5 is inserted and the rear list stays [1.0].
+            if !front && minZ <= 0.5 { ratios.insert(0.5) }
             ratios = Set(ratios.filter { $0 >= minZ && $0 <= maxZ })
             if ratios.isEmpty { ratios.insert(1.0) }
             if front && maxZ >= 1.5 { ratios.insert(1.5) }
@@ -232,11 +239,39 @@ final class DualCameraSession: NSObject,
         }
     }
 
+    /// Bind one camera (issue #24): for .back, attempt .builtInTripleCamera
+    /// first — the virtual device whose zoom range reaches the 0.5x
+    /// ultrawide — and on ANY failure retry with .builtInWideAngleCamera
+    /// before failing the session. Wide-angle is today's working behaviour,
+    /// so the retry restores the status quo instead of breaking dual
+    /// capture when a triple device cannot join multicam. Front stays
+    /// wide-angle, unchanged. A nil triple device (older iPhones without a
+    /// triple-camera system) falls through to wide-angle exactly as today.
     private func addCamera(_ position: AVCaptureDevice.Position, output: AVCaptureVideoDataOutput) -> Bool {
-        guard let device = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: position),
+        if position == .back,
+           wireCamera(.builtInTripleCamera, position: position, output: output) {
+            return true
+        }
+        return wireCamera(.builtInWideAngleCamera, position: position, output: output)
+    }
+
+    private func wireCamera(_ deviceType: AVCaptureDevice.DeviceType,
+                            position: AVCaptureDevice.Position,
+                            output: AVCaptureVideoDataOutput) -> Bool {
+        guard let device = AVCaptureDevice.default(deviceType, for: .video, position: position),
               let input = try? AVCaptureDeviceInput(device: device),
               session.canAddInput(input) else { return false }
         session.addInputWithNoConnections(input)
+
+        // Any failure from here on must unwind the partial wiring before
+        // returning false (issue #24, note N6): the input is already in
+        // the session, and after addOutputWithNoConnections so is the
+        // output. A retry re-entering with the same output would otherwise
+        // hit the canAddOutput guard with the output already added.
+        func unwind(outputAdded: Bool) {
+            if outputAdded { session.removeOutput(output) }
+            session.removeInput(input)
+        }
 
         // Pick a multicam-legal format per role and set it manually — leaving the
         // default risks hardwareCost >= 1.0. Back gets a crisp hi-res format; front
@@ -252,13 +287,13 @@ final class DualCameraSession: NSObject,
                 kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange,
         ]
         output.alwaysDiscardsLateVideoFrames = true
-        guard session.canAddOutput(output) else { return false }
+        guard session.canAddOutput(output) else { unwind(outputAdded: false); return false }
         session.addOutputWithNoConnections(output)
         let ports = input.ports(for: .video, sourceDeviceType: device.deviceType,
                                 sourceDevicePosition: position)
-        guard let port = ports.first else { return false }
+        guard let port = ports.first else { unwind(outputAdded: true); return false }
         let conn = AVCaptureConnection(inputPorts: [port], output: output)
-        guard session.canAddConnection(conn) else { return false }
+        guard session.canAddConnection(conn) else { unwind(outputAdded: true); return false }
         session.addConnection(conn)
         if position == .back { backDevice = device } else { frontDevice = device }
         return true
