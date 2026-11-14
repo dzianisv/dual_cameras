@@ -1,4 +1,5 @@
 import 'dart:math' as math;
+import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
@@ -169,7 +170,7 @@ class _HeadingConePainter extends CustomPainter {
       ..color = const Color(0xFF2F80ED)
       ..style = PaintingStyle.stroke
       ..strokeWidth = 1.5;
-    final path = Path()
+    final path = ui.Path()
       ..moveTo(size.width / 2, 0)
       ..lineTo(size.width, size.height)
       ..lineTo(0, size.height)

@@ -313,7 +313,19 @@ class _DemoScreenState extends State<DemoScreen> with WidgetsBindingObserver {
       if (mounted) _update(() => _captionLanguage = stored);
     });
     _settingsStore.load().then((stored) {
-      if (mounted) _update(() => _settings = stored);
+      if (mounted) {
+        // The load is async and unguarded: if the camera was already opened
+        // (or the map re-enabled) before it resolved, _ensureMapLocation
+        // may have set locationPermissionRequested=true in memory and saved
+        // it — a stale stored snapshot must not overwrite that back to
+        // false, or the next camera open would re-prompt. The flag is
+        // monotonic (nothing ever clears it), so OR-merge it.
+        _update(() => _settings = stored.copyWith(
+              locationPermissionRequested: _settings
+                      .locationPermissionRequested ||
+                  stored.locationPermissionRequested,
+            ));
+      }
     });
     if (_usesBackgroundJobs) {
       _startJobPolling();

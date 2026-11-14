@@ -157,17 +157,6 @@ class CameraSource(private val context: Context) {
         }
     }
 
-    /** Min/max zoom ratio of one facing's bound camera, or null when unbound. */
-    fun zoomRatioRange(front: Boolean): ClosedFloatingPointRange<Float>? {
-        val camera = cameraFor(front) ?: return null
-        return try {
-            val state = camera.cameraInfo.zoomState.value ?: return null
-            state.minZoomRatio..state.maxZoomRatio
-        } catch (_: Throwable) {
-            null
-        }
-    }
-
     private fun cameraFor(front: Boolean): Camera? {
         val facing = if (front) {
             CameraSelector.LENS_FACING_FRONT

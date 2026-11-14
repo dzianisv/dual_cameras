@@ -71,6 +71,6 @@
 	<key>NSMicrophoneUsageDescription</key>
 	<string>This app records audio with your dual-camera video.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
-	<string>StoryCam shows your current location on the map circle while you record. Your location never leaves the device.</string>
+	<string>StoryCam shows your current location on the map circle while you record. The map itself loads tiles from OpenStreetMap.</string>
 </dict>
 </plist>
