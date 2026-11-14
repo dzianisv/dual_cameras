@@ -29,6 +29,17 @@
 # launch and after starting recording, and give startup 30 s + 15 s
 # to settle before the first shot.
 #
+# NOTIFICATION DIALOG RULE (run 43530242377, 2026-11-14): on first
+# launch the model download starts at startup, so the app asks once for
+# the POST_NOTIFICATIONS runtime permission — a MODAL system dialog
+# ("Allow StoryCam to send you notifications?") that covers the camera
+# screen. The 'Captions' button sits underneath it, so uiautomator
+# finds no tappable "Captions" and the tap lands on the dialog instead.
+# Dismiss it first with a best-effort tap on 'Allow' (|| true: the
+# dialog only appears on first launch) before the first shot. Tapping
+# Allow is the realistic path — it leaves notifications on for the
+# download/caption progress the later shots exercise.
+#
 # HOW TO APPLY: the gh token has `workflow` scope since Den's 2026-11-14
 # re-auth (verified by `gh auth status`), so push this file with git
 # like any other file. Then dispatch:
@@ -140,6 +151,8 @@ jobs:
             adb shell pidof app.storycam || (adb logcat -d | grep -i -E "storycam|flutter|fatal|crash" | tail -30; exit 1)
             python3 tools/emulator_tap.py 'Wait' || true
             sleep 15
+            python3 tools/emulator_tap.py 'Allow' || true
+            sleep 2
             adb exec-out screencap -p > 01-launch.png
             python3 tools/emulator_tap.py 'Captions'
             sleep 3
