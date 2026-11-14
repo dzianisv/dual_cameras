@@ -980,6 +980,60 @@ void main() {
     gate.complete();
     await tester.pumpAndSettle();
     expect(values, [.75, 1.5]);
+    // Issue #25: the Debug-tuning tile must keep its expanded state when
+    // the _busy indicator is inserted/removed above it. Flip _busy via
+    // 'Reset aspect → auto' (a _guard call whose aspect calls are gated
+    // here), then re-query the Slider fresh — never reuse the captured
+    // object — and assert the tile is still expanded and the slider live.
+    final busyGate = Completer<void>();
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(const MethodChannel('dual_cameras/debug'),
+            (call) async {
+      if (call.method == 'setAspectOverride') {
+        values.add((call.arguments['aspect'] as num).toDouble());
+        await busyGate.future;
+      }
+      return null;
+    });
+    await tester.scrollUntilVisible(find.text('Reset aspect → auto'), 100,
+        scrollable: find
+            .descendant(
+                of: find.byType(ListView),
+                matching: find.byType(Scrollable))
+            .last);
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.text('Reset aspect → auto'));
+    await tester.tap(find.text('Reset aspect → auto'));
+    await tester.pump();
+    await tester.pump();
+    // _busy is true: the panel is pointer-blocked while the indicator is
+    // inserted above the tile. (The indicator itself sits far off-screen
+    // while scrolled down here, so ListView lazily unbuilds it — the
+    // in-tree proof of the flip is the IgnorePointer, not the indicator.)
+    expect(
+        tester
+            .widget<IgnorePointer>(
+                find.byKey(const ValueKey('debug-tuning-panel')))
+            .ignoring,
+        isTrue);
+    expect(find.text('Front aspect'), findsOneWidget);
+    busyGate.complete();
+    await tester.pumpAndSettle();
+    // _busy is false again: the panel is live and the tile is still
+    // expanded. A remounted tile would have collapsed and hidden its rows.
+    expect(
+        tester
+            .widget<IgnorePointer>(
+                find.byKey(const ValueKey('debug-tuning-panel')))
+            .ignoring,
+        isFalse);
+    expect(find.text('Front aspect'), findsOneWidget);
+    final sliderAfterFlip = tester.widget<Slider>(find
+        .byWidgetPredicate((widget) => widget is Slider && widget.min == 0)
+        .first);
+    sliderAfterFlip.onChanged!(1.0);
+    await tester.pumpAndSettle();
+    expect(values, [.75, 1.5, 0, 0, 1.0]);
   });
 
   testWidgets('pending initialization finishes before session disposal',
