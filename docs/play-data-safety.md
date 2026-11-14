@@ -45,7 +45,7 @@ Play build is built with `--dart-define SENTRY_DSN=...`, then:
   unless the DSN build is live, in which case Sentry is the deletion
   route.
 - **The privacy policy must match:** `website/privacy.html` already
-  describes both states (test builds: no crash reporting; DSN builds:
+  describes both states (sideload builds: no crash reporting; DSN builds:
   what a crash sends). Keep them in sync when the DSN decision lands.
 
 ### Data types (all "not collected" unless the DSN build ships)

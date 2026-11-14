@@ -1,6 +1,6 @@
 name: Build StoryCam APK
 
-# Manual builds produce a downloadable test APK workflow artifact.
+# Manual builds produce a downloadable APK workflow artifact.
 # Existing v* tag builds additionally retain their GitHub Release behavior.
 # (The sandbox VM cannot run Gradle: Java TCP is blocked there — CI is the
 # canonical build path.)
@@ -54,8 +54,43 @@ jobs:
           flutter test
 
       # The example's release buildType signs with the debug key (stock Flutter
-      # template default) — the APK is sideload-installable, but it is a TEST
-      # build. Reinstall (don't update) once a properly-signed build ships.
+      # template default) until the upload keystore is supplied (issue #32) —
+      # the APK is sideload-installable, but it is still debug-signed.
+      # Reinstall (don't update) once a properly-signed build ships.
+      # Release keystore delivery (issue #32): when Den supplies the upload
+      # keystore as the STORYCAM_KEYSTORE_BASE64 secret (plus the three
+      # STORYCAM_* password/alias secrets), decode it outside the repo and
+      # hand the four env vars to the Gradle signing config. Until then the
+      # secrets are unset, this step exits early, and the build takes the
+      # debug fallback. No secret value is ever echoed: the values travel
+      # only through env vars and $GITHUB_ENV (GitHub masks secrets in logs).
+      # NOTE: `secrets` cannot be referenced in a step `if:` (GitHub
+      # rejects the workflow at parse time), so the presence check lives
+      # in the shell below: an unset secret arrives as an empty env var
+      # and the step exits early, leaving the debug fallback in place.
+      # NOTE: once this step first activates, the "Verify StoryCam APK"
+      # step's CN=Android Debug assertion must become conditional on the
+      # signing path — a release-signed tag build would fail it as written.
+      - name: Install release keystore from secrets (if provided)
+        env:
+          STORYCAM_KEYSTORE_BASE64: ${{ secrets.STORYCAM_KEYSTORE_BASE64 }}
+          STORYCAM_KEYSTORE_PASSWORD: ${{ secrets.STORYCAM_KEYSTORE_PASSWORD }}
+          STORYCAM_KEY_ALIAS: ${{ secrets.STORYCAM_KEY_ALIAS }}
+          STORYCAM_KEY_PASSWORD: ${{ secrets.STORYCAM_KEY_PASSWORD }}
+        run: |
+          if [ -z "$STORYCAM_KEYSTORE_BASE64" ]; then
+            echo "No release keystore secret set; using the debug fallback."
+            exit 0
+          fi
+          KEYSTORE_PATH="$RUNNER_TEMP/storycam-release.keystore"
+          printf '%s' "$STORYCAM_KEYSTORE_BASE64" | base64 -d > "$KEYSTORE_PATH"
+          {
+            echo "STORYCAM_KEYSTORE_FILE=$KEYSTORE_PATH"
+            echo "STORYCAM_KEYSTORE_PASSWORD=$STORYCAM_KEYSTORE_PASSWORD"
+            echo "STORYCAM_KEY_ALIAS=$STORYCAM_KEY_ALIAS"
+            echo "STORYCAM_KEY_PASSWORD=$STORYCAM_KEY_PASSWORD"
+          } >> "$GITHUB_ENV"
+
       - name: Build release APK (arm64)
         working-directory: ${{ env.EXAMPLE_DIR }}
         run: flutter build apk --release --target-platform android-arm64
@@ -98,21 +133,27 @@ jobs:
           unzip -l "$AAB" | grep -q "base/lib/arm64-v8a/"
           echo "AAB OK: app.storycam + arm64-v8a, $(du -h "$AAB" | cut -f1)"
 
+      # APK asset name is storycam-<version>-arm64.apk (versionName from
+      # pubspec.yaml). The static paths below name 0.5.9 literally — on a
+      # version bump, update them here, in the release files list, and in
+      # website/latest.html, exactly as the release checklist already does.
       - name: Prepare APK artifact
         working-directory: ${{ env.EXAMPLE_DIR }}
         run: |
-          cp build/app/outputs/flutter-apk/app-release.apk storycam-test-arm64.apk
-          sha256sum storycam-test-arm64.apk > SHA256SUMS
+          APP_VERSION=$(sed -n 's/^version: //p' pubspec.yaml)
+          APK_NAME="storycam-${APP_VERSION%+*}-arm64.apk"
+          cp build/app/outputs/flutter-apk/app-release.apk "$APK_NAME"
+          sha256sum "$APK_NAME" > SHA256SUMS
           cp build/app/outputs/bundle/release/app-release.aab storycam-play-release.aab
           sha256sum storycam-play-release.aab > SHA256SUMS.aab
-          printf 'commit=%s\nref=%s\nsigning=debug test key\n' "$GITHUB_SHA" "$GITHUB_REF" > build-info.txt
+          printf 'commit=%s\nref=%s\nsigning=debug\n' "$GITHUB_SHA" "$GITHUB_REF" > build-info.txt
 
-      - name: Upload StoryCam test APK
+      - name: Upload StoryCam APK
         uses: actions/upload-artifact@v4
         with:
-          name: storycam-test-arm64-${{ github.sha }}
+          name: storycam-0.5.9-arm64-${{ github.sha }}
           path: |
-            packages/dual_cameras/example/storycam-test-arm64.apk
+            packages/dual_cameras/example/storycam-0.5.9-arm64.apk
             packages/dual_cameras/example/SHA256SUMS
             packages/dual_cameras/example/storycam-play-release.aab
             packages/dual_cameras/example/SHA256SUMS.aab
@@ -127,17 +168,17 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.ref_name }}
-          name: '${{ github.ref_name }} - StoryCam test release'
+          name: '${{ github.ref_name }} - StoryCam'
           prerelease: true
           fail_on_unmatched_files: true
           files: |
-            packages/dual_cameras/example/storycam-test-arm64.apk
+            packages/dual_cameras/example/storycam-0.5.9-arm64.apk
             packages/dual_cameras/example/SHA256SUMS
             packages/dual_cameras/example/build-info.txt
           body: |
-            ## StoryCam ${{ github.ref_name }} test release
+            ## StoryCam ${{ github.ref_name }}
 
-            Android ARM64 test build with the StoryCam capture interface and
+            Android ARM64 build with the StoryCam capture interface and
             multilingual on-device captions. Records the front and back cameras
             together in one portrait video, with live exposure and filter controls.
 
@@ -162,7 +203,7 @@ jobs:
               caption processing.
 
             ### Install
-            1. Download `storycam-test-arm64.apk` below.
+            1. Download `storycam-0.5.9-arm64.apk` below.
             2. Sideload it (allow "install unknown apps" when prompted).
             3. Open StoryCam, grant Camera and Microphone, then use the shutter
                to open the camera and start or stop recording.
@@ -182,8 +223,113 @@ jobs:
             gallery saving, audio sync, GPU performance and native caption inference
             still need device testing. Launcher artwork is unchanged. A stop tapped during the transcribe step itself takes effect after that step finishes, before burn-in — the decode can't be interrupted mid-word — but no captioned video is ever saved after a stop.
 
-            This APK uses a **debug test signing key**, not a production key.
-            Android may reject updating another test build signed with a different
-            key. If so, back up anything needed before uninstalling the old app;
-            uninstalling removes app-local data. A future production-signed build
-            will also require reinstalling.
+            This APK uses the **Android debug signing key**, not a production key.
+            A production-signed build requires the upload keystore (issue #32 follow-up).
+            Android may reject updating a build signed with a different key.
+            This build is debug-signed; a future production-signed build will require
+            reinstalling. If so, back up anything needed before uninstalling the old
+            app; uninstalling removes app-local data.
+
+      # Always delete the decoded release keystore, even if the build failed.
+      - name: Remove release keystore (if installed)
+        if: always()
+        run: rm -f "$RUNNER_TEMP/storycam-release.keystore"
+
+  # CI proof for the release signing wiring (issue #32): builds the release
+  # AAB + APK with a CI-generated throwaway keystore and asserts the
+  # signature is the throwaway cert, not the debug key. Separate from the
+  # tag job on purpose — the tag job's artifacts are the published release
+  # and must stay debug-signed until Den supplies the real keystore.
+  # Runs on workflow_dispatch (this workflow has no pull_request trigger)
+  # and publishes nothing on any ref: it uploads only a workflow artifact.
+  # The throwaway key must never be enrolled as the Play upload key.
+  prove-release-signing:
+    runs-on: ubuntu-latest
+    # Fixed throwaway credentials for a keystore that is generated fresh
+    # every run and deleted at job end — these are NOT secrets (same
+    # standing as the Android debug keystore's public password "android").
+    env:
+      STORYCAM_KEY_ALIAS: storycam-ci-proof
+      STORYCAM_KEYSTORE_PASSWORD: storycam-ci-proof
+      STORYCAM_KEY_PASSWORD: storycam-ci-proof
+    steps:
+      - name: Check out the repo
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: 3.47.7
+          channel: stable
+          cache: true
+
+      - name: Fetch packages
+        working-directory: ${{ env.EXAMPLE_DIR }}
+        run: flutter pub get
+
+      - name: Generate throwaway release keystore
+        run: |
+          KEYSTORE_PATH="$RUNNER_TEMP/storycam-ci-proof.keystore"
+          keytool -genkeypair -keystore "$KEYSTORE_PATH" -alias "$STORYCAM_KEY_ALIAS" \
+            -keyalg RSA -keysize 2048 -validity 1 \
+            -dname "CN=StoryCam CI Proof, OU=CI, O=StoryCam, C=US" \
+            -storepass:env STORYCAM_KEYSTORE_PASSWORD -keypass:env STORYCAM_KEY_PASSWORD
+          echo "STORYCAM_KEYSTORE_FILE=$KEYSTORE_PATH" >> "$GITHUB_ENV"
+
+      - name: Build release app bundle with throwaway keystore
+        working-directory: ${{ env.EXAMPLE_DIR }}
+        run: flutter build appbundle --release --target-platform android-arm64
+
+      - name: Build release APK with throwaway keystore
+        working-directory: ${{ env.EXAMPLE_DIR }}
+        run: flutter build apk --release --target-platform android-arm64
+
+      - name: Verify throwaway-keystore signing
+        working-directory: ${{ env.EXAMPLE_DIR }}
+        run: |
+          AAPT2=$(ls "$ANDROID_HOME"/build-tools/*/aapt2 | sort -V | tail -1)
+          APK=build/app/outputs/flutter-apk/app-release.apk
+          "$(dirname "$AAPT2")/apksigner" verify --verbose --print-certs "$APK" > signing-proof.txt
+          grep -q "CN=StoryCam CI Proof" signing-proof.txt
+          if grep -q "CN=Android Debug" signing-proof.txt; then
+            echo "FAIL: proof APK is debug-signed" >&2
+            exit 1
+          fi
+          AAB=build/app/outputs/bundle/release/app-release.aab
+          test -s "$AAB"
+          jarsigner -verify -verbose -certs "$AAB" > signing-proof-aab.txt
+          grep -q "CN=StoryCam CI Proof" signing-proof-aab.txt
+          if grep -q "CN=Android Debug" signing-proof-aab.txt; then
+            echo "FAIL: proof AAB is debug-signed" >&2
+            exit 1
+          fi
+          echo "Proof OK: APK + AAB signed with CN=StoryCam CI Proof, not Android Debug"
+
+      - name: Record proof build info
+        working-directory: ${{ env.EXAMPLE_DIR }}
+        run: |
+          printf 'commit=%s\nref=%s\nsigning=release (throwaway CI key)\n' "$GITHUB_SHA" "$GITHUB_REF" > build-info.txt
+
+      - name: Upload signing proof
+        uses: actions/upload-artifact@v4
+        with:
+          name: storycam-signing-proof-${{ github.sha }}
+          path: |
+            packages/dual_cameras/example/build/app/outputs/flutter-apk/app-release.apk
+            packages/dual_cameras/example/build/app/outputs/bundle/release/app-release.aab
+            packages/dual_cameras/example/signing-proof.txt
+            packages/dual_cameras/example/signing-proof-aab.txt
+            packages/dual_cameras/example/build-info.txt
+          if-no-files-found: error
+          retention-days: 7
+
+      # Always delete the throwaway keystore, even if the build failed.
+      - name: Delete throwaway keystore
+        if: always()
+        run: rm -f "$RUNNER_TEMP/storycam-ci-proof.keystore"

@@ -61,11 +61,56 @@ android {
         }
     }
 
+    // Release signing (issue #32): the release build signs with the upload
+    // keystore when all four STORYCAM_* env vars are set and the keystore
+    // file exists; otherwise it falls back to the debug key, exactly as
+    // before, so `flutter run --release`, tag builds and CI keep working.
+    // Only missing variable NAMES are named in the warning — never a value.
+    // CI decodes the real keystore from the STORYCAM_KEYSTORE_BASE64 secret
+    // (see build-apk.yml); locally the developer places the file on disk.
+    val keystoreFile = System.getenv("STORYCAM_KEYSTORE_FILE")
+    val keystorePassword = System.getenv("STORYCAM_KEYSTORE_PASSWORD")
+    val releaseKeyAlias = System.getenv("STORYCAM_KEY_ALIAS")
+    val releaseKeyPassword = System.getenv("STORYCAM_KEY_PASSWORD")
+    val missingKeystoreVars = listOf(
+        "STORYCAM_KEYSTORE_FILE" to keystoreFile,
+        "STORYCAM_KEYSTORE_PASSWORD" to keystorePassword,
+        "STORYCAM_KEY_ALIAS" to releaseKeyAlias,
+        "STORYCAM_KEY_PASSWORD" to releaseKeyPassword
+    ).filter { it.second.isNullOrEmpty() }.map { it.first }
+    // Guarded by hasReleaseKeystore below, so the !! uses are safe.
+    val hasReleaseKeystore = missingKeystoreVars.isEmpty() &&
+        keystoreFile != null && file(keystoreFile).exists()
+    if (missingKeystoreVars.isNotEmpty()) {
+        logger.warn(
+            "StoryCam release signing: falling back to the debug key; " +
+                "missing: ${missingKeystoreVars.joinToString(", ")}"
+        )
+    } else if (!hasReleaseKeystore) {
+        logger.warn(
+            "StoryCam release signing: falling back to the debug key; " +
+                "keystore file not found (STORYCAM_KEYSTORE_FILE)"
+        )
+    }
+
+    signingConfigs {
+        if (hasReleaseKeystore) {
+            create("release") {
+                storeFile = file(keystoreFile!!)
+                storePassword = keystorePassword
+                keyAlias = releaseKeyAlias
+                keyPassword = releaseKeyPassword
+            }
+        }
+    }
+
     buildTypes {
         release {
-            // TODO: Add your own signing config for the release build.
-            // Signing with the debug keys for now, so `flutter run --release` works.
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = if (hasReleaseKeystore) {
+                signingConfigs.getByName("release")
+            } else {
+                signingConfigs.getByName("debug")
+            }
         }
     }
 }

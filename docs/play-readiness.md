@@ -1,30 +1,47 @@
 # Google Play readiness — StoryCam
 
-Status: **not ready to submit — preparation done, three Den-only gates
-remain**. The app today is a sideload-only test build (v0.5.4,
-debug-signed, package `app.storycam`). This page lists exactly what is
-done, what this PR prepared, and what is still missing, with who can
-supply it.
+Status: **not ready to submit — preparation done, two Den-only gates
+remain** (production signing keystore; content-rating questionnaire +
+Data Safety form), plus an optional Sentry DSN. The app today is a
+sideload-only build (v0.5.9, debug-signed, package `app.storycam`).
+This page lists exactly what is done, what this PR prepared, and what
+is still missing, with who can supply it.
 
-Audited 2026-11-14 against main `39b98eb` (v0.5.4, versionCode 9).
+Audited 2026-11-15 against main `828f887b` with PR #32 applied
+(v0.5.9, versionCode 14).
 
 ## Verified this run
 
-- **AAB artifact** from the v0.5.4 tag CI run (43485921761, SUCCESS):
-  `storycam-play-release.aab`, 37,934,464 B, SHA-256
-  `83db079c887043076ab038e88151c925bcbb10842ea79bbd60e41ab2fa23cef4`
+- **AAB artifact** from the v0.5.9 tag CI run (43612415163, SUCCESS):
+  `storycam-play-release.aab`, 38,713,182 B, SHA-256
+  `aec60358658c3df7a1f73e388195fb9173e339a2fb400721454f8a1e6cad1ce3`
   (verified against `SHA256SUMS.aab`, `sha256sum -c` OK). Manifest:
-  package `app.storycam`, versionName `0.5.4`, `MainActivity`
+  package `app.storycam`, versionName `0.5.9`, `MainActivity`
   `app.storycam.MainActivity`. Libraries: arm64-v8a only (10 libs,
   incl. libapp, libflutter, libonnxruntime, libsherpa-onnx). APK from
-  the same run: 47,000,875 B, SHA-256 `dca97383…` (OK), badging
-  `app.storycam`, versionCode 9, versionName 0.5.4, minSdk 24,
-  **targetSdk 36**, label StoryCam, v2-signed with the Android Debug
-  certificate. Target SDK 36 meets Play's requirement for new apps
-  (API 35+ since August 2025).
+  the same run: 47,798,753 B, SHA-256
+  `5aa0ad54e699ce8232413e38f4cbded8a6f86d021737e3487d968c8b053e3568`
+  (OK), badging `app.storycam`, versionCode 14, versionName 0.5.9,
+  minSdk 24, **targetSdk 36**, label StoryCam, v2-signed with the
+  Android Debug certificate. Target SDK 36 meets Play's requirement
+  for new apps (API 35+ since August 2025).
+- **Release signing wiring (issue #32, this PR)**: `build.gradle.kts`
+  reads the upload keystore from the four `STORYCAM_*` env vars and
+  falls back to the debug key when they are absent, so tag builds
+  keep working unchanged. CI proves the wiring with a separate
+  `prove-release-signing` job in `build-apk.yml` that builds the AAB
+  + APK with a CI-generated throwaway keystore (CN=StoryCam CI Proof,
+  1-day validity, deleted at job end) and asserts the signature is
+  the throwaway cert, not the debug key. The real keystore swaps in
+  via the `STORYCAM_KEYSTORE_BASE64` secret with no code change. The
+  published v0.5.9 release still carries the old title and the old
+  test-named APK asset until it is re-released (parent act
+  after this PR merges); the new title is `v0.5.9 - StoryCam` and the
+  new asset is `storycam-0.5.9-arm64.apk`.
 - **Privacy policy live**: https://dzianisv.github.io/dual_cameras/privacy.html
-  returns 200 with the correct content. Version line bumped to 0.5.4
-  in this PR (it said 0.5.3).
+  returns 200 with the correct content. Version line bumped to 0.5.9
+  in this PR (it said 0.5.4); the live page picks it up on the next
+  site deploy.
 - **No analytics, no ads, no account**: `pubspec.yaml` has no
   analytics/ads SDK; the only network use is the one-time caption
   model download from Hugging Face over HTTPS. See
@@ -43,7 +60,7 @@ Audited 2026-11-14 against main `39b98eb` (v0.5.4, versionCode 9).
   (grounded in the manifest, `crash_reporting.dart`, and
   `model_manager.dart` — read them before answering in Console).
 - Play listing text, English + Russian: `docs/play-listing.md`
-  (title, short description, full description — honest, test-build
+  (title, short description, full description — honest, current
   features only).
 - ASO keyword set with rationale: `docs/aso-keywords.md`.
 - Privacy policy: `website/privacy.html` (linked from the site footer
@@ -57,50 +74,58 @@ Audited 2026-11-14 against main `39b98eb` (v0.5.4, versionCode 9).
 - `flutter build appbundle` step in CI: **done** — `build-apk.yml`
   builds and verifies the AAB alongside the APK on every tag build
   (package + arm64 checks in the "Verify StoryCam app bundle" step).
+- Release signing wiring + publish-build naming (issue #32, this PR):
+  `release` signingConfig from env/CI secrets with a debug fallback,
+  CI throwaway-keystore proof job, APK asset renamed to
+  `storycam-<version>-arm64.apk`, release title without the old
+  "test" qualifier, and the old test-named wording removed from the
+  release body, website, and docs. `prerelease: true` stays for 0.5.9
+  (first Play submission is on the internal track).
 
 ## Only Den can supply
 
-1. **Google Play developer account** — $25 one-time fee, identity
-   verification, and sign-in with his Google account. No agent can do
-   this: it needs his account and his payment.
-2. **Production signing key** — CI signs the release build with the
-   debug key (`signingConfig = signingConfigs.getByName("debug")`).
-   The v0.5.4 AAB is debug-signed and verified as a build artifact,
-   but it is **not** a production-signed upload: the debug key is a
-   public, well-known key and must not be the Play upload key. A
-   production upload keystore + Play App Signing enrollment is needed.
-   The keystore and its passwords must live in Den's custody; CI gets
-   them as secrets only when he says so. Switching the signing config
-   is a one-line change once the keystore exists — but the keystore
+1. **Production signing key** — CI signs the release build with the
+   debug key (`signingConfig = signingConfigs.getByName("debug")`
+   fallback) until the upload keystore exists. The v0.5.9 AAB is
+   debug-signed and verified as a build artifact, but it is **not**
+   a production-signed upload: the debug key is a public, well-known
+   key and must not be the Play upload key. A production upload
+   keystore + Play App Signing enrollment is needed. The keystore and
+   its passwords must live in Den's custody; CI gets them as secrets
+   only when he says so. The wiring for that swap is done in #32
+   (env/CI-secret read path with a debug fallback) — the keystore
    itself cannot be created by an agent.
-3. **Sentry DSN (optional for first submission)** — the app works
+2. **Sentry DSN (optional for first submission)** — the app works
    without it (crash reporting stays off). Supplying it turns on
    crash reports; the Data Safety answers change with it (see
    `docs/play-data-safety.md`).
-4. **Content rating questionnaire + Data Safety form** — Den answers
+3. **Content rating questionnaire + Data Safety form** — Den answers
    them in Play Console. Drafts are in `docs/play-data-safety.md`
    (no ads, no account, no data collection except optional crash
    reports once Sentry is live).
-5. **The $25 fee** (part of item 1).
+
+Historical note: the Google Play developer account gate is **closed**
+— the VIBE TECHNOLOGIES account exists and is logged in (confirmed
+by Den 2026-11-14); the $25 fee is paid. It is no longer a gate.
 
 ## Agent work still needed before submission
 
-- **Play screenshots (2–8) — none yet.** The first-ever dispatch of
-  `emulator-smoke-test.yml` (run 43491636991, 2026-11-14) FAILED
-  before installing the APK: the runner executes each `script:` line
-  as a separate `sh -c` call, so the `APK=...` variable did not
-  survive to the install line. The emulator booted fine; the app was
-  never installed — this failure is a workflow bug, not an app bug.
-  The fix is staged at
-  `~/workspace/storycam/publish/emulator-smoke-test-fixed.yml` and
-  the multi-shot workflow at
-  `~/workspace/storycam/publish/emulator-screenshots.yml` (taps via
-  `tools/emulator_tap.py`, included in this PR). Both need applying
-  via the GitHub web UI (workflow files cannot be pushed with the
-  current token scope), then dispatch; every screenshot must be
-  visually reviewed before it goes into
-  `docs/play-assets/screenshots/`. Den's phone screenshots remain
-  the best source (real camera feed).
+- **Play screenshots (2–8) — none yet.** Both emulator workflows
+  live in the repo and are dispatch-runnable:
+  `emulator-smoke-test.yml` and `emulator-screenshots.yml`. The
+  first-ever smoke-test failure (run 43491636991, 2026-11-14 — the
+  runner executes each `script:` line as a separate `sh -c` call, so
+  the `APK=...` variable did not survive to the install line) is
+  fixed in-repo: every command in the script is self-contained on
+  one line, documented in the file header. Recent runs: smoke test
+  latest success 43569609879, screenshots latest success
+  43574258317 (both 2026-11-14). No screenshots have been captured
+  or reviewed into `docs/play-assets/screenshots/` yet — every
+  screenshot must be visually reviewed before it goes there. Den's
+  phone screenshots remain the best source (real camera feed).
+  Workflow files are pushed via the gh CLI / PR like any other file
+  (`ios-build.yml` landed via PR #28; PRs #33/#34 merged the same
+  way).
 - **In-app review prompt — not wired.** The app has no rating prompt
   (no `in_app_review` dependency; the "review" hits in the code are
   "preview"). The first-1,000-installs plan needs a prompt after
@@ -115,14 +140,21 @@ Audited 2026-11-14 against main `39b98eb` (v0.5.4, versionCode 9).
 - **Promo video (30–60 s).** Optional for the first submission;
   record it from the first real-phone test.
 - Switch the release signing config from the debug key to the upload
-  keystore (after item 2 above).
+  keystore: **wiring done in #32** — remaining step is Den supplying
+  the keystore (item 1 above). Note: once the keystore secret is
+  set, the tag job's `CN=Android Debug` verify assertion must become
+  conditional on the signing path (see `build-apk.yml`).
 - First submission on an internal/closed track, not production.
 
 ## What is NOT blocking
 
-- The app itself is releasable as a test build: CI green, 90 + 5 tests,
-  host inference verified, APK + AAB hash-verified. The blockers above
-  are account, identity, and store assets — not code.
+- The app itself is releasable as a sideload build: CI green, 108
+  tests across 12 unit/widget test files — the example `flutter test`
+  step reports 103 tests passed (102 passed + 1 skipped by the
+  per-test count) and the plugin step 5 passed — plus 1
+  `integration_test` file (not run by `flutter test`); host inference
+  verified, APK + AAB hash-verified. The blockers above are account,
+  identity, and store assets — not code.
 - Package name is settled: `app.storycam` (renamed from the plugin
   demo's `com.romanslack.dual_cameras_example` before the first
   production upload, when there were no production users). Play
