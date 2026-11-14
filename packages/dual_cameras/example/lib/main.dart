@@ -134,6 +134,12 @@ class _DemoScreenState extends State<DemoScreen> with WidgetsBindingObserver {
   // Fired only if the screen is still up, the camera is initialized, and
   // nothing is recording by then; otherwise it is dropped.
   bool _pendingRecord = false;
+  // A resume re-init that lands while a camera command is in flight is
+  // queued, not dropped (issue #18: _guard would drop it silently and
+  // _wasBackgrounded is already cleared, so there is no retry — stale
+  // preview until the user re-taps Open camera). Fired from `_perform`'s
+  // finally once the lock frees; mirrors the _pendingRecord shutter queue.
+  bool _pendingResume = false;
   // Watchdog (v0.5.2): a camera command that never returns used to leave
   // `_busy` true forever — a dead screen until the app was killed. Every
   // platform call is now bounded; on timeout the error surfaces like any
@@ -373,27 +379,37 @@ class _DemoScreenState extends State<DemoScreen> with WidgetsBindingObserver {
   /// preview would otherwise stay frozen on the stale texture forever.
   /// Runs through the existing `_guard` / `_cameraCommand` 20s watchdog.
   /// No-op when the camera was never opened.
-  Future<void> _resumeCamera() => _guard(() async {
-        if (!_controller.value.isInitialized) return;
-        final wasRecording = _controller.value.isRecording;
-        final restored =
-            await _cameraCommand(() => _controller.reinitialize());
-        if (!mounted) return;
-        if (!restored) {
-          _update(() {
-            _status = 'Camera could not resume. Tap Open camera to retry.';
-            _error = _controller.value.errorMessage;
-          });
-          return;
-        }
-        // The torn-down session took every tuning value with it.
-        await _reapplyTuning();
-        if (!mounted) return;
-        if (wasRecording) {
-          _update(() => _status =
-              'Camera resumed — the recording was interrupted when the app was backgrounded.');
-        }
+  Future<void> _resumeCamera() {
+    if (_busy) {
+      // The resume landed while a camera command was in flight (issue
+      // #18): _guard would drop it silently and _wasBackgrounded is
+      // already cleared, so queue it instead — _perform's finally fires
+      // it once the lock frees. Mirrors the _pendingRecord shutter queue.
+      _pendingResume = true;
+      return Future<void>.value();
+    }
+    return _guard(() async {
+      if (!_controller.value.isInitialized) return;
+      final wasRecording = _controller.value.isRecording;
+      final restored =
+          await _cameraCommand(() => _controller.reinitialize());
+      if (!mounted) return;
+      if (!restored) {
+        _update(() {
+          _status = 'Camera could not resume. Tap Open camera to retry.';
+          _error = _controller.value.errorMessage;
+        });
+        return;
+      }
+      // The torn-down session took every tuning value with it.
+      await _reapplyTuning();
+      if (!mounted) return;
+      if (wasRecording) {
+        _update(() => _status =
+            'Camera resumed — the recording was interrupted when the app was backgrounded.');
+      }
       }, 'Resume camera');
+  }
 
   /// Re-apply the EV / filter / debug tuning after a resume re-init: the
   /// native session (and with it every tuning value) was torn down on
@@ -875,6 +891,7 @@ class _DemoScreenState extends State<DemoScreen> with WidgetsBindingObserver {
       _update(() => _busy = false);
       _flushTuning();
       _firePendingRecord();
+      _firePendingResume();
     }
   }
 
@@ -889,6 +906,18 @@ class _DemoScreenState extends State<DemoScreen> with WidgetsBindingObserver {
     final value = _controller.value;
     if (!value.isInitialized || value.isRecording) return;
     unawaited(_record());
+  }
+
+  /// Fire a resume re-init that was queued while a command was in flight
+  /// (issue #18). Runs only once the lock is free (a tuning flush in the
+  /// same `finally` re-locks first; its own `finally` retries this). The
+  /// flag stays set while busy, so a later `finally` retries it; it is
+  /// cleared only when the resume actually fires. Dropped when the screen
+  /// is gone — no session left to restore.
+  void _firePendingResume() {
+    if (!_pendingResume || _busy || !mounted) return;
+    _pendingResume = false;
+    unawaited(_resumeCamera());
   }
 
   /// Stop recording, save to gallery, then optionally run the auto-captions

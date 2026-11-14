@@ -46,14 +46,14 @@
 # frozen preview and must not be reported as one. The second leg repeats
 # the cycle after a finished recording — Den's exact report (0.5.4).
 # Thresholds calibrated from repro run 43565398115's artifact (unfixed
-# code) plus two later live runs: pre-background pairs 8.96% / 3.87% /
-# 0.69%, post-resume idle pair 0.44%, post-resume after-recording pair
-# 2.19%, cross-leg (~35-40 s) 10.65% / 12.40%, identical file vs itself
-# 0.00% (frozen simulation). Every check needs >= 0.1%: 4.4x below the
-# smallest live sample (0.44%) while a frozen preview scores exactly
-# 0.00%. The live 3 s window varies a lot (the pattern moves in bursts),
-# so no threshold above 0.1% is calibrated. See tools/preview_diff.py
-# for the full calibration table.
+# code) plus later live runs: pre-background pairs 8.96% / 3.87% / 0.69% /
+# 0.17%, post-resume idle pair 0.44% / 0.63%, post-resume after-recording
+# pair 2.19% / 10.76%, cross-leg (~35-40 s) 10.65% / 12.40%, identical
+# file vs itself 0.00% (frozen simulation). Every check needs >= 0.1%:
+# 1.7x below the smallest live sample (0.17%) while a frozen preview
+# scores exactly 0.00%. The live 3 s window varies a lot (the pattern
+# moves in bursts), so no threshold above 0.1% is calibrated. See
+# tools/preview_diff.py for the full calibration table.
 # This test guards "no worse", not "fixed": it passes on unfixed code, and
 # Den's phone is the proof gate for the fix.
 # Taps reuse tools/emulator_tap.py and the 'Wait'/'Allow' fallbacks from
