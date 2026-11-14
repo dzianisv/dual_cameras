@@ -40,6 +40,19 @@
 # Allow is the realistic path — it leaves notifications on for the
 # download/caption progress the later shots exercise.
 #
+# RUN #10 ADDENDUM (run 43534775105, 2026-11-14): the 'Allow' tap did
+# NOT dismiss the dialog — it tapped the dialog TITLE ("Allow
+# StoryCam…") at (160,280), not the button, because emulator_tap.py
+# took the first substring match. The matcher now prefers an exact
+# text match, then a clickable node (see tools/emulator_tap.py).
+# Belt-and-braces: the workflow also pre-grants POST_NOTIFICATIONS
+# with `pm grant` (same as CAMERA/RECORD_AUDIO below), so on a fresh
+# install the dialog never appears at all; the 'Allow' tap stays as
+# the fallback in case the grant does not suppress it on this API
+# level. Granting is fine for Play screenshots — the later shots
+# exercise download/caption notifications, which need the permission
+# on either way.
+#
 # HOW TO APPLY: the gh token has `workflow` scope since Den's 2026-11-14
 # re-auth (verified by `gh auth status`), so push this file with git
 # like any other file. Then dispatch:
@@ -146,6 +159,7 @@ jobs:
             adb install -r packages/dual_cameras/example/build/app/outputs/flutter-apk/app-release.apk
             adb shell pm grant app.storycam android.permission.CAMERA || true
             adb shell pm grant app.storycam android.permission.RECORD_AUDIO || true
+            adb shell pm grant app.storycam android.permission.POST_NOTIFICATIONS || true
             adb shell am start -n app.storycam/.MainActivity
             sleep 30
             adb shell pidof app.storycam || (adb logcat -d | grep -i -E "storycam|flutter|fatal|crash" | tail -30; exit 1)
