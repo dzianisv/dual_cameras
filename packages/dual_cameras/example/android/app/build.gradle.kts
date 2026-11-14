@@ -70,13 +70,13 @@ android {
     // (see build-apk.yml); locally the developer places the file on disk.
     val keystoreFile = System.getenv("STORYCAM_KEYSTORE_FILE")
     val keystorePassword = System.getenv("STORYCAM_KEYSTORE_PASSWORD")
-    val keyAlias = System.getenv("STORYCAM_KEY_ALIAS")
-    val keyPassword = System.getenv("STORYCAM_KEY_PASSWORD")
+    val releaseKeyAlias = System.getenv("STORYCAM_KEY_ALIAS")
+    val releaseKeyPassword = System.getenv("STORYCAM_KEY_PASSWORD")
     val missingKeystoreVars = listOf(
         "STORYCAM_KEYSTORE_FILE" to keystoreFile,
         "STORYCAM_KEYSTORE_PASSWORD" to keystorePassword,
-        "STORYCAM_KEY_ALIAS" to keyAlias,
-        "STORYCAM_KEY_PASSWORD" to keyPassword
+        "STORYCAM_KEY_ALIAS" to releaseKeyAlias,
+        "STORYCAM_KEY_PASSWORD" to releaseKeyPassword
     ).filter { it.second.isNullOrEmpty() }.map { it.first }
     // Guarded by hasReleaseKeystore below, so the !! uses are safe.
     val hasReleaseKeystore = missingKeystoreVars.isEmpty() &&
@@ -98,8 +98,8 @@ android {
             create("release") {
                 storeFile = file(keystoreFile!!)
                 storePassword = keystorePassword
-                keyAlias = keyAlias
-                keyPassword = keyPassword
+                keyAlias = releaseKeyAlias
+                keyPassword = releaseKeyPassword
             }
         }
     }
