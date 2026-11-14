@@ -148,12 +148,13 @@ by Den 2026-11-14); the $25 fee is paid. It is no longer a gate.
 
 ## What is NOT blocking
 
-- The app itself is releasable as a sideload build: CI green, 107
-  tests passed + 1 skipped (102 passed + 1 skipped in the example
-  app, 5 passed in the plugin package) across 12 unit/widget test
-  files, plus 1 `integration_test` file (not run by `flutter test`);
-  host inference verified, APK + AAB hash-verified. The blockers
-  above are account, identity, and store assets — not code.
+- The app itself is releasable as a sideload build: CI green, 108
+  tests across 12 unit/widget test files — the example `flutter test`
+  step reports 103 tests passed (102 passed + 1 skipped by the
+  per-test count) and the plugin step 5 passed — plus 1
+  `integration_test` file (not run by `flutter test`); host inference
+  verified, APK + AAB hash-verified. The blockers above are account,
+  identity, and store assets — not code.
 - Package name is settled: `app.storycam` (renamed from the plugin
   demo's `com.romanslack.dual_cameras_example` before the first
   production upload, when there were no production users). Play
