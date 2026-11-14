@@ -1,0 +1,110 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="980" viewBox="0 0 1400 980">
+  <defs>
+    <linearGradient id="vid3" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#4a6b7a"/>
+      <stop offset="0.55" stop-color="#2e4552"/>
+      <stop offset="1" stop-color="#1c2b36"/>
+    </linearGradient>
+    <clipPath id="phoneClip3"><rect x="90" y="140" width="360" height="700" rx="28"/></clipPath>
+    <clipPath id="mapClip3"><circle cx="168" cy="252" r="48"/></clipPath>
+  </defs>
+  <style>
+    .t { font-family: Arial, Helvetica, sans-serif; }
+    .title { font-size: 30px; font-weight: bold; fill: #111; }
+    .sub { font-size: 17px; fill: #555; }
+    .ph { font-size: 26px; font-weight: bold; fill: #fff; }
+    .small { font-size: 15px; fill: #666; }
+    .label { font-size: 16px; font-weight: bold; fill: #444; }
+    .badge { font-size: 14px; font-weight: bold; fill: #fff; }
+    .opt { font-size: 20px; font-weight: bold; fill: #111; }
+    .note { font-size: 16px; fill: #444; }
+    .menu { font-size: 15px; fill: #fff; }
+    .menuHint { font-size: 13px; fill: #bbb; }
+    .flt { font-size: 15px; fill: #bbb; }
+    .fltSel { font-size: 18px; font-weight: bold; fill: #fff; }
+    .fltBig { font-size: 20px; fill: #bbb; }
+    .fltBigSel { font-size: 24px; font-weight: bold; fill: #fff; }
+  </style>
+  <rect width="1400" height="980" fill="#ffffff"/>
+  <text x="700" y="48" text-anchor="middle" class="t title">StoryCam — Map &amp; compass wireframe v3 (for approval)</text>
+  <text x="700" y="78" text-anchor="middle" class="t sub">New in v3: the filter slider, iOS-style, right above the record button.</text>
+
+  <!-- ============ LEFT: full-bleed camera screen ============ -->
+  <text x="270" y="125" text-anchor="middle" class="t label">Camera screen — filter slider above the record button</text>
+  <rect x="90" y="140" width="360" height="700" rx="28" fill="url(#vid3)"/>
+  <g clip-path="url(#phoneClip3)">
+    <circle cx="335" cy="215" r="26" fill="#ffffff" opacity="0.18"/>
+    <path d="M90 520 Q 200 460 270 500 T 450 490 V 840 H 90 Z" fill="#000000" opacity="0.14"/>
+    <path d="M90 600 Q 220 540 330 580 T 450 570 V 840 H 90 Z" fill="#000000" opacity="0.12"/>
+    <rect x="90" y="720" width="360" height="120" fill="#000000" opacity="0.55"/>
+    <line x1="90" y1="720" x2="450" y2="720" stroke="#ffffff" stroke-width="1" opacity="0.25"/>
+  </g>
+  <text x="118" y="182" class="t ph">StoryCam</text>
+  <!-- map circle top-left -->
+  <g clip-path="url(#mapClip3)">
+    <rect x="120" y="204" width="96" height="96" fill="#dce8d8"/>
+    <path d="M120 232 H216 M120 268 H216 M148 204 V300 M182 204 V300" stroke="#fff" stroke-width="7"/>
+    <path d="M120 232 H216 M120 268 H216 M148 204 V300 M182 204 V300" stroke="#b9c9b4" stroke-width="1"/>
+    <rect x="150" y="234" width="30" height="32" fill="#c8d8c2"/>
+  </g>
+  <circle cx="168" cy="252" r="48" fill="none" stroke="#fff" stroke-width="2.5"/>
+  <polygon points="168,236 162,249 174,249" fill="#fff" stroke="#222" stroke-width="1"/>
+  <circle cx="168" cy="256" r="7" fill="#2b7de9" stroke="#fff" stroke-width="2"/>
+  <text x="168" y="218" text-anchor="middle" class="t" font-size="13" font-weight="bold" fill="#ff8a9a">N</text>
+  <rect x="192" y="200" width="52" height="22" rx="11" fill="#e94f64"/>
+  <text x="218" y="215" text-anchor="middle" class="t badge">NEW</text>
+  <!-- selfie circle -->
+  <circle cx="362" cy="500" r="46" fill="#d5d5d5" stroke="#fff" stroke-width="2"/>
+  <text x="362" y="505" text-anchor="middle" class="t small">FRONT</text>
+  <!-- FILTER SLIDER (iOS-style, above record button) -->
+  <g clip-path="url(#phoneClip3)">
+    <text x="135" y="600" text-anchor="middle" class="t flt">Moody</text>
+    <text x="190" y="600" text-anchor="middle" class="t flt">Hyper</text>
+    <text x="270" y="600" text-anchor="middle" class="t fltSel">Original</text>
+    <text x="340" y="600" text-anchor="middle" class="t flt">Midnight</text>
+    <text x="398" y="600" text-anchor="middle" class="t flt">Simple</text>
+    <text x="448" y="600" text-anchor="middle" class="t flt">Jakarta</text>
+    <circle cx="270" cy="614" r="3" fill="#fff"/>
+  </g>
+  <!-- record button -->
+  <circle cx="270" cy="662" r="38" fill="#e94f64" stroke="#fff" stroke-width="3"/>
+  <!-- bottom text menu -->
+  <text x="120" y="766" text-anchor="middle" class="t menu">Map</text>
+  <text x="175" y="766" text-anchor="middle" class="t menu">Front</text>
+  <text x="228" y="766" text-anchor="middle" class="t menu">Rear</text>
+  <text x="295" y="766" text-anchor="middle" class="t menu">Captions</text>
+  <text x="385" y="766" text-anchor="middle" class="t menu" font-weight="bold">Settings</text>
+  <text x="270" y="802" text-anchor="middle" class="t menuHint">tap an item — the Settings dialog opens at that section</text>
+  <rect x="90" y="140" width="360" height="700" rx="28" fill="none" stroke="#222" stroke-width="2"/>
+  <text x="270" y="868" text-anchor="middle" class="t" font-size="14" fill="#666">Filter slider sits right above the record button — iOS-style, text only.</text>
+  <text x="270" y="892" text-anchor="middle" class="t" font-size="14" font-weight="bold" fill="#c0392b">Captions chip is gone — it lives in Settings now (v2, unchanged).</text>
+
+  <!-- ============ RIGHT: filter slider detail ============ -->
+  <text x="910" y="125" text-anchor="middle" class="t label">Filter slider — like the iOS Video / Photo / Portrait switcher</text>
+  <rect x="560" y="140" width="700" height="100" rx="18" fill="#1c2b36"/>
+  <g>
+    <text x="690" y="192" text-anchor="middle" class="t fltBig">Moody</text>
+    <text x="790" y="192" text-anchor="middle" class="t fltBig">Hyper</text>
+    <text x="905" y="192" text-anchor="middle" class="t fltBigSel">Original</text>
+    <text x="1020" y="192" text-anchor="middle" class="t fltBig">Midnight</text>
+    <text x="1125" y="192" text-anchor="middle" class="t fltBig">Simple</text>
+    <text x="1235" y="192" text-anchor="middle" class="t" font-size="22" fill="#bbb">›</text>
+    <circle cx="905" cy="214" r="4" fill="#fff"/>
+  </g>
+  <text x="590" y="282" class="t" font-size="20" font-weight="bold" fill="#111">Full filter list</text>
+  <text x="590" y="322" class="t note"><tspan font-weight="bold">Built-in — </tspan>Original, Moody</text>
+  <text x="590" y="362" class="t note"><tspan font-weight="bold">Instagram-style — </tspan>Hyper, Midnight, Simple, Jakarta</text>
+  <text x="590" y="402" class="t note"><tspan font-weight="bold">Game-look — </tspan>GTA, San Andreas, GTA 3</text>
+  <rect x="560" y="440" width="700" height="150" rx="16" fill="#fff8e1" stroke="#d4a017" stroke-width="1.5"/>
+  <text x="590" y="476" class="t opt">Please check the filter names</text>
+  <text x="590" y="506" class="t note">Your message garbled the game-filter names — I heard them as</text>
+  <text x="590" y="532" class="t note">“GTA, San Andreas, GTA 3” (filters that make it look like you are</text>
+  <text x="590" y="558" class="t note">in a game). Correct me if that is wrong and I will redraw.</text>
+  <rect x="560" y="620" width="700" height="160" rx="16" fill="#f2f2f2" stroke="#bbb" stroke-width="1"/>
+  <text x="590" y="656" class="t opt">How it behaves</text>
+  <text x="590" y="686" class="t note">• Swipe the slider sideways or tap a filter name to switch.</text>
+  <text x="590" y="712" class="t note">• Selected filter is big and white, the rest dimmed — like iOS.</text>
+  <text x="590" y="738" class="t note">• The filter applies to the live preview and to the recording.</text>
+  <text x="590" y="764" class="t note">• The slider sits above the record button, over the video.</text>
+  <text x="700" y="920" text-anchor="middle" class="t sub">Wireframe v3 for approval — filter slider added; Settings dialog from v2 unchanged.</text>
+</svg>
