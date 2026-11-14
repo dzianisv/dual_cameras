@@ -49,10 +49,20 @@ class FilterSlider extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return SizedBox(
-      key: const Key('filter-slider'),
-      height: 52,
-      child: ListView.separated(
+    // The slider stays 52px tall at any text scale (issue #20 fix round
+    // 2 / I4, second pass): growing the height with the text scaler
+    // (52 -> 104 at 2.0x) pushed the record button off-screen on short
+    // screens (320x480 text 2.0). Instead the labels' text scaling is
+    // clamped to 1.5x — at 1.5x the selected label (19px) + gap + dot
+    // still fits 52px, and the slider is a compact overlay control, not
+    // body text.
+    return MediaQuery.withClampedTextScaling(
+      minScaleFactor: 1.0,
+      maxScaleFactor: 1.5,
+      child: SizedBox(
+        key: const Key('filter-slider'),
+        height: 52,
+        child: ListView.separated(
         scrollDirection: Axis.horizontal,
         padding: const EdgeInsets.symmetric(horizontal: 16),
         itemCount: filters.length,
@@ -90,6 +100,7 @@ class FilterSlider extends StatelessWidget {
             ),
           );
         },
+      ),
       ),
     );
   }

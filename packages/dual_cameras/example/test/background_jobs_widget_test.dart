@@ -109,6 +109,14 @@ void main() {
   testWidgets(
       'Android defers model work to job and shows restored progress + Stop',
       (tester) async {
+    // Phone-tall surface (issue #20 fix round 2 / T2): on the default
+    // 800x600 surface the job card's Stop sits below the fold
+    // (y=627.4), so the tap misses. Same trap the sibling
+    // 'denied notifications…' test documents; same fix.
+    tester.view.physicalSize = const Size(800, 1000);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
     jobs.jobs = [
       const CaptionJob(
           id: 'one',
@@ -147,6 +155,13 @@ void main() {
   testWidgets(
       'leaving screen does not cancel native jobs; reopening restores Open/Share',
       (tester) async {
+    // Phone-tall surface (issue #20 fix round 2 / T2): the job card's
+    // Open/Share sit below the fold on the default 800x600 surface,
+    // so the taps miss. See the sibling 'denied notifications…' test.
+    tester.view.physicalSize = const Size(800, 1000);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
     jobs.jobs = [
       const CaptionJob(
           id: 'one', state: 'running', stage: 'Adding captions', progress: 80)
@@ -218,6 +233,12 @@ void main() {
 
   testWidgets('failed jobs expose useful error and explicit Retry',
       (tester) async {
+    // Phone-tall surface (issue #20 fix round 2 / T2): the job card's
+    // Retry sits below the fold on the default 800x600 surface.
+    tester.view.physicalSize = const Size(800, 1000);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
     jobs.jobs = [
       const CaptionJob(
           id: 'one',
@@ -238,6 +259,12 @@ void main() {
   testWidgets(
       'successful polling preserves action errors until an action succeeds',
       (tester) async {
+    // Phone-tall surface (issue #20 fix round 2 / T2): the job card's
+    // Open sits below the fold on the default 800x600 surface.
+    tester.view.physicalSize = const Size(800, 1000);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
     jobs.jobs = [
       const CaptionJob(
           id: 'one',

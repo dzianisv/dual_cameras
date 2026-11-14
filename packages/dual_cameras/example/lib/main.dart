@@ -1342,9 +1342,12 @@ class _DemoScreenState extends State<DemoScreen> with WidgetsBindingObserver {
                     _settings.videoQuality == DualResolution.hd1080,
                 onSelected: _busy || value.isRecording
                     ? null
-                    : (_) => _guard(
-                        () => _setVideoQuality(DualResolution.hd1080),
-                        'Video quality'),
+                    // _setVideoQuality is itself _guard-wrapped: wrapping
+                    // it in another _guard here would set _busy first and
+                    // make the inner guard return immediately (silent
+                    // no-op, issue #20 fix round 2 / I1).
+                    : (_) =>
+                        _setVideoQuality(DualResolution.hd1080),
               ),
               ChoiceChip(
                 label: const Text('4K'),
@@ -1352,10 +1355,9 @@ class _DemoScreenState extends State<DemoScreen> with WidgetsBindingObserver {
                     DualResolution.ultraHd2160,
                 onSelected: _busy || value.isRecording || !_supports4k
                     ? null
-                    : (_) => _guard(
-                        () => _setVideoQuality(
-                            DualResolution.ultraHd2160),
-                        'Video quality'),
+                    // Same as 1080p above: no outer _guard (I1).
+                    : (_) => _setVideoQuality(
+                        DualResolution.ultraHd2160),
               ),
             ],
           ),
@@ -1432,6 +1434,12 @@ class _DemoScreenState extends State<DemoScreen> with WidgetsBindingObserver {
             ),
             if (_evSupported)
               ExpansionTile(
+                // Stable key (issue #20 fix round 2 / I5): the _busy
+                // indicator above is inserted/removed from this
+                // ListView's children, which shifts every unkeyed child
+                // below it and remounts this tile collapsed mid-drag.
+                // Keyed, its expanded state survives the shift.
+                key: const ValueKey('exposure-tile'),
                 tilePadding: EdgeInsets.zero,
                 title: const Text('Exposure'),
                 subtitle: Text(_evLabel(_ev)),
@@ -1439,6 +1447,10 @@ class _DemoScreenState extends State<DemoScreen> with WidgetsBindingObserver {
               ),
           ],
           ExpansionTile(
+            // Stable key, same hazard as the Exposure tile above (I5):
+            // an unkeyed tile below the _busy indicator would remount
+            // collapsed when the indicator is inserted or removed.
+            key: const ValueKey('session-details-tile'),
             tilePadding: EdgeInsets.zero,
             title: const Text('Session details'),
             children: [

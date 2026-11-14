@@ -56,8 +56,15 @@ class _MapCircleState extends State<MapCircle> {
     final position = widget.position;
     if (position != null && position != oldWidget.position) {
       // Re-center on the new fix; the dot stays in the middle of the
-      // circle. move() is a no-op until the map is attached.
-      _controller.move(position, 16);
+      // circle. Only from the second fix on: on the first fix the map
+      // is not attached yet (no FlutterMap is built until a position
+      // exists, and none at all when showTiles is false), and
+      // MapController.move() throws on an unattached controller. The
+      // first fix is already the map's initialCenter, so nothing is
+      // lost by skipping the move (issue #20 fix round 2 / I2).
+      if (oldWidget.position != null) {
+        _controller.move(position, 16);
+      }
     }
   }
 

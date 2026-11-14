@@ -360,6 +360,19 @@ void main() {
     await tester.tap(find.byKey(const Key('menu-captions')));
     await tester.pump();
     await tester.pump(const Duration(seconds: 1));
+    // The Captions section is last in the sheet's lazily-built
+    // ListView: scroll the tile into view before tapping it (issue #20
+    // fix round 2 / T1). Bounded pumps, not pumpAndSettle: the model
+    // gate is still pending here, so the indicator is indeterminate
+    // and pumpAndSettle can never settle.
+    await tester.scrollUntilVisible(
+        find.widgetWithText(SwitchListTile, 'Auto-captions'), 100,
+        scrollable: find
+            .descendant(
+                of: find.byType(ListView),
+                matching: find.byType(Scrollable))
+            .last);
+    await tester.pump();
     await tester.tap(find.widgetWithText(SwitchListTile, 'Auto-captions'));
     await tester.pump();
     await tester.tap(find.byTooltip('Close Camera settings'));
@@ -535,8 +548,9 @@ void main() {
     // Bounded pumps, not pumpAndSettle: in foreground mode the model
     // indicator is indeterminate while the model loads, so
     // pumpAndSettle can never settle here (the other foreground
-    // captions test uses pump() for the same reason). No ensureVisible
-    // either: the picker is visible without scrolling.
+    // captions test uses pump() for the same reason). The picker is
+    // scrolled into view after the sheet opens (T1) — it sits below
+    // the fold at the default 800x600 surface.
     Future<void> settle() async {
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 500));
@@ -548,6 +562,16 @@ void main() {
         captionLanguageStore: store));
     await settle();
     await tester.tap(find.byKey(const Key('menu-captions')));
+    await settle();
+    // The Captions section is last in the sheet's lazily-built
+    // ListView: scroll the picker into view before querying it
+    // (issue #20 fix round 2 / T1).
+    await tester.scrollUntilVisible(find.text('Caption language'), 100,
+        scrollable: find
+            .descendant(
+                of: find.byType(ListView),
+                matching: find.byType(Scrollable))
+            .last);
     await settle();
     expect(find.text('Caption language'), findsOneWidget);
     expect(
@@ -585,6 +609,18 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 500));
     await tester.tap(find.byKey(const Key('menu-captions')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 500));
+    // Scroll the picker into view first (issue #20 fix round 2 / T1):
+    // the Captions section is last in the sheet's lazily-built
+    // ListView, so the chip is not built yet at this point.
+    await tester.scrollUntilVisible(
+        find.widgetWithText(ChoiceChip, 'Русский'), 100,
+        scrollable: find
+            .descendant(
+                of: find.byType(ListView),
+                matching: find.byType(Scrollable))
+            .last);
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 500));
     expect(
@@ -1001,7 +1037,14 @@ void main() {
         expect(aspect.width / aspect.height, closeTo(9 / 16, .0001));
         await tester.tap(find.byTooltip('Camera settings'));
         await tester.pumpAndSettle();
+        // 100 scrolls, not the default 50 (issue #20 fix round 2,
+        // layout 320x480 text 2.0): at that size/scale the sheet is
+        // ~5400px tall and 'Exposure' sits ~4500px down it, while
+        // 50 x 100px steps only reach ~4000px (each drag nets ~80px).
+        // The sheet itself scrolls fine — measured by jumping the
+        // scroll position; only the test's scroll budget was short.
         await tester.scrollUntilVisible(find.text('Exposure'), 100,
+            maxScrolls: 100,
             scrollable: find
                 .descendant(
                     of: find.byType(ListView),
@@ -1032,9 +1075,16 @@ void main() {
     await openCamera(tester,
         mapLocationService: FakeMapLocationService(
             positions: positions.stream, headings: headings.stream));
-    // No fix yet: no circle before the first position.
-    expect(find.byType(MapCircle), findsNothing);
+    // No fix yet: the plain disc is shown, without the blue dot
+    // (issue #20 fix round 2 / T4 — the pre-fix expectation was wrong:
+    // MapCircle documents a plain disc pre-fix).
+    expect(find.byType(MapCircle), findsOneWidget);
+    expect(find.byKey(const Key('map-dot')), findsNothing);
     positions.add(const LatLng(51.5, -0.12));
+    // Two pumps: the position crosses two async hops (test controller
+    // -> MapLocationService re-broadcast -> screen listener), so one
+    // pump only delivers the first hop.
+    await tester.pump();
     await tester.pump();
     expect(find.byType(MapCircle), findsOneWidget);
     expect(find.byKey(const Key('map-dot')), findsOneWidget);
@@ -1087,17 +1137,11 @@ void main() {
     await tester.tap(find.text('Moody'));
     await tester.pumpAndSettle();
     expect(fake.filter, VideoFilter.moody);
-    // The slider scrolls sideways; scroll 'GTA' into view before tapping.
-    await tester.scrollUntilVisible(find.text('GTA'), 100,
-        scrollable: find.descendant(
-            of: find.byType(FilterSlider),
-            matching: find.byType(Scrollable)));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('GTA'));
-    await tester.pumpAndSettle();
-    expect(fake.filter, VideoFilter.gta);
     // Every filter from the PRD is on the slider (scroll to each in turn —
-    // the horizontal list only builds what is in view).
+    // the horizontal list only builds what is in view). Visit in slider
+    // order: scrollUntilVisible only scrolls forward, so looping back to
+    // 'Original' after 'GTA' would never arrive (issue #20 fix round 2
+    // / T3). Tap GTA when the loop reaches it.
     for (final name in [
       'Original',
       'Moody',
@@ -1115,6 +1159,11 @@ void main() {
               matching: find.byType(Scrollable)));
       await tester.pumpAndSettle();
       expect(find.text(name), findsOneWidget);
+      if (name == 'GTA') {
+        await tester.tap(find.text('GTA'));
+        await tester.pumpAndSettle();
+        expect(fake.filter, VideoFilter.gta);
+      }
     }
   });
 
@@ -1211,7 +1260,10 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.widgetWithText(SwitchListTile, 'Mirror selfie'));
     await tester.pumpAndSettle();
-    expect(values, [true]);
+    // mirrorFront defaults to true, so tapping the ON switch sends
+    // false (issue #20 fix round 2 / T5 — the old [true] expectation
+    // was wrong).
+    expect(values, [false]);
   });
 
   testWidgets('slider, pills and menu overlay the full-screen preview',
