@@ -1471,7 +1471,19 @@ class _DemoScreenState extends State<DemoScreen> with WidgetsBindingObserver {
             ],
           ),
           if (value.isInitialized)
-            IgnorePointer(ignoring: _busy, child: _debugPanel()),
+            // Stable key, same hazard as the Exposure tile (I5, issue
+            // #25): the _busy indicator above is inserted/removed from
+            // this ListView's children, which shifts every unkeyed child
+            // below it and remounts it collapsed. The key must sit on
+            // this IgnorePointer — the direct ListView child — not on
+            // the ExpansionTile inside _debugPanel(): the wrapper is
+            // what shifts, so a key on the tile alone does not survive
+            // the shift (verified: the re-query test fails with only
+            // the tile keyed). Keyed, the tile's expanded state survives.
+            IgnorePointer(
+                key: const ValueKey('debug-tuning-panel'),
+                ignoring: _busy,
+                child: _debugPanel()),
         ],
         initialSection: initialSection,
       );
