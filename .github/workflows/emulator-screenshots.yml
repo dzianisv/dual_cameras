@@ -212,6 +212,15 @@ jobs:
             # list. This does NOT prove the video was attached (intent
             # resolution matches action + type only, not EXTRA_STREAM) —
             # attachment is proven ONLY by the owner's real-phone test.
+            # FALSE-POSITIVE RULE (run 43569645665): the assert matched
+            # the chooser title 'Share video' on the app's OWN Share
+            # button (its required semantics label) with no chooser open
+            # — so the title only counts off-app (see
+            # tools/assert_share_chooser.py), and the app must still be
+            # alive after Back dismisses the sheet: that run also showed
+            # the app dying in dcr-gl right after Back with no chooser
+            # open (Back finished the activity), so the second pidof
+            # below guards the dismiss path too.
             # The pidof check proves sharing did not kill the app.
             python3 tools/emulator_tap.py 'Stop recording'
             sleep 8
@@ -223,6 +232,7 @@ jobs:
             adb shell pidof app.storycam || (adb logcat -d | grep -i -E "storycam|flutter|fatal|crash" | tail -30; exit 1)
             adb shell input keyevent 4
             sleep 1
+            adb shell pidof app.storycam || (adb logcat -d | grep -i -E "storycam|flutter|fatal|crash" | tail -30; exit 1)
             adb logcat -d | grep -i -E "storycam|flutter|fatal|crash" | tail -50 || true
             ls -la *.png
 
