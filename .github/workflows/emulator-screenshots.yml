@@ -53,6 +53,21 @@
 # exercise download/caption notifications, which need the permission
 # on either way.
 #
+# RUN #11 ADDENDUM (run 43541261690, 2026-11-14): the run got past
+# Captions and Filters (both taps worked) but died at 'Start recording'
+# → NOT FOUND. Root cause is NOT the tap helper: the camera never
+# initializes on its own. The app probes support at startup
+# (_bootstrap) but only opens the camera when the shutter is tapped
+# (main.dart _start); until then the shutter label is 'Open camera',
+# 'Start recording' does not exist in the tree, and Filters/Photo/Swap
+# are disabled (onFilters is null until `ready`, i.e. initialized).
+# The shutter IS enabled on the emulator (pixel (255,82,109) =
+# 0xFFFF526D in 01-launch.png, and _caps.isSupported is true), so tap
+# 'Open camera' first and settle 20 s for init before the first shot.
+# If init fails on the emulator, 'Start recording' stays absent and the
+# workflow fails loudly at that tap — that is the signal, not a
+# tap-helper bug.
+#
 # HOW TO APPLY: the gh token has `workflow` scope since Den's 2026-11-14
 # re-auth (verified by `gh auth status`), so push this file with git
 # like any other file. Then dispatch:
@@ -167,6 +182,8 @@ jobs:
             sleep 15
             python3 tools/emulator_tap.py 'Allow' || true
             sleep 2
+            python3 tools/emulator_tap.py 'Open camera'
+            sleep 20
             adb exec-out screencap -p > 01-launch.png
             python3 tools/emulator_tap.py 'Captions'
             sleep 3
