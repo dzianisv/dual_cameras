@@ -37,6 +37,21 @@
         <meta-data
             android:name="flutterEmbedding"
             android:value="2" />
+        <!-- Share sheet (issue #14): FileProvider serves the just-recorded
+             video to the ACTION_SEND chooser. Recordings land in cacheDir
+             (upstream dual_cameras_android writes dcr_*.mp4 there), so
+             cache-path is the required root; files-path covers any future
+             app-private file. Exported false, grantUriPermissions true —
+             the share intent carries FLAG_GRANT_READ_URI_PERMISSION. -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
     </application>
     <!-- Required to query activities that can process text, see:
          https://developer.android.com/training/package-visibility and

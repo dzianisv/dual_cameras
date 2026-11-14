@@ -19,6 +19,7 @@ class StoryCamera extends StatelessWidget {
     required this.onFilters,
     required this.onCaptions,
     required this.onSettings,
+    this.onShare,
   });
 
   final Widget preview;
@@ -26,6 +27,10 @@ class StoryCamera extends StatelessWidget {
   final String filterName, status;
   final VoidCallback? onCapture, onPhoto, onSwap, onFilters, onCaptions;
   final VoidCallback onSettings;
+  // Share appears iff non-null (issue #14): the parent passes it only
+  // after a recording has stopped and saved, so the button is hidden —
+  // not disabled — before any recording and while recording.
+  final VoidCallback? onShare;
 
   @override
   Widget build(BuildContext context) {
@@ -178,6 +183,25 @@ class StoryCamera extends StatelessWidget {
             textAlign: TextAlign.center,
             style: const TextStyle(fontWeight: FontWeight.w600)),
         const SizedBox(height: 8),
+        if (onShare != null) ...[
+          SizedBox(
+            width: double.infinity,
+            child: Semantics(
+              label: 'Share video',
+              button: true,
+              child: FilledButton.icon(
+                key: const Key('share-button'),
+                onPressed: onShare,
+                icon: const Icon(Icons.share),
+                label: const Text('Share'),
+                style: FilledButton.styleFrom(
+                  minimumSize: const Size(48, 48),
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(height: 8),
+        ],
         Wrap(
           alignment: WrapAlignment.center,
           spacing: 8,

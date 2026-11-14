@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Share sheet (issue #14): FileProvider roots for the just-recorded
+     video. Recordings land in cacheDir (upstream dual_cameras_android
+     writes dcr_*.mp4 there); files-path covers any other app-private
+     file. Both roots are asserted in ShareChannel before sharing.
+     The two roots MUST have distinct names: FileProvider keys its
+     root map by name, so two roots named "shared" collapse to one —
+     the design's literal name="shared" on both left only files-path
+     in the map and every cacheDir share failed with
+     "Failed to find configured root" (run 43570692004). -->
+<paths xmlns:android="http://schemas.android.com/apk/res/android">
+    <cache-path name="shared-cache" path="." />
+    <files-path name="shared-files" path="." />
+</paths>

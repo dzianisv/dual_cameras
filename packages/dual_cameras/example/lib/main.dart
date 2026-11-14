@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:dual_cameras/dual_cameras.dart';
 import 'package:flutter/material.dart';
@@ -162,6 +163,12 @@ class _DemoScreenState extends State<DemoScreen> with WidgetsBindingObserver {
   }
 
   String? _lastFile;
+  // Last successfully saved VIDEO (issue #14) — the file Share attaches.
+  // Set only in _stop() after Gal.putVideo succeeds; _photo() also writes
+  // _lastFile, so _lastFile means "last capture", not "last video". Never
+  // the captioned file: Share always attaches the original uncaptioned
+  // video. In-memory only, gone on app restart, same as _lastFile.
+  String? _lastVideo;
   bool _circle = true; // Telegram-style: circular selfie inset by default.
 
   // Exposure (EV) slider — the Sony-style dial, applied live to both cameras.
@@ -231,6 +238,11 @@ class _DemoScreenState extends State<DemoScreen> with WidgetsBindingObserver {
   // Live geometry tuning (debug channel) — to dial in the front/back
   // orientation and fix any stretch directly on the device.
   static const MethodChannel _debug = MethodChannel('dual_cameras/debug');
+  // Share sheet (issue #14): `shareVideo {path}` fires ACTION_SEND via
+  // the native ShareChannel + FileProvider. Separate channel from the
+  // dead `caption_jobs` share path — that channel has no native handler.
+  static const MethodChannel _shareChannel =
+      MethodChannel('dual_cameras_example/share');
   int _frontOffset = 90; // matches FRONT_ROTATION_OFFSET default
   int _backOffset = -90; // matches BACK_ROTATION_OFFSET default
   bool _mirrorFront = true;
@@ -698,12 +710,16 @@ class _DemoScreenState extends State<DemoScreen> with WidgetsBindingObserver {
       file = await _cameraCommand(_controller.stopRecording);
       _lastFile = file;
       await Gal.putVideo(file);
+      // Only after a successful save: on a Gal failure _lastVideo stays
+      // null, so no Share button appears next to a save-failed status.
+      _lastVideo = file;
       if (!mounted && !_usesBackgroundJobs) return;
       _update(() {
         _status = 'Video saved to gallery';
       });
     } catch (e) {
       _update(() {
+        _lastVideo = null;
         _status = 'Could not save video. See settings for details.';
         _error = '$e';
       });
@@ -722,6 +738,37 @@ class _DemoScreenState extends State<DemoScreen> with WidgetsBindingObserver {
       } else if (mounted) {
         _queueCaptions(file);
       }
+    }
+  }
+
+  /// Share the just-recorded video (issue #14). Idempotent: _lastVideo is
+  /// never consumed — a second tap re-opens the sheet with the same file;
+  /// it is replaced only by the next _stop(). The caption pipeline is
+  /// untouched: no generation bump, no cancel, status text unchanged on
+  /// success (dismissing the sheet is a no-op). Not routed through
+  /// _guard/_perform: sharing must not take the _busy lock — the button
+  /// stays visible while the sheet is open.
+  Future<void> _shareVideo() async {
+    final path = _lastVideo;
+    if (path == null) return;
+    if (!File(path).existsSync()) {
+      // File deleted / moved after save: hide the button, say so plainly.
+      _update(() {
+        _lastVideo = null;
+        _status = 'Video no longer available. Record again.';
+      });
+      return;
+    }
+    try {
+      await _shareChannel.invokeMethod<void>('shareVideo', {'path': path});
+    } catch (e) {
+      // Platform failure (MissingPluginException, channel error, native
+      // error incl. a file vanishing mid-call): same failure pattern as
+      // other commands — status + _error, no crash, button stays visible.
+      _update(() {
+        _status = 'Could not open share sheet. See settings for details.';
+        _error = '$e';
+      });
     }
   }
 
@@ -1189,6 +1236,13 @@ class _DemoScreenState extends State<DemoScreen> with WidgetsBindingObserver {
           onFilters: ready ? _filtersSheet : null,
           onCaptions: _captionsSheet,
           onSettings: _settingsSheet,
+          // Share (issue #14): only once a video is saved and no command
+          // is in flight — hidden before any recording, while recording,
+          // and while _busy (e.g. Gal.putVideo still in flight in _stop).
+          // Appears on the rebuild after _perform's finally clears _busy.
+          onShare: (!_busy && !value.isRecording && _lastVideo != null)
+              ? _shareVideo
+              : null,
         );
       },
     );
