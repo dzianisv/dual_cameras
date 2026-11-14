@@ -14,9 +14,9 @@ import java.io.File
  * following the CaptionsChannel precedent (registered in MainActivity).
  *
  * - `shareVideo {path}` -> fires ACTION_SEND, type `video/mp4` (or
- *   `video/*` when the extension is not .mp4), EXTRA_STREAM = FileProvider
- *   content URI, FLAG_GRANT_READ_URI_PERMISSION, wrapped in
- *   Intent.createChooser.
+ *   the `video` wildcard when the extension is not .mp4), EXTRA_STREAM
+ *   = FileProvider content URI, FLAG_GRANT_READ_URI_PERMISSION, wrapped
+ *   in Intent.createChooser.
  *
  * FileProvider roots (res/xml/file_paths.xml) are cache-path + files-path.
  * Recordings land in cacheDir (upstream dual_cameras_android writes
