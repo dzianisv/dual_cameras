@@ -159,7 +159,7 @@ jobs:
             adb shell pm grant app.storycam android.permission.POST_NOTIFICATIONS || true
             adb shell am start -n app.storycam/.MainActivity
             sleep 20
-            adb shell pidof app.storycam || (adb logcat -d | grep -i -E "storycam|flutter|fatal|crash" | tail -30; exit 1)
+            adb shell pidof app.storycam || (adb logcat -d | grep -i -E "storycam|flutter|fatal|crash" | tail -30; adb logcat -d -b crash | tail -40 || true; exit 1)
             adb exec-out screencap -p > smoke-launch.png
             python3 tools/emulator_tap.py 'Wait' || true
             sleep 5
@@ -167,7 +167,7 @@ jobs:
             sleep 2
             python3 tools/emulator_tap.py 'Open camera'
             sleep 20
-            adb shell pidof app.storycam || (adb logcat -d | grep -i -E "storycam|flutter|fatal|crash" | tail -30; exit 1)
+            adb shell pidof app.storycam || (adb logcat -d | grep -i -E "storycam|flutter|fatal|crash" | tail -30; adb logcat -d -b crash | tail -40 || true; exit 1)
             adb exec-out screencap -p > resume-pre-1.png
             sleep 3
             adb exec-out screencap -p > resume-pre-2.png
@@ -177,14 +177,14 @@ jobs:
             sleep 5
             adb shell am start -n app.storycam/.MainActivity
             sleep 10
-            adb shell pidof app.storycam || (adb logcat -d | grep -i -E "storycam|flutter|fatal|crash" | tail -30; exit 1)
+            adb shell pidof app.storycam || (adb logcat -d | grep -i -E "storycam|flutter|fatal|crash" | tail -30; adb logcat -d -b crash | tail -40 || true; exit 1)
             adb shell uiautomator dump /data/local/tmp/ui.xml
             adb pull /data/local/tmp/ui.xml /tmp/ui-resume.xml
             grep -q 'Start recording' /tmp/ui-resume.xml || (echo 'NOT ON CAMERA SCREEN AFTER RESUME: no Start recording button - app may have restarted fresh instead of resuming'; exit 1)
             adb exec-out screencap -p > resume-after-1.png
             sleep 3
             adb exec-out screencap -p > resume-after-2.png
-            python3 tools/preview_diff.py resume-after-1.png resume-after-2.png --min-diff 0.1 || (echo 'RESUME FAILED (idle): no motion in the preview region after background/foreground - camera frozen (issue #13)'; adb logcat -d | grep -i -E "storycam|flutter|fatal|crash" | tail -30; exit 1)
+            python3 tools/preview_diff.py resume-after-1.png resume-after-2.png --min-diff 0.1 || (echo 'RESUME FAILED (idle): no motion in the preview region after background/foreground - camera frozen (issue #13)'; adb logcat -d | grep -i -E "storycam|flutter|fatal|crash" | tail -30; adb logcat -d -b crash | tail -40 || true; exit 1)
             echo 'resume (idle): preview region shows motion after background/foreground (live preview restored)'
             python3 tools/emulator_tap.py 'Start recording'
             sleep 6
@@ -196,14 +196,14 @@ jobs:
             sleep 5
             adb shell am start -n app.storycam/.MainActivity
             sleep 10
-            adb shell pidof app.storycam || (adb logcat -d | grep -i -E "storycam|flutter|fatal|crash" | tail -30; exit 1)
+            adb shell pidof app.storycam || (adb logcat -d | grep -i -E "storycam|flutter|fatal|crash" | tail -30; adb logcat -d -b crash | tail -40 || true; exit 1)
             adb shell uiautomator dump /data/local/tmp/ui.xml
             adb pull /data/local/tmp/ui.xml /tmp/ui-resume2.xml
             grep -q 'Start recording' /tmp/ui-resume2.xml || (echo 'NOT ON CAMERA SCREEN AFTER RESUME (after recording): no Start recording button - app may have restarted fresh instead of resuming'; exit 1)
             adb exec-out screencap -p > resume-after-rec-1.png
             sleep 3
             adb exec-out screencap -p > resume-after-rec-2.png
-            python3 tools/preview_diff.py resume-after-rec-1.png resume-after-rec-2.png --min-diff 0.1 || (echo 'RESUME FAILED (after recording): no motion in the preview region after background/foreground - camera frozen (issue #13)'; adb logcat -d | grep -i -E "storycam|flutter|fatal|crash" | tail -30; exit 1)
+            python3 tools/preview_diff.py resume-after-rec-1.png resume-after-rec-2.png --min-diff 0.1 || (echo 'RESUME FAILED (after recording): no motion in the preview region after background/foreground - camera frozen (issue #13)'; adb logcat -d | grep -i -E "storycam|flutter|fatal|crash" | tail -30; adb logcat -d -b crash | tail -40 || true; exit 1)
             echo 'resume (after recording): preview region shows motion after background/foreground (live preview restored)'
             adb shell dumpsys activity activities | grep -i -A2 -B2 storycam || true
             adb logcat -d | grep -i -E "storycam|flutter|fatal|crash" | tail -50 || true

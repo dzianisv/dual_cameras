@@ -14,6 +14,7 @@ import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.LifecycleRegistry
+import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executor
 import kotlin.math.roundToInt
 
@@ -93,8 +94,23 @@ class CameraSource(private val context: Context) {
         }, mainExecutor)
     }
 
+    /**
+     * Unbind the cameras and destroy the lifecycle owner, SYNCHRONOUSLY.
+     *
+     * This used to post the unbind to the main thread and return at once —
+     * the cameras stayed bound while the caller (releaseSession) went on to
+     * tear down the GL thread and release the camera SurfaceTextures. A
+     * frame still in flight from the bound camera then fired
+     * onFrameAvailable -> drawFrame -> backSt.updateTexImage() on an
+     * abandoned texture: FATAL EXCEPTION on dcr-gl, process death
+     * (smoke run 43566987624, 0.35 s after resume — the first run with the
+     * #13 resume re-init, which is the first path that disposes a live
+     * session). The unbind must be complete before the GL teardown starts.
+     * Runs inline when already on the main thread (Pigeon calls arrive
+     * there); otherwise posts and waits, so this can never deadlock.
+     */
     fun release() {
-        mainHandler.post {
+        val work = {
             try {
                 provider?.unbindAll()
             } catch (_: Throwable) {
@@ -102,6 +118,19 @@ class CameraSource(private val context: Context) {
             lifecycle.stop()
             provider = null
             boundCameras = emptyList()
+        }
+        if (Looper.myLooper() == Looper.getMainLooper()) {
+            work()
+        } else {
+            val latch = CountDownLatch(1)
+            mainHandler.post {
+                try {
+                    work()
+                } finally {
+                    latch.countDown()
+                }
+            }
+            latch.await()
         }
     }
 
