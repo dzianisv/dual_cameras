@@ -136,6 +136,11 @@ class _DemoScreenState extends State<DemoScreen> with WidgetsBindingObserver {
   late final CaptionJobs _jobs = widget.captionJobs ?? CaptionJobs();
   List<CaptionJob> _backgroundJobs = [];
   Timer? _jobPoll;
+  // Resume guard (issue #13): `resumed` also fires when a system dialog
+  // closes, with no backgrounding in between — re-initing there would tear
+  // down a healthy session and kill a live recording. Only a real
+  // backgrounding (`paused`/`hidden`) arms the resume re-init.
+  bool _wasBackgrounded = false;
   bool _refreshingJobs = false;
   bool _notificationsEnabled = true;
   final Set<String> _pendingJobActions = {};
@@ -249,22 +254,91 @@ class _DemoScreenState extends State<DemoScreen> with WidgetsBindingObserver {
       if (mounted) _update(() => _captionLanguage = stored);
     });
     if (_usesBackgroundJobs) {
-      WidgetsBinding.instance.addObserver(this);
       _startJobPolling();
     } else {
       _prepareModel();
     }
+    // The lifecycle observer is registered ALWAYS (issue #13): the resume
+    // re-init below must run in the default foreground-captions build too —
+    // previously it was only registered with background caption jobs, so in
+    // Den's build it was not even registered.
+    WidgetsBinding.instance.addObserver(this);
   }
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (!_usesBackgroundJobs) return;
-    if (state == AppLifecycleState.resumed) {
-      _startJobPolling();
-    } else {
-      _jobPoll?.cancel();
-      _jobPoll = null;
+    switch (state) {
+      case AppLifecycleState.paused:
+      case AppLifecycleState.hidden:
+        // Real backgrounding: arm the resume re-init and stop job polling.
+        _wasBackgrounded = true;
+        _jobPoll?.cancel();
+        _jobPoll = null;
+        break;
+      case AppLifecycleState.resumed:
+        if (_usesBackgroundJobs) {
+          _startJobPolling();
+        }
+        if (_wasBackgrounded) {
+          _wasBackgrounded = false;
+          unawaited(_resumeCamera());
+        }
+        break;
+      case AppLifecycleState.inactive:
+      case AppLifecycleState.detached:
+        // No backgrounding: no resume re-init. Job polling still stops,
+        // as before — it restarts on `resumed`.
+        _jobPoll?.cancel();
+        _jobPoll = null;
+        break;
     }
+  }
+
+  /// Bring the camera session back after a real backgrounding (issue #13).
+  /// The OS tears the native session down on background; on resume the
+  /// preview would otherwise stay frozen on the stale texture forever.
+  /// Runs through the existing `_guard` / `_cameraCommand` 20s watchdog.
+  /// No-op when the camera was never opened.
+  Future<void> _resumeCamera() => _guard(() async {
+        if (!_controller.value.isInitialized) return;
+        final wasRecording = _controller.value.isRecording;
+        final restored =
+            await _cameraCommand(() => _controller.reinitialize());
+        if (!mounted) return;
+        if (!restored) {
+          _update(() {
+            _status = 'Camera could not resume. Tap Open camera to retry.';
+            _error = _controller.value.errorMessage;
+          });
+          return;
+        }
+        // The torn-down session took every tuning value with it.
+        await _reapplyTuning();
+        if (!mounted) return;
+        if (wasRecording) {
+          _update(() => _status =
+              'Camera resumed — the recording was interrupted when the app was backgrounded.');
+        }
+      }, 'Resume camera');
+
+  /// Re-apply the EV / filter / debug tuning after a resume re-init: the
+  /// native session (and with it every tuning value) was torn down on
+  /// background. Raw channel calls, not the slider setters — no state churn.
+  Future<void> _reapplyTuning() async {
+    if (_evSupported) {
+      await _cameraCommand(() => _controller.setExposureCompensation(_ev));
+    }
+    await _cameraCommand(() => _controller.setFilter(_filter));
+    await _cameraCommand(() => _debug.invokeMethod<void>(
+        'setRotationOffset', {'front': true, 'offset': _frontOffset}));
+    await _cameraCommand(() => _debug.invokeMethod<void>(
+        'setRotationOffset', {'front': false, 'offset': _backOffset}));
+    await _cameraCommand(() => _debug.invokeMethod<void>(
+        'setAspectOverride', {'front': true, 'aspect': _frontAspect}));
+    await _cameraCommand(() => _debug.invokeMethod<void>(
+        'setAspectOverride', {'front': false, 'aspect': _backAspect}));
+    await _cameraCommand(
+        () => _debug.invokeMethod<void>('setMirrorFront', {'on': _mirrorFront}));
   }
 
   void _startJobPolling() {
