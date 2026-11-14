@@ -28,6 +28,12 @@ final class DualCameraSession: NSObject,
     private var writer: MovieWriter?
     private var latestComposite: CVPixelBuffer?
 
+    /// Set once in stop() and never cleared: the session is being / has
+    /// been torn down. captureOutput() early-returns on it so a frame that
+    /// lands after teardown is dropped instead of composed or appended to
+    /// a writer stop() is finishing (issue #16, Gap B).
+    private var tornDown = false
+
     var onFrame: ((CVPixelBuffer) -> Void)?
     var onThermal: ((ProcessInfo.ThermalState) -> Void)?
     var onError: ((String) -> Void)?
@@ -40,6 +46,17 @@ final class DualCameraSession: NSObject,
         NotificationCenter.default.addObserver(
             self, selector: #selector(thermalChanged),
             name: ProcessInfo.thermalStateDidChangeNotification, object: nil)
+        // Interruption diagnostics only (issue #16): log when the OS
+        // interrupts / resumes the session — e.g. on backgrounding — so
+        // the phone proof-gate run can tell an OS interruption apart from
+        // a torn-down session. No behavior change: no observer drives any
+        // teardown or restart; the Dart lifecycle observer owns resume.
+        NotificationCenter.default.addObserver(
+            self, selector: #selector(sessionWasInterrupted),
+            name: .AVCaptureSessionWasInterrupted, object: session)
+        NotificationCenter.default.addObserver(
+            self, selector: #selector(sessionInterruptionEnded),
+            name: .AVCaptureSessionInterruptionEnded, object: session)
     }
 
     func setLayout(_ layout: CompositeLayout) {
@@ -350,6 +367,11 @@ final class DualCameraSession: NSObject,
     func captureOutput(_ output: AVCaptureOutput,
                        didOutput sampleBuffer: CMSampleBuffer,
                        from connection: AVCaptureConnection) {
+        // Torn down (issue #16, Gap B): stop() is finishing / finished the
+        // writer and the session graph is going away — drop the frame
+        // instead of composing it or appending it to an abandoned writer.
+        // Covers audio too: the writer is nil by the time this is set.
+        guard !tornDown else { return }
         if output === audioOutput {
             writer?.appendAudio(sampleBuffer)
             return
@@ -413,8 +435,36 @@ final class DualCameraSession: NSObject,
     /// remove every input/output here to release the hardware immediately, and
     /// only fire [completion] once that has finished on the session queue, so the
     /// Dart side can reliably await a full teardown before opening a new session.
+    ///
+    /// Ordering (issue #16, Gap A/B): the in-flight recording is finished
+    /// FIRST — on the data queue, where appends happen, so no frame can
+    /// append after finishWriting starts — and only then does the session
+    /// stop and its graph come apart. Disposed mid-recording, the .mp4 is
+    /// finalized instead of dropped unfinalized. The torn-down flag + nil
+    /// onFrame are set up front so captureOutput() drops late frames and
+    /// the Flutter texture stops receiving them.
     func stop(completion: (() -> Void)? = nil) {
         NotificationCenter.default.removeObserver(self)
+        tornDown = true
+        onFrame = nil
+        dataQueue.async {
+            let w = self.writer
+            self.writer = nil
+            guard let w = w else {
+                self.tearDownSession(completion: completion)
+                return
+            }
+            w.finish { url in
+                NSLog("[DualCamera][native] stop() — in-flight recording finalized: %@",
+                      url?.path ?? "(no file)")
+                self.tearDownSession(completion: completion)
+            }
+        }
+    }
+
+    /// Session-queue half of stop(): stop the running session and remove
+    /// every input/output so the camera + mic are released immediately.
+    private func tearDownSession(completion: (() -> Void)? = nil) {
         sessionQueue.async {
             NSLog("[DualCamera][native] stop() begin — isRunning=%d inputs=%d outputs=%d",
                   self.session.isRunning ? 1 : 0,
@@ -434,5 +484,15 @@ final class DualCameraSession: NSObject,
 
     @objc private func thermalChanged() {
         onThermal?(ProcessInfo.processInfo.thermalState)
+    }
+
+    @objc private func sessionWasInterrupted(_ note: Notification) {
+        let reason = note.userInfo?[AVCaptureSessionInterruptionReasonKey] as? NSNumber
+        NSLog("[DualCamera][native] session interrupted reason=%@",
+              reason?.stringValue ?? "unknown")
+    }
+
+    @objc private func sessionInterruptionEnded(_ note: Notification) {
+        NSLog("[DualCamera][native] session interruption ended")
     }
 }
