@@ -27,6 +27,24 @@
 # emulator's sdcard is not mounted when the script runs. Screenshots go
 # through `adb exec-out screencap -p > file.png`, which streams the PNG
 # straight to the host and never touches the device filesystem.
+#
+# RESUME RULE (issue #13, 2026-11-14): after opening the camera, the test
+# backgrounds the app (HOME key) and relaunches it, then asserts the
+# preview is ALIVE after resume — two screencaps 3 s apart must DIFFER
+# (the emulator's virtual-camera test pattern moves). `pidof` alone is
+# NOT enough: run #8 proved a dead app can pass pidof-style checks, and
+# a frozen preview keeps the process alive. The same pair is shot BEFORE
+# backgrounding as a pre-check: if the pre-resume pair is identical, the
+# assertion cannot see motion on this emulator and the run fails loudly
+# instead of passing or failing on a meaningless comparison. A
+# uiautomator dump asserts the camera screen is still up after resume
+# ('Start recording' present): if the OS killed the app and it relaunched
+# fresh to the 'Open camera' screen, that is a different outcome from a
+# frozen preview and must not be reported as one. The second leg repeats
+# the cycle after a finished recording — Den's exact report (0.5.4).
+# Taps reuse tools/emulator_tap.py and the 'Wait'/'Allow' fallbacks from
+# emulator-screenshots.yml (same rules: pre-grant POST_NOTIFICATIONS so
+# the first-launch modal never covers the shutter).
 name: StoryCam emulator smoke test
 
 on:
@@ -123,10 +141,55 @@ jobs:
             adb install -r packages/dual_cameras/example/build/app/outputs/flutter-apk/app-release.apk
             adb shell pm grant app.storycam android.permission.CAMERA || true
             adb shell pm grant app.storycam android.permission.RECORD_AUDIO || true
+            adb shell pm grant app.storycam android.permission.POST_NOTIFICATIONS || true
             adb shell am start -n app.storycam/.MainActivity
             sleep 20
             adb shell pidof app.storycam || (adb logcat -d | grep -i -E "storycam|flutter|fatal|crash" | tail -30; exit 1)
             adb exec-out screencap -p > smoke-launch.png
+            python3 tools/emulator_tap.py 'Wait' || true
+            sleep 5
+            python3 tools/emulator_tap.py 'Allow' || true
+            sleep 2
+            python3 tools/emulator_tap.py 'Open camera'
+            sleep 20
+            adb shell pidof app.storycam || (adb logcat -d | grep -i -E "storycam|flutter|fatal|crash" | tail -30; exit 1)
+            adb exec-out screencap -p > resume-pre-1.png
+            sleep 3
+            adb exec-out screencap -p > resume-pre-2.png
+            if cmp -s resume-pre-1.png resume-pre-2.png; then echo 'PRE-CHECK FAILED: preview frames identical before backgrounding - the live-preview assertion cannot see motion on this emulator'; exit 1; fi
+            echo 'pre-check: preview frames differ (live preview before background)'
+            adb shell input keyevent 3
+            sleep 5
+            adb shell am start -n app.storycam/.MainActivity
+            sleep 10
+            adb shell pidof app.storycam || (adb logcat -d | grep -i -E "storycam|flutter|fatal|crash" | tail -30; exit 1)
+            adb shell uiautomator dump /data/local/tmp/ui.xml
+            adb pull /data/local/tmp/ui.xml /tmp/ui-resume.xml
+            grep -q 'Start recording' /tmp/ui-resume.xml || (echo 'NOT ON CAMERA SCREEN AFTER RESUME: no Start recording button - app may have restarted fresh instead of resuming'; exit 1)
+            adb exec-out screencap -p > resume-after-1.png
+            sleep 3
+            adb exec-out screencap -p > resume-after-2.png
+            if cmp -s resume-after-1.png resume-after-2.png; then echo 'RESUME FAILED (idle): preview frames identical after background/foreground - camera frozen (issue #13)'; adb logcat -d | grep -i -E "storycam|flutter|fatal|crash" | tail -30; exit 1; fi
+            echo 'resume (idle): preview frames differ after background/foreground (live preview restored)'
+            python3 tools/emulator_tap.py 'Start recording'
+            sleep 6
+            python3 tools/emulator_tap.py 'Wait' || true
+            sleep 3
+            python3 tools/emulator_tap.py 'Stop recording'
+            sleep 8
+            adb shell input keyevent 3
+            sleep 5
+            adb shell am start -n app.storycam/.MainActivity
+            sleep 10
+            adb shell pidof app.storycam || (adb logcat -d | grep -i -E "storycam|flutter|fatal|crash" | tail -30; exit 1)
+            adb shell uiautomator dump /data/local/tmp/ui.xml
+            adb pull /data/local/tmp/ui.xml /tmp/ui-resume2.xml
+            grep -q 'Start recording' /tmp/ui-resume2.xml || (echo 'NOT ON CAMERA SCREEN AFTER RESUME (after recording): no Start recording button - app may have restarted fresh instead of resuming'; exit 1)
+            adb exec-out screencap -p > resume-after-rec-1.png
+            sleep 3
+            adb exec-out screencap -p > resume-after-rec-2.png
+            if cmp -s resume-after-rec-1.png resume-after-rec-2.png; then echo 'RESUME FAILED (after recording): preview frames identical after background/foreground - camera frozen (issue #13)'; adb logcat -d | grep -i -E "storycam|flutter|fatal|crash" | tail -30; exit 1; fi
+            echo 'resume (after recording): preview frames differ after background/foreground (live preview restored)'
             adb shell dumpsys activity activities | grep -i -A2 -B2 storycam || true
             adb logcat -d | grep -i -E "storycam|flutter|fatal|crash" | tail -50 || true
             
@@ -135,5 +198,8 @@ jobs:
         if: always()
         with:
           name: emulator-smoke-launch
-          path: smoke-launch.png
+          path: |
+            smoke-launch.png
+            resume-pre-*.png
+            resume-after-*.png
           retention-days: 7
