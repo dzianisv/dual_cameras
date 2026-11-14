@@ -101,8 +101,8 @@ void main() {
   }
 
   Future<void> sheet(WidgetTester tester) async {
-    await tester.ensureVisible(find.text('Captions off'));
-    await tester.tap(find.text('Captions off'));
+    await tester.ensureVisible(find.byKey(const Key('menu-captions')));
+    await tester.tap(find.byKey(const Key('menu-captions')));
     await tester.pumpAndSettle();
   }
 
@@ -251,7 +251,7 @@ void main() {
     await sheet(tester);
     await tester.tap(find.text('Open'));
     await tester.pumpAndSettle();
-    await tester.tap(find.byTooltip('Close Captions'));
+    await tester.tap(find.byTooltip('Close Camera settings'));
     await tester.pumpAndSettle();
     await tester.pump(const Duration(seconds: 2));
     await tester.pumpAndSettle();
@@ -275,7 +275,7 @@ void main() {
             (call) async {
       throw PlatformException(code: 'permission_request_failed');
     });
-    await tester.tap(find.byType(SwitchListTile));
+    await tester.tap(find.widgetWithText(SwitchListTile, 'Auto-captions'));
     await tester.pumpAndSettle();
     expect(tester.takeException(), isNull);
     expect(
@@ -287,9 +287,9 @@ void main() {
       (tester) async {
     await launch(tester);
     await sheet(tester);
-    await tester.tap(find.byType(SwitchListTile));
+    await tester.tap(find.widgetWithText(SwitchListTile, 'Auto-captions'));
     await tester.pumpAndSettle();
-    await tester.tap(find.byTooltip('Close Captions'));
+    await tester.tap(find.byTooltip('Close Camera settings'));
     await tester.pumpAndSettle();
     await tester.ensureVisible(find.byTooltip('Open camera'));
     await tester.tap(find.byTooltip('Open camera'));

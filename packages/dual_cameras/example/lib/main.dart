@@ -5,6 +5,7 @@ import 'package:dual_cameras/dual_cameras.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:gal/gal.dart';
+import 'package:latlong2/latlong.dart';
 import 'package:permission_handler/permission_handler.dart';
 
 import 'captions/caption_job_notifier.dart';
@@ -19,6 +20,12 @@ import 'captions/model_manager.dart';
 import 'captions/notification_center.dart';
 import 'captions/transcriber.dart';
 import 'crash_reporting.dart';
+import 'map/camera_settings.dart';
+import 'map/map_location.dart';
+import 'ui/bottom_menu.dart';
+import 'ui/filter_slider.dart';
+import 'ui/lens_pills.dart';
+import 'ui/map_circle.dart';
 import 'ui/story_camera.dart';
 
 Future<void> main() async {
@@ -41,7 +48,9 @@ class DemoApp extends StatelessWidget {
       this.captionLanguageStore,
       this.modelDownloadNotifier,
       this.captionJobNotifier,
-      this.cameraCommandTimeout});
+      this.cameraCommandTimeout,
+      this.cameraSettingsStore,
+      this.mapLocationService});
 
   final ModelManager? modelManager;
   final CaptionJobs? captionJobs;
@@ -50,6 +59,8 @@ class DemoApp extends StatelessWidget {
   final ModelDownloadNotifier? modelDownloadNotifier;
   final CaptionJobNotifier? captionJobNotifier;
   final Duration? cameraCommandTimeout;
+  final CameraSettingsStore? cameraSettingsStore;
+  final MapLocationService? mapLocationService;
 
   @override
   Widget build(BuildContext context) {
@@ -75,7 +86,9 @@ class DemoApp extends StatelessWidget {
           captionLanguageStore: captionLanguageStore,
           modelDownloadNotifier: modelDownloadNotifier,
           captionJobNotifier: captionJobNotifier,
-          cameraCommandTimeout: cameraCommandTimeout),
+          cameraCommandTimeout: cameraCommandTimeout,
+          cameraSettingsStore: cameraSettingsStore,
+          mapLocationService: mapLocationService),
     );
   }
 }
@@ -89,7 +102,9 @@ class DemoScreen extends StatefulWidget {
       this.captionLanguageStore,
       this.modelDownloadNotifier,
       this.captionJobNotifier,
-      this.cameraCommandTimeout});
+      this.cameraCommandTimeout,
+      this.cameraSettingsStore,
+      this.mapLocationService});
 
   final ModelManager? modelManager;
   final CaptionJobs? captionJobs;
@@ -98,6 +113,8 @@ class DemoScreen extends StatefulWidget {
   final ModelDownloadNotifier? modelDownloadNotifier;
   final CaptionJobNotifier? captionJobNotifier;
   final Duration? cameraCommandTimeout;
+  final CameraSettingsStore? cameraSettingsStore;
+  final MapLocationService? mapLocationService;
 
   @override
   State<DemoScreen> createState() => _DemoScreenState();
@@ -178,8 +195,38 @@ class _DemoScreenState extends State<DemoScreen> with WidgetsBindingObserver {
   double _evStep = 1 / 3;
   bool _evSupported = false;
 
-  // Color-grade filter (v0.3.0): live in preview + recording.
-  VideoFilter _filter = VideoFilter.none;
+  // Camera-screen settings (issue #20): map & compass, front/rear camera,
+  // filter, lens picks. File-based, loaded in initState; every change is
+  // saved through [_updateSettings]. The filter lives here now (was the
+  // in-memory `_filter`); the mirror flag lives here too (was `_mirrorFront`).
+  late final CameraSettingsStore _settingsStore =
+      widget.cameraSettingsStore ?? CameraSettingsStore();
+  CameraSettings _settings = const CameraSettings();
+
+  // Map & compass (issue #20): position + heading streams, started once
+  // the camera is open and the location permission is granted.
+  MapLocationService? _mapService;
+  MapLocationService get _location =>
+      _mapService ??= widget.mapLocationService ?? MapLocationService();
+  bool get _ownsMapService => widget.mapLocationService == null;
+  LatLng? _position;
+  double _heading = 0;
+  bool _locationGranted = false;
+  StreamSubscription<LatLng>? _positionSub;
+  StreamSubscription<double>? _headingSub;
+
+  // Lenses (issue #20): probed from the camera API after init, per facing.
+  // Empty until the probe returns — the pills stay hidden meanwhile.
+  List<LensOption> _lensesFront = [];
+  List<LensOption> _lensesRear = [];
+
+  /// Which camera is full-frame (primary). Drives the lens pills, the
+  /// bottom-menu Front/Rear state, and the layout primary (so a resume
+  /// re-init keeps it — see DualCameraController.swapPrimary).
+  bool _primaryFront = false;
+
+  /// 4K offer: true only when the device probe passes (see _start).
+  bool _supports4k = false;
 
   // Auto-captions (v0.2.0): on-device STT + karaoke burn-in, OFF by default.
   // Caption processing state lives in a system notification (v0.5.3), never
@@ -245,11 +292,11 @@ class _DemoScreenState extends State<DemoScreen> with WidgetsBindingObserver {
       MethodChannel('dual_cameras_example/share');
   int _frontOffset = 90; // matches FRONT_ROTATION_OFFSET default
   int _backOffset = -90; // matches BACK_ROTATION_OFFSET default
-  bool _mirrorFront = true;
   double _frontAspect = 0; // 0 = auto (use camera-reported)
   double _backAspect = 0;
 
   LayoutConfig _layout() => DualLayout.pictureInPicture(
+        primary: _primaryFront ? CameraLens.front : CameraLens.back,
         insetScale: 0.32,
         margin: 16,
         circleInset: _circle,
@@ -264,6 +311,9 @@ class _DemoScreenState extends State<DemoScreen> with WidgetsBindingObserver {
     unawaited(_captionNotifier.clear());
     _languageStore.load().then((stored) {
       if (mounted) _update(() => _captionLanguage = stored);
+    });
+    _settingsStore.load().then((stored) {
+      if (mounted) _update(() => _settings = stored);
     });
     if (_usesBackgroundJobs) {
       _startJobPolling();
@@ -340,7 +390,7 @@ class _DemoScreenState extends State<DemoScreen> with WidgetsBindingObserver {
     if (_evSupported) {
       await _cameraCommand(() => _controller.setExposureCompensation(_ev));
     }
-    await _cameraCommand(() => _controller.setFilter(_filter));
+    await _cameraCommand(() => _controller.setFilter(_settings.filter));
     await _cameraCommand(() => _debug.invokeMethod<void>(
         'setRotationOffset', {'front': true, 'offset': _frontOffset}));
     await _cameraCommand(() => _debug.invokeMethod<void>(
@@ -349,8 +399,25 @@ class _DemoScreenState extends State<DemoScreen> with WidgetsBindingObserver {
         'setAspectOverride', {'front': true, 'aspect': _frontAspect}));
     await _cameraCommand(() => _debug.invokeMethod<void>(
         'setAspectOverride', {'front': false, 'aspect': _backAspect}));
-    await _cameraCommand(
-        () => _debug.invokeMethod<void>('setMirrorFront', {'on': _mirrorFront}));
+    await _cameraCommand(() => _debug.invokeMethod<void>(
+        'setMirrorFront', {'on': _settings.mirrorFront}));
+    // The stored lens, best effort: a lens the API no longer offers must
+    // not break the resume — the pills simply show the main lens.
+    try {
+      await _applyStoredLens();
+    } catch (_) {
+      // Best effort only.
+    }
+  }
+
+  /// Apply the stored lens for the primary camera when the API still
+  /// offers it. No-op when nothing was stored or the ratio is not offered.
+  Future<void> _applyStoredLens() async {
+    final stored = _primaryFront ? _settings.frontLens : _settings.rearLens;
+    if (stored == null) return;
+    final offered = _primaryFront ? _lensesFront : _lensesRear;
+    if (!offered.any((lens) => lens.ratio == stored)) return;
+    await _cameraCommand(() => _controller.setLens(_primaryFront, stored));
   }
 
   void _startJobPolling() {
@@ -571,7 +638,8 @@ class _DemoScreenState extends State<DemoScreen> with WidgetsBindingObserver {
               'Camera and microphone access required. Allow access in device settings, then try again.');
           return;
         }
-        await _cameraCommand(() => _controller.initialize(layout: _layout()));
+        await _cameraCommand(() => _controller.initialize(
+            layout: _layout(), resolution: _settings.videoQuality));
         if (!mounted) return;
         final range =
             await _cameraCommand(_controller.getExposureCompensationRange);
@@ -585,6 +653,11 @@ class _DemoScreenState extends State<DemoScreen> with WidgetsBindingObserver {
             _ev = 0.0;
           }
         });
+        // Issue #20: probe the lenses + 4K support, re-apply the stored
+        // filter/lens, and start the map — all best effort, none of it may
+        // fail the camera open.
+        await _loadLensesAndQuality();
+        await _ensureMapLocation();
       }, 'Open camera');
 
   void _setEv(double value) {
@@ -618,28 +691,135 @@ class _DemoScreenState extends State<DemoScreen> with WidgetsBindingObserver {
 
   String _evLabel(double v) => '${v >= 0 ? '+' : ''}${v.toStringAsFixed(1)} EV';
 
+  /// Save a settings change (state + file, best effort on the file).
+  void _updateSettings(CameraSettings next) {
+    _update(() => _settings = next);
+    unawaited(_settingsStore.save(next));
+  }
+
   Future<void> _setFilter(VideoFilter f) => _guard(() async {
         await _cameraCommand(() => _controller.setFilter(f));
-        _update(() => _filter = f);
+        _updateSettings(_settings.copyWith(filter: f));
       }, 'Filter updated');
 
-  Widget _filterChips() {
-    return Wrap(
-      alignment: WrapAlignment.center,
-      spacing: 8,
-      children: [
-        ChoiceChip(
-          label: const Text('Original'),
-          selected: _filter == VideoFilter.none,
-          onSelected: (_) => _setFilter(VideoFilter.none),
-        ),
-        ChoiceChip(
-          label: const Text('Moody'),
-          selected: _filter == VideoFilter.moody,
-          onSelected: (_) => _setFilter(VideoFilter.moody),
-        ),
-      ],
-    );
+  /// Probe the lenses for both facings + 4K support, then re-apply the
+  /// stored filter and lens. Best effort throughout: a failed probe only
+  /// hides the pills / the 4K row, never the camera.
+  Future<void> _loadLensesAndQuality() async {
+    try {
+      final front = await _cameraCommand(() => _controller.getLenses(true));
+      final rear = await _cameraCommand(() => _controller.getLenses(false));
+      if (!mounted) return;
+      _update(() {
+        _lensesFront = front;
+        _lensesRear = rear;
+      });
+    } catch (_) {
+      // No lenses — the pills stay hidden.
+    }
+    try {
+      final supports4k = await _cameraCommand(_controller.supports4k);
+      if (mounted) _update(() => _supports4k = supports4k);
+    } catch (_) {
+      // 4K stays unoffered.
+    }
+    try {
+      await _cameraCommand(() => _controller.setFilter(_settings.filter));
+      await _applyStoredLens();
+    } catch (_) {
+      // Stored tuning is best effort on open.
+    }
+  }
+
+  /// Switch to the lens at [ratio] on the primary camera. The switch needs
+  /// no rebind (zoom-ratio switch), so the pills stay enabled while
+  /// recording; the _busy lock only covers the in-flight command itself.
+  Future<void> _setLens(double ratio) => _guard(() async {
+        await _cameraCommand(
+            () => _controller.setLens(_primaryFront, ratio));
+        _updateSettings(_primaryFront
+            ? _settings.copyWith(frontLens: ratio)
+            : _settings.copyWith(rearLens: ratio));
+      }, 'Lens switch');
+
+  /// Switch the recording resolution. Resolution is fixed at initialize,
+  /// so a live camera re-inits (not while recording — the row is disabled
+  /// then); a camera that was never opened just stores the choice.
+  Future<void> _setVideoQuality(DualResolution quality) => _guard(() async {
+        if (quality == _settings.videoQuality) return;
+        _updateSettings(_settings.copyWith(videoQuality: quality));
+        if (!_controller.value.isInitialized ||
+            _controller.value.isRecording) {
+          return;
+        }
+        final restored = await _cameraCommand(
+            () => _controller.reinitialize(resolution: quality));
+        if (!mounted) return;
+        if (!restored) {
+          _update(() => _status =
+              'Camera could not restart at the new quality. Tap Open camera to retry.');
+          return;
+        }
+        await _reapplyTuning();
+      }, 'Video quality');
+
+  /// Flip which feed is full-frame, live, and re-apply the stored lens for
+  /// the newly primary camera.
+  Future<void> _swapPrimary() => _guard(() async {
+        await _cameraCommand(_controller.swapPrimary);
+        _update(() => _primaryFront = !_primaryFront);
+        try {
+          await _applyStoredLens();
+        } catch (_) {
+          // Stored lens is best effort on swap.
+        }
+      }, 'Swap cameras');
+
+  /// Start the map location streams when the circle is on and the
+  /// permission allows it. The permission is requested at most once per
+  /// install (remembered in settings); a denial hides the circle and never
+  /// re-prompts — the Settings dialog points at the system settings.
+  Future<void> _ensureMapLocation() async {
+    if (!_settings.mapVisible) return;
+    if (_locationGranted) {
+      _location.start();
+      _subscribeMapStreams();
+      return;
+    }
+    bool granted;
+    if (_settings.locationPermissionRequested) {
+      granted = await _location.isGranted();
+    } else {
+      granted = await _location.ensurePermission();
+      _updateSettings(
+          _settings.copyWith(locationPermissionRequested: true));
+      if (!mounted) return;
+    }
+    if (!granted) return;
+    _update(() => _locationGranted = true);
+    _location.start();
+    _subscribeMapStreams();
+  }
+
+  void _subscribeMapStreams() {
+    _positionSub ??= _location.positions.listen((p) {
+      if (mounted) _update(() => _position = p);
+    });
+    _headingSub ??= _location.headings.listen((h) {
+      if (!mounted) return;
+      // Compass events fire rapidly; repaint only on a real turn.
+      if ((h - _heading).abs() >= 2) _update(() => _heading = h);
+    });
+  }
+
+  /// Stop the map streams (the user hid the circle). The permission
+  /// decision stays remembered; re-enabling the circle restarts them.
+  void _stopMapLocation() {
+    unawaited(_positionSub?.cancel());
+    unawaited(_headingSub?.cancel());
+    _positionSub = null;
+    _headingSub = null;
+    _location.stop();
   }
 
   Widget _evRow() {
@@ -879,7 +1059,7 @@ class _DemoScreenState extends State<DemoScreen> with WidgetsBindingObserver {
   }
 
   Future<void> _setMirror(bool on) async {
-    _update(() => _mirrorFront = on);
+    _updateSettings(_settings.copyWith(mirrorFront: on));
     await _cameraCommand(
         () => _debug.invokeMethod<void>('setMirrorFront', {'on': on}));
   }
@@ -887,6 +1067,8 @@ class _DemoScreenState extends State<DemoScreen> with WidgetsBindingObserver {
   @override
   void dispose() {
     _jobPoll?.cancel();
+    _stopMapLocation();
+    if (_ownsMapService) _mapService?.dispose();
     WidgetsBinding.instance.removeObserver(this);
     // Native camera commands cannot be cancelled. Wait for that command only;
     // gallery writes, model downloads and queued captions must not retain the
@@ -969,7 +1151,7 @@ class _DemoScreenState extends State<DemoScreen> with WidgetsBindingObserver {
             contentPadding: EdgeInsets.zero,
             dense: true,
             title: const Text('Mirror front'),
-            value: _mirrorFront,
+            value: _settings.mirrorFront,
             onChanged: (v) => _guard(() => _setMirror(v), 'Mirror'),
           ),
           _aspectRow('Front aspect', true, _frontAspect),
@@ -995,164 +1177,280 @@ class _DemoScreenState extends State<DemoScreen> with WidgetsBindingObserver {
     );
   }
 
-  void _sheet(String title, List<Widget> Function(DualCameraValue) contents) {
+  // One GlobalKey per Settings section, so a bottom-menu tap can open the
+  // dialog scrolled to that section (issue #20).
+  final Map<SettingsSection, GlobalKey> _sectionKeys = {
+    for (final section in SettingsSection.values) section: GlobalKey(),
+  };
+
+  void _sheet(String title, List<Widget> Function(DualCameraValue) contents,
+      {SettingsSection? initialSection}) {
+    // Scroll to the requested section once, when the sheet opens.
+    var scrolled = false;
     showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
       useSafeArea: true,
       backgroundColor: const Color(0xFF19181F),
-      builder: (sheetContext) => SafeArea(
-        top: false,
-        child: FractionallySizedBox(
-          heightFactor: .85,
-          child: AnimatedBuilder(
-            animation: Listenable.merge([_controller, _revision]),
-            builder: (context, _) => Column(
-              children: [
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(20, 8, 8, 0),
-                  child: Row(children: [
-                    Expanded(
-                        child: Text(title,
-                            style: Theme.of(context).textTheme.titleLarge)),
-                    IconButton(
-                        tooltip: 'Close $title',
-                        onPressed: () => Navigator.pop(sheetContext),
-                        icon: const Icon(Icons.close)),
-                  ]),
-                ),
-                Expanded(
-                    child: ListView(
-                  padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
-                  children: contents(_controller.value),
-                )),
-              ],
+      builder: (sheetContext) {
+        if (initialSection != null && !scrolled) {
+          scrolled = true;
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            final sectionContext =
+                _sectionKeys[initialSection]?.currentContext;
+            if (sectionContext != null) {
+              Scrollable.ensureVisible(sectionContext,
+                  alignment: 0.0,
+                  duration: const Duration(milliseconds: 200));
+            }
+          });
+        }
+        return SafeArea(
+          top: false,
+          child: FractionallySizedBox(
+            heightFactor: .85,
+            child: AnimatedBuilder(
+              animation: Listenable.merge([_controller, _revision]),
+              builder: (context, _) => Column(
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(20, 8, 8, 0),
+                    child: Row(children: [
+                      Expanded(
+                          child: Text(title,
+                              style: Theme.of(context).textTheme.titleLarge)),
+                      IconButton(
+                          tooltip: 'Close $title',
+                          onPressed: () => Navigator.pop(sheetContext),
+                          icon: const Icon(Icons.close)),
+                    ]),
+                  ),
+                  Expanded(
+                      child: ListView(
+                    padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
+                    children: contents(_controller.value),
+                  )),
+                ],
+              ),
             ),
           ),
-        ),
-      ),
+        );
+      },
     );
   }
 
-  void _filtersSheet() => _sheet(
-      'Filters',
-      (value) => [
-            const Text('Your look, live in the preview and saved video.'),
-            const SizedBox(height: 16),
-            IgnorePointer(
-                ignoring: _busy || !value.isInitialized, child: _filterChips()),
-            if (_busy) const LinearProgressIndicator(),
-          ]);
+  Widget _sectionHeader(SettingsSection section) => Padding(
+        padding: const EdgeInsets.only(top: 16, bottom: 4),
+        child: Text(section.title,
+            key: _sectionKeys[section],
+            style: Theme.of(context)
+                .textTheme
+                .titleMedium
+                ?.copyWith(fontWeight: FontWeight.w800)),
+      );
 
-  void _captionsSheet() => _sheet(
-      'Captions',
-      (value) => [
+  /// The one Settings dialog (issue #20, v2): Map & compass, Front camera,
+  /// Rear camera, Captions — plus the existing exposure / session / debug
+  /// rows below. A bottom-menu tap opens it at that section; tapping never
+  /// toggles the feature directly.
+  void _settingsSheet({SettingsSection initialSection = SettingsSection.map}) =>
+      _sheet(
+        'Camera settings',
+        (value) => [
+          _sectionHeader(SettingsSection.map),
+          const Text('Compass mode'),
+          const Text('How the map turns as you move',
+              style: TextStyle(fontSize: 12)),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 8,
+            children: [
+              for (final mode in CompassMode.values)
+                ChoiceChip(
+                  label: Text(mode.label),
+                  selected: _settings.compassMode == mode,
+                  onSelected: (_) =>
+                      _updateSettings(_settings.copyWith(compassMode: mode)),
+                ),
+            ],
+          ),
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            title: const Text('Location circle'),
+            subtitle:
+                const Text('Show the map on the camera screen'),
+            value: _settings.mapVisible,
+            onChanged: _busy
+                ? null
+                : (v) {
+                    _updateSettings(_settings.copyWith(mapVisible: v));
+                    if (v) {
+                      unawaited(_ensureMapLocation());
+                    } else {
+                      _stopMapLocation();
+                    }
+                  },
+          ),
+          if (_settings.mapVisible &&
+              !_locationGranted &&
+              _settings.locationPermissionRequested)
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                    'Location permission is off, so the circle stays hidden.'),
+                TextButton(
+                    onPressed: openAppSettings,
+                    child: const Text('Enable location in settings')),
+              ],
+            ),
+          _sectionHeader(SettingsSection.front),
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            title: const Text('Mirror selfie'),
+            subtitle:
+                const Text('Flip the front preview like a mirror'),
+            value: _settings.mirrorFront,
+            onChanged: _busy ? null : (v) => _guard(() => _setMirror(v), 'Mirror'),
+          ),
+          _sectionHeader(SettingsSection.rear),
+          const Text('Video quality'),
+          const Text('Recording resolution',
+              style: TextStyle(fontSize: 12)),
+          if (!_supports4k)
+            const Text('4K is not available on this device.',
+                style: TextStyle(fontSize: 12)),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 8,
+            children: [
+              ChoiceChip(
+                label: const Text('1080p'),
+                selected:
+                    _settings.videoQuality == DualResolution.hd1080,
+                onSelected: _busy || value.isRecording
+                    ? null
+                    : (_) => _guard(
+                        () => _setVideoQuality(DualResolution.hd1080),
+                        'Video quality'),
+              ),
+              ChoiceChip(
+                label: const Text('4K'),
+                selected: _settings.videoQuality ==
+                    DualResolution.ultraHd2160,
+                onSelected: _busy || value.isRecording || !_supports4k
+                    ? null
+                    : (_) => _guard(
+                        () => _setVideoQuality(
+                            DualResolution.ultraHd2160),
+                        'Video quality'),
+              ),
+            ],
+          ),
+          _sectionHeader(SettingsSection.captions),
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            title: const Text('Auto-captions'),
+            subtitle: const Text(
+                'On-device speech recognition and karaoke subtitles (alpha).'),
+            value: _captions,
+            onChanged: _busy || value.isRecording ? null : _toggleCaptions,
+          ),
+          const SizedBox(height: 8),
+          const Text('Caption language'),
+          const Text(
+              'Auto usually works, but it can mishear a short phrase in the wrong language. Pick a language to force it.',
+              style: TextStyle(fontSize: 12)),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 8,
+            children: [
+              for (final language in CaptionLanguage.values)
+                ChoiceChip(
+                  label: Text(language.label),
+                  selected: _captionLanguage == language,
+                  onSelected: _busy || value.isRecording
+                      ? null
+                      : (_) => _setCaptionLanguage(language),
+                ),
+            ],
+          ),
+          if (_usesBackgroundJobs) ..._backgroundJobCards(),
+          if (!_usesBackgroundJobs) ...[
+            const Text(
+                'The speech model downloads at startup (about 160 MB on first use). Download progress is in the notification shade. Captions run on device once ready. Your original video is always kept.'),
+            if (_modelError != null) ...[
+              const SizedBox(height: 8),
+              Text(_modelError!),
+              TextButton(
+                onPressed: _prepareModel,
+                child: const Text('Retry'),
+              ),
+            ],
+          ],
+          // Caption processing state lives in the notification only
+          // (v0.5.3): no status text, no progress bar, no queue count
+          // here. The busy indicator below is for camera commands only.
+          if (_busy) const LinearProgressIndicator(),
+          if (!value.isInitialized)
+            TextButton(
+                onPressed:
+                    _busy ? null : () => _guard(_bootstrap, 'Check support'),
+                child: const Text('Check camera support again')),
+          if (value.isInitialized) ...[
             SwitchListTile(
               contentPadding: EdgeInsets.zero,
-              title: const Text('Auto-captions'),
-              subtitle: const Text(
-                  'On-device speech recognition and karaoke subtitles (alpha).'),
-              value: _captions,
-              onChanged: _busy || value.isRecording ? null : _toggleCaptions,
+              title: const Text('Circular selfie'),
+              subtitle:
+                  const Text('Use a circle instead of a rounded square.'),
+              value: _circle,
+              onChanged: _busy
+                  ? null
+                  : (v) => _guard(() async {
+                        final previous = _circle;
+                        _update(() => _circle = v);
+                        try {
+                          await _cameraCommand(
+                              () => _controller.setLayout(_layout()));
+                        } catch (_) {
+                          _update(() => _circle = previous);
+                          rethrow;
+                        }
+                      }, 'Selfie layout'),
             ),
-            const SizedBox(height: 8),
-            const Text('Caption language'),
-            const Text(
-                'Auto usually works, but it can mishear a short phrase in the wrong language. Pick a language to force it.',
-                style: TextStyle(fontSize: 12)),
-            const SizedBox(height: 8),
-            Wrap(
-              spacing: 8,
-              children: [
-                for (final language in CaptionLanguage.values)
-                  ChoiceChip(
-                    label: Text(language.label),
-                    selected: _captionLanguage == language,
-                    onSelected: _busy || value.isRecording
-                        ? null
-                        : (_) => _setCaptionLanguage(language),
-                  ),
-              ],
-            ),
-            if (_usesBackgroundJobs) ..._backgroundJobCards(),
-            if (!_usesBackgroundJobs) ...[
-              const Text(
-                  'The speech model downloads at startup (about 160 MB on first use). Download progress is in the notification shade. Captions run on device once ready. Your original video is always kept.'),
-              if (_modelError != null) ...[
-                const SizedBox(height: 8),
-                Text(_modelError!),
-                TextButton(
-                  onPressed: _prepareModel,
-                  child: const Text('Retry'),
-                ),
-              ],
-            ],
-            // Caption processing state lives in the notification only
-            // (v0.5.3): no status text, no progress bar, no queue count
-            // here. The busy indicator below is for camera commands only.
-            if (_busy) const LinearProgressIndicator(),
-          ]);
-
-  void _settingsSheet() => _sheet(
-      'Camera settings',
-      (value) => [
-            if (!value.isInitialized)
-              TextButton(
-                  onPressed:
-                      _busy ? null : () => _guard(_bootstrap, 'Check support'),
-                  child: const Text('Check camera support again')),
-            if (value.isInitialized) ...[
-              SwitchListTile(
-                contentPadding: EdgeInsets.zero,
-                title: const Text('Circular selfie'),
-                subtitle:
-                    const Text('Use a circle instead of a rounded square.'),
-                value: _circle,
-                onChanged: _busy
-                    ? null
-                    : (v) => _guard(() async {
-                          final previous = _circle;
-                          _update(() => _circle = v);
-                          try {
-                            await _cameraCommand(
-                                () => _controller.setLayout(_layout()));
-                          } catch (_) {
-                            _update(() => _circle = previous);
-                            rethrow;
-                          }
-                        }, 'Selfie layout'),
+            if (_evSupported)
+              ExpansionTile(
+                tilePadding: EdgeInsets.zero,
+                title: const Text('Exposure'),
+                subtitle: Text(_evLabel(_ev)),
+                children: [IgnorePointer(ignoring: _busy, child: _evRow())],
               ),
-              if (_evSupported)
-                ExpansionTile(
-                  tilePadding: EdgeInsets.zero,
-                  title: const Text('Exposure'),
-                  subtitle: Text(_evLabel(_ev)),
-                  children: [IgnorePointer(ignoring: _busy, child: _evRow())],
-                ),
-            ],
-            ExpansionTile(
-              tilePadding: EdgeInsets.zero,
-              title: const Text('Session details'),
-              children: [
-                Text(_status),
-                if (_modelError != null) SelectableText(_modelError!),
-                if (_error != null) SelectableText(_error!),
-                if (value.errorMessage != null)
-                  SelectableText(value.errorMessage!),
-                if (_lastFile != null) SelectableText('Original: $_lastFile'),
-                if (_captionedFile != null) ...[
-                  SelectableText('Caption source: $_captionSourceFile'),
-                  SelectableText('Captioned: $_captionedFile'),
-                ],
-                if (value.isInitialized)
-                  FittedBox(
-                      fit: BoxFit.scaleDown,
-                      child: DualCameraStatsOverlay(_controller)),
+          ],
+          ExpansionTile(
+            tilePadding: EdgeInsets.zero,
+            title: const Text('Session details'),
+            children: [
+              Text(_status),
+              if (_modelError != null) SelectableText(_modelError!),
+              if (_error != null) SelectableText(_error!),
+              if (value.errorMessage != null)
+                SelectableText(value.errorMessage!),
+              if (_lastFile != null) SelectableText('Original: $_lastFile'),
+              if (_captionedFile != null) ...[
+                SelectableText('Caption source: $_captionSourceFile'),
+                SelectableText('Captioned: $_captionedFile'),
               ],
-            ),
-            if (value.isInitialized)
-              IgnorePointer(ignoring: _busy, child: _debugPanel()),
-          ]);
+              if (value.isInitialized)
+                FittedBox(
+                    fit: BoxFit.scaleDown,
+                    child: DualCameraStatsOverlay(_controller)),
+            ],
+          ),
+          if (value.isInitialized)
+            IgnorePointer(ignoring: _busy, child: _debugPanel()),
+        ],
+        initialSection: initialSection,
+      );
 
   Future<void> _record() {
     if (_busy) {
@@ -1220,8 +1518,6 @@ class _DemoScreenState extends State<DemoScreen> with WidgetsBindingObserver {
           initialized: value.isInitialized,
           recording: value.isRecording,
           busy: _busy,
-          captions: _captions,
-          filterName: _filter == VideoFilter.none ? 'Original' : 'Moody',
           status: status,
           onCapture: value.isInitialized
               ? _record
@@ -1229,13 +1525,58 @@ class _DemoScreenState extends State<DemoScreen> with WidgetsBindingObserver {
                   ? _start
                   : null,
           onPhoto: ready ? _photo : null,
-          onSwap: ready
-              ? () => _guard(
-                  () => _cameraCommand(_controller.swapPrimary), 'Swap cameras')
+          onSwap: ready ? _swapPrimary : null,
+          onSettings: () => _settingsSheet(),
+          // Map circle (issue #20): only when the circle is on AND the
+          // location permission was granted — a denial hides it, no crash,
+          // no repeated prompt. No position yet = plain disc + N arrow.
+          mapCircle: _settings.mapVisible && _locationGranted
+              ? MapCircle(
+                  position: _position,
+                  headingDeg: _heading,
+                  mode: _settings.compassMode,
+                  // No tile fetches under `flutter test` (hermetic; the
+                  // disc + dot + N arrow still render).
+                  showTiles: Platform.environment['FLUTTER_TEST'] != 'true',
+                )
               : null,
-          onFilters: ready ? _filtersSheet : null,
-          onCaptions: _captionsSheet,
-          onSettings: _settingsSheet,
+          // Lens pills (issue #20): only the active camera's probed
+          // lenses; hidden before init (nothing probed yet).
+          lensPills: value.isInitialized
+              ? LensPills(
+                  lenses:
+                      _primaryFront ? _lensesFront : _lensesRear,
+                  selectedRatio: (_primaryFront
+                          ? _settings.frontLens
+                          : _settings.rearLens) ??
+                      1.0,
+                  onSelected: _setLens,
+                  enabled: !_busy,
+                )
+              : null,
+          // Filter slider (issue #20): over the video, above the record
+          // button. Disabled until the camera is ready.
+          filterSlider: FilterSlider(
+            selected: _settings.filter,
+            onSelected: _setFilter,
+            enabled: ready,
+          ),
+          // Bottom text menu (issue #20): tap opens Settings at the
+          // section, never a direct toggle.
+          bottomMenu: CameraBottomMenu(
+            mapOn: _settings.mapVisible,
+            frontPrimary: _primaryFront,
+            captionsOn: _captions,
+            onMap: () =>
+                _settingsSheet(initialSection: SettingsSection.map),
+            onFront: () =>
+                _settingsSheet(initialSection: SettingsSection.front),
+            onRear: () =>
+                _settingsSheet(initialSection: SettingsSection.rear),
+            onCaptions: () =>
+                _settingsSheet(initialSection: SettingsSection.captions),
+            onSettings: () => _settingsSheet(),
+          ),
           // Share (issue #14): only once a video is saved and no command
           // is in flight — hidden before any recording, while recording,
           // and while _busy (e.g. Gal.putVideo still in flight in _stop).

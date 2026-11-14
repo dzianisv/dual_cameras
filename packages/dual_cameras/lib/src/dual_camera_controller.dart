@@ -134,13 +134,27 @@ class DualCameraController extends ValueNotifier<DualCameraValue> {
   /// torn-down session, so [DualCameraValue.isRecording] is cleared — the
   /// caller reads it before calling and surfaces the interruption.
   ///
+  /// [resolution] overrides the stored resolution for this re-init (the
+  /// video-quality row uses it) and becomes the stored resolution for
+  /// later re-inits.
+  ///
   /// On failure the value is marked uninitialized with the error instead of
   /// keeping the stale texture id, so the UI shows a retry instead of a
   /// frozen preview.
-  Future<bool> reinitialize() async {
+  Future<bool> reinitialize({DualResolution? resolution}) async {
     if (_disposed || !_everInitialized) return false;
-    final config = _lastConfig;
+    var config = _lastConfig;
     if (config == null) return false;
+    if (resolution != null && resolution != config.resolution) {
+      config = RecordingConfig(
+        layout: config.layout,
+        resolution: resolution,
+        codec: config.codec,
+        recordAudio: config.recordAudio,
+        maxDurationMs: config.maxDurationMs,
+      );
+      _lastConfig = config;
+    }
     try {
       // Best effort: the torn-down session may already be gone. Native
       // initialize() releases whatever is left first in any case.
@@ -189,8 +203,34 @@ class DualCameraController extends ValueNotifier<DualCameraValue> {
   /// Capture a composited still; returns the image path.
   Future<String> takePhoto() => _platform.takePhoto();
 
-  /// Flip which feed is full-frame, live.
-  Future<void> swapPrimary() => _platform.swapPrimary();
+  /// Flip which feed is full-frame, live. Also flips the stored
+  /// [_lastConfig] primary, so a resume re-init ([reinitialize]) brings
+  /// the same primary back instead of silently resetting to back.
+  Future<void> swapPrimary() async {
+    await _platform.swapPrimary();
+    final config = _lastConfig;
+    if (config != null) {
+      final layout = config.layout;
+      _lastConfig = RecordingConfig(
+        layout: LayoutConfig(
+          mode: layout.mode,
+          primary: layout.primary == CameraLens.back
+              ? CameraLens.front
+              : CameraLens.back,
+          insetCorner: layout.insetCorner,
+          insetScale: layout.insetScale,
+          cornerRadius: layout.cornerRadius,
+          margin: layout.margin,
+          mirrorFront: layout.mirrorFront,
+          circleInset: layout.circleInset,
+        ),
+        resolution: config.resolution,
+        codec: config.codec,
+        recordAudio: config.recordAudio,
+        maxDurationMs: config.maxDurationMs,
+      );
+    }
+  }
 
   /// Update the layout geometry live.
   Future<void> setLayout(LayoutConfig layout) => _platform.setLayout(layout);
@@ -211,6 +251,20 @@ class DualCameraController extends ValueNotifier<DualCameraValue> {
   /// it composes with [setExposureCompensation]. Safe to call any time after
   /// [initialize].
   Future<void> setFilter(VideoFilter filter) => _platform.setFilter(filter);
+
+  /// Lenses the camera API offers for one facing, as zoom ratios
+  /// ([LensOption]). Only probed ratios are returned.
+  Future<List<LensOption>> getLenses(bool front) =>
+      _platform.getLenses(front);
+
+  /// Switch to the lens at [ratio] on the front ([front] true) or rear
+  /// camera. No rebind on Android (zoom-ratio switch); safe to call while
+  /// recording. Fails when the ratio is not offered.
+  Future<void> setLens(bool front, double ratio) =>
+      _platform.setLens(front, ratio);
+
+  /// Whether this device can record 4K with both cameras at once.
+  Future<bool> supports4k() => _platform.supports4k();
 
   void _onEvent(DualCameraEvent event) {
     switch (event) {

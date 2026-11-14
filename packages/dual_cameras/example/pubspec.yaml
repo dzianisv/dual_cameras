@@ -14,6 +14,13 @@ dependencies:
     path: ../
   permission_handler: ^11.3.1
   gal: ^2.3.0
+  # Map & compass camera screen (issue #20): live map circle, location,
+  # compass. flutter_map renders OpenStreetMap raster tiles (no key);
+  # geolocator streams the position, flutter_compass the heading.
+  flutter_map: ^8.3.2
+  latlong2: ^0.9.0
+  geolocator: ^14.1.2
+  flutter_compass: ^0.8.0
   # Auto-captions (v0.2.0): on-device STT via sherpa-onnx (native libs ship
   # per-ABI through the sherpa_onnx_android_* packages).
   sherpa_onnx: ^2.0.1

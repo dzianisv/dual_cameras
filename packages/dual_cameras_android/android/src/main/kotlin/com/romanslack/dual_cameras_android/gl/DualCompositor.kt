@@ -2,6 +2,7 @@ package com.romanslack.dual_cameras_android.gl
 
 import android.opengl.GLES11Ext
 import android.opengl.GLES20
+import com.romanslack.dual_cameras_android.VideoFilter
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.nio.FloatBuffer
@@ -51,6 +52,108 @@ data class GradeParams(
             splitStrength = 1.0f,
             vignette = 0.28f,
         )
+
+        // Issue #20 — the 7 new presets. Every tuple below differs from
+        // every other preset on at least three knobs, so no two names share
+        // one look (Stage 2 note 2). The game-look names are as heard from
+        // Den and unconfirmed; the params are starting values to tune by
+        // eye on a real device, like MOODY was.
+        /** Hyper — punchy, over-saturated, lifted exposure. */
+        val HYPER = GradeParams(
+            enabled = true,
+            exposure = 1.10f,
+            contrast = 1.15f,
+            saturation = 1.45f,
+            shadowTint = floatArrayOf(-0.010f, 0.005f, 0.020f),
+            highlightTint = floatArrayOf(0.030f, 0.010f, -0.010f),
+            splitStrength = 0.6f,
+            vignette = 0.05f,
+        )
+
+        /** Midnight — cold blue shadows, crushed blacks, low saturation. */
+        val MIDNIGHT = GradeParams(
+            enabled = true,
+            exposure = 0.88f,
+            contrast = 1.18f,
+            saturation = 0.55f,
+            shadowTint = floatArrayOf(-0.010f, 0.010f, 0.060f),
+            highlightTint = floatArrayOf(0.000f, 0.010f, 0.040f),
+            splitStrength = 1.0f,
+            vignette = 0.35f,
+        )
+
+        /** Simple — clean and near-neutral, slight warmth, no vignette. */
+        val SIMPLE = GradeParams(
+            enabled = true,
+            exposure = 1.02f,
+            contrast = 1.02f,
+            saturation = 1.05f,
+            shadowTint = floatArrayOf(0.005f, 0.003f, 0.000f),
+            highlightTint = floatArrayOf(0.010f, 0.005f, 0.000f),
+            splitStrength = 0.4f,
+            vignette = 0.0f,
+        )
+
+        /** Jakarta — warm golden-hour grade, amber highlights. */
+        val JAKARTA = GradeParams(
+            enabled = true,
+            exposure = 1.06f,
+            contrast = 1.05f,
+            saturation = 1.15f,
+            shadowTint = floatArrayOf(0.010f, 0.000f, -0.020f),
+            highlightTint = floatArrayOf(0.060f, 0.030f, -0.010f),
+            splitStrength = 0.9f,
+            vignette = 0.12f,
+        )
+
+        /** GTA — saturated warm game look, high contrast, orange-teal split. */
+        val GTA = GradeParams(
+            enabled = true,
+            exposure = 1.04f,
+            contrast = 1.22f,
+            saturation = 1.35f,
+            shadowTint = floatArrayOf(-0.020f, 0.020f, 0.040f),
+            highlightTint = floatArrayOf(0.060f, 0.030f, -0.020f),
+            splitStrength = 1.0f,
+            vignette = 0.18f,
+        )
+
+        /** San Andreas — dusty warm haze, lifted blacks, orange highlights. */
+        val SAN_ANDREAS = GradeParams(
+            enabled = true,
+            exposure = 1.12f,
+            contrast = 0.94f,
+            saturation = 1.10f,
+            shadowTint = floatArrayOf(0.020f, 0.010f, -0.010f),
+            highlightTint = floatArrayOf(0.050f, 0.030f, 0.000f),
+            splitStrength = 0.7f,
+            vignette = 0.08f,
+        )
+
+        /** GTA 3 — cold desaturated grit, heavy vignette, crushed shadows. */
+        val GTA3 = GradeParams(
+            enabled = true,
+            exposure = 0.90f,
+            contrast = 1.25f,
+            saturation = 0.45f,
+            shadowTint = floatArrayOf(-0.010f, -0.005f, 0.010f),
+            highlightTint = floatArrayOf(0.010f, 0.010f, 0.020f),
+            splitStrength = 0.8f,
+            vignette = 0.45f,
+        )
+
+        /** Map a [VideoFilter] to its grade. Keep in sync with iOS. */
+        fun forFilter(filter: VideoFilter): GradeParams = when (filter) {
+            VideoFilter.NONE -> NONE
+            VideoFilter.MOODY -> MOODY
+            VideoFilter.HYPER -> HYPER
+            VideoFilter.MIDNIGHT -> MIDNIGHT
+            VideoFilter.SIMPLE -> SIMPLE
+            VideoFilter.JAKARTA -> JAKARTA
+            VideoFilter.GTA -> GTA
+            VideoFilter.SAN_ANDREAS -> SAN_ANDREAS
+            VideoFilter.GTA3 -> GTA3
+        }
     }
 }
 
@@ -335,8 +438,8 @@ class DualCompositor(private var width: Int, private var height: Int) {
      * (RenderThread posts it there); the grade applies to preview and
      * recording alike, after exposure.
      */
-    fun setFilter(moody: Boolean) {
-        grade = if (moody) GradeParams.MOODY else GradeParams.NONE
+    fun setFilter(filter: VideoFilter) {
+        grade = GradeParams.forFilter(filter)
     }
 
     /** Copy the composed FBO texture onto the currently-current EGLSurface. */

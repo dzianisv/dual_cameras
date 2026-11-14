@@ -8,10 +8,14 @@ import 'package:dual_cameras_example/captions/caption_language_store.dart';
 import 'package:dual_cameras_example/captions/model_download_notifier.dart';
 import 'package:dual_cameras_example/captions/model_manager.dart';
 import 'package:dual_cameras_example/captions/caption_models.dart';
+import 'package:dual_cameras_example/map/map_location.dart';
+import 'package:dual_cameras_example/ui/filter_slider.dart';
+import 'package:dual_cameras_example/ui/map_circle.dart';
 import 'package:dual_cameras_platform_interface/dual_cameras_platform_interface.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:latlong2/latlong.dart';
 import 'package:plugin_platform_interface/plugin_platform_interface.dart';
 
 class FakeModelManager extends ModelManager {
@@ -129,6 +133,7 @@ class FakeCamera extends DualCamerasPlatform with MockPlatformInterfaceMixin {
   bool supported = true;
   int starts = 0, stops = 0, photos = 0, disposals = 0;
   VideoFilter filter = VideoFilter.none;
+  DualResolution? resolution;
   Completer<void>? startGate;
   Completer<void>? exposureGate;
   final List<double> exposures = [];
@@ -143,12 +148,14 @@ class FakeCamera extends DualCamerasPlatform with MockPlatformInterfaceMixin {
       ? CameraCapabilities(isSupported: supported)
       : probeGate!.future;
   @override
-  Future<InitResult> initialize(RecordingConfig config) async =>
-      initGate == null
-          ? InitResult(
-              textureId: 42,
-              capabilities: CameraCapabilities(isSupported: true))
-          : initGate!.future;
+  Future<InitResult> initialize(RecordingConfig config) async {
+    resolution = config.resolution;
+    return initGate == null
+        ? InitResult(
+            textureId: 42,
+            capabilities: CameraCapabilities(isSupported: true))
+        : initGate!.future;
+  }
   @override
   Future<ExposureCompensationRange> getExposureCompensationRange() async =>
       ExposureCompensationRange(minEv: -2, maxEv: 2, stepEv: .5);
@@ -175,6 +182,31 @@ class FakeCamera extends DualCamerasPlatform with MockPlatformInterfaceMixin {
     filter = value;
   }
 
+  // Issue #20: lenses + 4K probe. Defaults mirror a phone with an
+  // ultrawide rear (0.5/1) and a front zoom preset (1/1.5); 4K off.
+  List<LensOption> lensesFront = [
+    LensOption(ratio: 1, label: '1'),
+    LensOption(ratio: 1.5, label: '1.5'),
+  ];
+  List<LensOption> lensesRear = [
+    LensOption(ratio: 0.5, label: '0.5'),
+    LensOption(ratio: 1, label: '1'),
+  ];
+  final List<(bool, double)> lensSelections = [];
+  bool supports4kValue = false;
+
+  @override
+  Future<List<LensOption>> getLenses(bool front) async =>
+      front ? lensesFront : lensesRear;
+
+  @override
+  Future<void> setLens(bool front, double ratio) async {
+    lensSelections.add((front, ratio));
+  }
+
+  @override
+  Future<bool> supports4k() async => supports4kValue;
+
   @override
   Future<void> setExposureCompensation(double value) async {
     exposures.add(value);
@@ -189,6 +221,38 @@ class FakeCamera extends DualCamerasPlatform with MockPlatformInterfaceMixin {
   Future<void> dispose() async {
     disposals++;
   }
+}
+
+/// Fake location service for widget tests: feeds fixed streams, no plugin.
+/// `positions`/`headings` are the raw streams (usually a StreamController
+/// the test drives); a single fixed fix can be passed instead via [position]
+/// / [heading].
+class FakeMapLocationService extends MapLocationService {
+  FakeMapLocationService({
+    bool permissionGranted = true,
+    LatLng? position,
+    double? heading,
+    Stream<LatLng>? positions,
+    Stream<double>? headings,
+  }) : super(
+          requestLocationPermission: () async => permissionGranted,
+          checkLocationPermission: () async => permissionGranted,
+          positionStream: () => positions ??
+              (position == null
+                  ? const Stream<LatLng>.empty()
+                  : Stream<LatLng>.value(position)),
+          headingStream: () => headings ??
+              (heading == null
+                  ? const Stream<double>.empty()
+                  : Stream<double>.value(heading)),
+        );
+}
+
+/// Whether a bottom-menu item reads as ON (bold white, issue #20 v4).
+bool menuItemIsBold(WidgetTester tester, String key) {
+  final text = tester.widget<Text>(find.descendant(
+      of: find.byKey(Key(key)), matching: find.byType(Text)));
+  return text.style?.fontWeight == FontWeight.w800;
 }
 
 void main() {
@@ -222,20 +286,17 @@ void main() {
   });
 
   Future<void> openCamera(WidgetTester tester,
-      {CaptionJobNotifier? captions}) async {
+      {CaptionJobNotifier? captions,
+      MapLocationService? mapLocationService}) async {
     await tester.pumpWidget(DemoApp(
         modelManager: model,
         backgroundCaptions: false,
-        captionJobNotifier: captions));
+        captionJobNotifier: captions,
+        mapLocationService: mapLocationService));
     await tester.pumpAndSettle();
     await tester.tap(find.byTooltip('Open camera'));
     await tester.pumpAndSettle();
     expect(find.text('Ready to tell your story'), findsOneWidget);
-  }
-
-  Future<void> showControl(WidgetTester tester, Finder finder) async {
-    await tester.ensureVisible(finder);
-    await tester.pumpAndSettle();
   }
 
   testWidgets('model download reports to notification, never a top banner',
@@ -254,8 +315,8 @@ void main() {
     expect(find.text('Captions ready · on device'), findsNothing);
     expect(downloads.failed, isNotEmpty);
     // The failure + Retry live in the Captions sheet.
-    await tester.ensureVisible(find.text('Captions off'));
-    await tester.tap(find.text('Captions off'));
+    await tester.ensureVisible(find.byKey(const Key('menu-captions')));
+    await tester.tap(find.byKey(const Key('menu-captions')));
     await tester.pumpAndSettle();
     expect(find.textContaining('Caption model download failed'),
         findsOneWidget);
@@ -266,7 +327,7 @@ void main() {
     model.progress!(.42);
     await tester.pump();
     expect(downloads.progresses, contains(.42));
-    await tester.tap(find.byTooltip('Close Captions'));
+    await tester.tap(find.byTooltip('Close Camera settings'));
     await tester.pumpAndSettle();
     await tester.tap(find.byTooltip('Open camera'));
     await tester.pumpAndSettle();
@@ -295,13 +356,13 @@ void main() {
         backgroundCaptions: false,
         captionJobNotifier: captions));
     await tester.pump();
-    await tester.ensureVisible(find.text('Captions off'));
-    await tester.tap(find.text('Captions off'));
+    await tester.ensureVisible(find.byKey(const Key('menu-captions')));
+    await tester.tap(find.byKey(const Key('menu-captions')));
     await tester.pump();
     await tester.pump(const Duration(seconds: 1));
-    await tester.tap(find.byType(SwitchListTile));
+    await tester.tap(find.widgetWithText(SwitchListTile, 'Auto-captions'));
     await tester.pump();
-    await tester.tap(find.byTooltip('Close Captions'));
+    await tester.tap(find.byTooltip('Close Camera settings'));
     await tester.pump();
     await tester.pump(const Duration(seconds: 1));
     await tester.ensureVisible(find.byTooltip('Open camera'));
@@ -324,9 +385,9 @@ void main() {
     expect(find.textContaining('plain video kept'), findsNothing);
     // The model failure + Retry live in the Captions sheet now (v0.5.2),
     // not as a banner on the camera screen. Captions were enabled earlier
-    // in this test, so the chip reads 'Captions on'.
-    await tester.ensureVisible(find.text('Captions on'));
-    await tester.tap(find.text('Captions on'));
+    // in this test, so the menu item reads 'Captions' as on (bold).
+    await tester.ensureVisible(find.byKey(const Key('menu-captions')));
+    await tester.tap(find.byKey(const Key('menu-captions')));
     await tester.pumpAndSettle();
     expect(find.text('Retry'), findsOneWidget);
     expect(galleryCalls.where((call) => call == 'putVideo').length, 1);
@@ -354,8 +415,8 @@ void main() {
     expect(downloads.stoppedCalls, 1);
     expect(downloads.failed, isEmpty);
     // The stop is offered retry in the Captions sheet, not a failure.
-    await tester.ensureVisible(find.text('Captions off'));
-    await tester.tap(find.text('Captions off'));
+    await tester.ensureVisible(find.byKey(const Key('menu-captions')));
+    await tester.tap(find.byKey(const Key('menu-captions')));
     await tester.pumpAndSettle();
     expect(find.textContaining('Download stopped'), findsOneWidget);
     expect(find.text('Retry'), findsOneWidget);
@@ -384,11 +445,11 @@ void main() {
       throw StateError('unexpected ${call.method}');
     });
     await openCamera(tester, captions: captions);
-    await tester.ensureVisible(find.text('Captions off'));
-    await tester.tap(find.text('Captions off'));
+    await tester.ensureVisible(find.byKey(const Key('menu-captions')));
+    await tester.tap(find.byKey(const Key('menu-captions')));
     await tester.pumpAndSettle();
-    await tester.tap(find.byType(SwitchListTile));
-    await tester.tap(find.byTooltip('Close Captions'));
+    await tester.tap(find.widgetWithText(SwitchListTile, 'Auto-captions'));
+    await tester.tap(find.byTooltip('Close Camera settings'));
     await tester.pumpAndSettle();
     await tester.ensureVisible(find.byTooltip('Start recording'));
     await tester.tap(find.byTooltip('Start recording'));
@@ -402,12 +463,12 @@ void main() {
         contains(CaptionStage.extracting));
     expect(find.textContaining('Extracting audio'), findsNothing);
     expect(find.textContaining('Preparing captions'), findsNothing);
-    await tester.ensureVisible(find.text('Captions on'));
-    await tester.tap(find.text('Captions on'));
+    await tester.ensureVisible(find.byKey(const Key('menu-captions')));
+    await tester.tap(find.byKey(const Key('menu-captions')));
     await tester.pumpAndSettle();
     expect(find.textContaining('Extracting audio'), findsNothing);
     expect(find.textContaining('Preparing captions'), findsNothing);
-    await tester.tap(find.byTooltip('Close Captions'));
+    await tester.tap(find.byTooltip('Close Camera settings'));
     await tester.pumpAndSettle();
     // Stop from the notification (v0.5.3): the job aborts at the next
     // stage boundary.
@@ -436,11 +497,11 @@ void main() {
             const MethodChannel('dual_cameras_example/captions'),
             (call) async => '/tmp/audio.wav');
     await openCamera(tester, captions: captions);
-    await tester.ensureVisible(find.text('Captions off'));
-    await tester.tap(find.text('Captions off'));
+    await tester.ensureVisible(find.byKey(const Key('menu-captions')));
+    await tester.tap(find.byKey(const Key('menu-captions')));
     await tester.pumpAndSettle();
-    await tester.tap(find.byType(SwitchListTile));
-    await tester.tap(find.byTooltip('Close Captions'));
+    await tester.tap(find.widgetWithText(SwitchListTile, 'Auto-captions'));
+    await tester.tap(find.byTooltip('Close Camera settings'));
     await tester.pumpAndSettle();
     await tester.ensureVisible(find.byTooltip('Start recording'));
     await tester.tap(find.byTooltip('Start recording'));
@@ -486,7 +547,7 @@ void main() {
         backgroundCaptions: false,
         captionLanguageStore: store));
     await settle();
-    await tester.tap(find.text('Captions off'));
+    await tester.tap(find.byKey(const Key('menu-captions')));
     await settle();
     expect(find.text('Caption language'), findsOneWidget);
     expect(
@@ -523,7 +584,7 @@ void main() {
         captionLanguageStore: store));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 500));
-    await tester.tap(find.text('Captions off'));
+    await tester.tap(find.byKey(const Key('menu-captions')));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 500));
     expect(
@@ -545,11 +606,11 @@ void main() {
     await tester.pump();
     model.progress!(.1);
     await tester.pumpAndSettle();
-    await tester.ensureVisible(find.text('Captions off'));
-    await tester.tap(find.text('Captions off'));
+    await tester.ensureVisible(find.byKey(const Key('menu-captions')));
+    await tester.tap(find.byKey(const Key('menu-captions')));
     await tester.pumpAndSettle();
-    await tester.tap(find.byType(SwitchListTile));
-    await tester.tap(find.byTooltip('Close Captions'));
+    await tester.tap(find.widgetWithText(SwitchListTile, 'Auto-captions'));
+    await tester.tap(find.byTooltip('Close Camera settings'));
     await tester.pumpAndSettle();
     await tester.ensureVisible(find.byTooltip('Open camera'));
     await tester.tap(find.byTooltip('Open camera'));
@@ -591,11 +652,11 @@ void main() {
       throw StateError('No audio');
     });
     await openCamera(tester, captions: captions);
-    await tester.ensureVisible(find.text('Captions off'));
-    await tester.tap(find.text('Captions off'));
+    await tester.ensureVisible(find.byKey(const Key('menu-captions')));
+    await tester.tap(find.byKey(const Key('menu-captions')));
     await tester.pumpAndSettle();
-    await tester.tap(find.byType(SwitchListTile));
-    await tester.tap(find.byTooltip('Close Captions'));
+    await tester.tap(find.widgetWithText(SwitchListTile, 'Auto-captions'));
+    await tester.tap(find.byTooltip('Close Camera settings'));
     await tester.pumpAndSettle();
     await tester.ensureVisible(find.byTooltip('Start recording'));
     for (var clip = 0; clip < 2; clip++) {
@@ -749,38 +810,50 @@ void main() {
   testWidgets('filters, captions, settings close and back retain state',
       (tester) async {
     await openCamera(tester);
-    final filters = find.text('Filters · Original');
-    await showControl(tester, filters);
-    await tester.tap(filters);
-    await tester.pumpAndSettle();
+    // Filter slider (issue #20): tap Moody in the slider — there is no
+    // separate Filters sheet anymore.
     await tester.tap(find.text('Moody'));
     await tester.pumpAndSettle();
     expect(fake.filter, VideoFilter.moody);
-    await tester.tap(find.byTooltip('Close Filters'));
+    // Captions via the bottom menu → Settings at the Captions section.
+    await tester.tap(find.byKey(const Key('menu-captions')));
     await tester.pumpAndSettle();
-    final captions = find.text('Captions off');
-    await showControl(tester, captions);
-    await tester.tap(captions);
+    await tester.tap(find.widgetWithText(SwitchListTile, 'Auto-captions'));
     await tester.pumpAndSettle();
-    await tester.tap(find.byType(SwitchListTile));
+    await tester.tap(find.byTooltip('Close Camera settings'));
     await tester.pumpAndSettle();
-    await tester.binding.handlePopRoute();
-    await tester.pumpAndSettle();
-    expect(find.text('Captions on'), findsOneWidget);
+    expect(menuItemIsBold(tester, 'menu-captions'), isTrue);
+    // Settings sheet still has Exposure + Debug tuning (deep in the sheet).
     await tester.tap(find.byTooltip('Camera settings'));
     await tester.pumpAndSettle();
+    final sheetScrollable = find.descendant(
+        of: find.byType(ListView), matching: find.byType(Scrollable)).last;
+    await tester.scrollUntilVisible(find.text('Exposure'), 100,
+        scrollable: sheetScrollable);
+    await tester.pumpAndSettle();
     expect(find.text('Exposure'), findsOneWidget);
+    await tester.scrollUntilVisible(find.text('Debug tuning'), 100,
+        scrollable: sheetScrollable);
+    await tester.pumpAndSettle();
     expect(find.text('Debug tuning'), findsOneWidget);
     await tester.tap(find.byTooltip('Close Camera settings'));
     await tester.pumpAndSettle();
     expect(find.text('Debug tuning'), findsNothing);
-    expect(find.text('Filters · Moody'), findsOneWidget);
+    // The slider still shows the picked filter.
+    expect(find.text('Moody'), findsOneWidget);
   });
 
   testWidgets('exposure applies while dragging and coalesces pending values',
       (tester) async {
     await openCamera(tester);
     await tester.tap(find.byTooltip('Camera settings'));
+    await tester.pumpAndSettle();
+    await tester.scrollUntilVisible(find.text('Exposure'), 100,
+        scrollable: find
+            .descendant(
+                of: find.byType(ListView),
+                matching: find.byType(Scrollable))
+            .last);
     await tester.pumpAndSettle();
     await tester.tap(find.text('Exposure'));
     await tester.pumpAndSettle();
@@ -802,6 +875,13 @@ void main() {
       (tester) async {
     await openCamera(tester);
     await tester.tap(find.byTooltip('Camera settings'));
+    await tester.pumpAndSettle();
+    await tester.scrollUntilVisible(find.text('Exposure'), 100,
+        scrollable: find
+            .descendant(
+                of: find.byType(ListView),
+                matching: find.byType(Scrollable))
+            .last);
     await tester.pumpAndSettle();
     await tester.tap(find.text('Exposure'));
     await tester.pumpAndSettle();
@@ -840,6 +920,13 @@ void main() {
     });
     await openCamera(tester);
     await tester.tap(find.byTooltip('Camera settings'));
+    await tester.pumpAndSettle();
+    await tester.scrollUntilVisible(find.text('Debug tuning'), 100,
+        scrollable: find
+            .descendant(
+                of: find.byType(ListView),
+                matching: find.byType(Scrollable))
+            .last);
     await tester.pumpAndSettle();
     await tester.ensureVisible(find.text('Debug tuning'));
     await tester.tap(find.text('Debug tuning'));
@@ -933,4 +1020,217 @@ void main() {
       });
     }
   }
+
+  // ---- Issue #20: map circle, bottom menu, filter slider, lens pills ----
+
+  testWidgets('map circle shows the blue dot and hides when location is denied',
+      (tester) async {
+    final positions = StreamController<LatLng>.broadcast();
+    final headings = StreamController<double>.broadcast();
+    addTearDown(positions.close);
+    addTearDown(headings.close);
+    await openCamera(tester,
+        mapLocationService: FakeMapLocationService(
+            positions: positions.stream, headings: headings.stream));
+    // No fix yet: no circle before the first position.
+    expect(find.byType(MapCircle), findsNothing);
+    positions.add(const LatLng(51.5, -0.12));
+    await tester.pump();
+    expect(find.byType(MapCircle), findsOneWidget);
+    expect(find.byKey(const Key('map-dot')), findsOneWidget);
+    expect(find.byKey(const Key('map-heading-cone')), findsOneWidget);
+    // A heading turn keeps the circle (heading-up default).
+    headings.add(90);
+    await tester.pump();
+    expect(find.byType(MapCircle), findsOneWidget);
+    expect(tester.takeException(), isNull);
+
+    // Denied permission: the circle never appears, no crash, no prompt.
+    await tester.pumpWidget(const SizedBox());
+    await openCamera(tester,
+        mapLocationService:
+            FakeMapLocationService(permissionGranted: false));
+    await tester.pumpAndSettle();
+    expect(find.byType(MapCircle), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('bottom menu shows on/off state and opens settings at the section',
+      (tester) async {
+    await openCamera(tester);
+    // Map on (circle on by default), rear primary, captions off.
+    expect(menuItemIsBold(tester, 'menu-map'), isTrue);
+    expect(menuItemIsBold(tester, 'menu-front'), isFalse);
+    expect(menuItemIsBold(tester, 'menu-rear'), isTrue);
+    expect(menuItemIsBold(tester, 'menu-captions'), isFalse);
+    expect(menuItemIsBold(tester, 'menu-settings'), isTrue);
+    // A menu tap opens the dialog AT that section — never a direct toggle.
+    await tester.tap(find.byKey(const Key('menu-rear')));
+    await tester.pumpAndSettle();
+    expect(find.text('Video quality'), findsOneWidget);
+    await tester.tap(find.byTooltip('Close Camera settings'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('menu-captions')));
+    await tester.pumpAndSettle();
+    expect(find.text('Auto-captions'), findsOneWidget);
+    await tester.tap(find.byTooltip('Close Camera settings'));
+    await tester.pumpAndSettle();
+    // Nothing was toggled by the taps.
+    expect(menuItemIsBold(tester, 'menu-map'), isTrue);
+    expect(menuItemIsBold(tester, 'menu-rear'), isTrue);
+    expect(menuItemIsBold(tester, 'menu-captions'), isFalse);
+  });
+
+  testWidgets('filter slider switches the filter', (tester) async {
+    await openCamera(tester);
+    expect(fake.filter, VideoFilter.none);
+    await tester.tap(find.text('Moody'));
+    await tester.pumpAndSettle();
+    expect(fake.filter, VideoFilter.moody);
+    // The slider scrolls sideways; scroll 'GTA' into view before tapping.
+    await tester.scrollUntilVisible(find.text('GTA'), 100,
+        scrollable: find.descendant(
+            of: find.byType(FilterSlider),
+            matching: find.byType(Scrollable)));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('GTA'));
+    await tester.pumpAndSettle();
+    expect(fake.filter, VideoFilter.gta);
+    // Every filter from the PRD is on the slider (scroll to each in turn —
+    // the horizontal list only builds what is in view).
+    for (final name in [
+      'Original',
+      'Moody',
+      'Hyper',
+      'Midnight',
+      'Simple',
+      'Jakarta',
+      'GTA',
+      'San Andreas',
+      'GTA 3',
+    ]) {
+      await tester.scrollUntilVisible(find.text(name), 100,
+          scrollable: find.descendant(
+              of: find.byType(FilterSlider),
+              matching: find.byType(Scrollable)));
+      await tester.pumpAndSettle();
+      expect(find.text(name), findsOneWidget);
+    }
+  });
+
+  testWidgets('lens pills come from the API and switch the lens',
+      (tester) async {
+    await openCamera(tester);
+    // Rear pills from the fake API (0.5 / 1), 1 selected by default.
+    expect(find.byKey(const Key('lens-0.5')), findsOneWidget);
+    expect(find.byKey(const Key('lens-1')), findsOneWidget);
+    expect(find.byKey(const Key('lens-1.5')), findsNothing);
+    await tester.tap(find.byKey(const Key('lens-0.5')));
+    await tester.pumpAndSettle();
+    expect(fake.lensSelections, [(false, 0.5)]);
+  });
+
+  testWidgets('lens pills swap when the primary camera swaps',
+      (tester) async {
+    await openCamera(tester);
+    expect(find.byKey(const Key('lens-0.5')), findsOneWidget);
+    await tester.tap(find.byTooltip('Swap cameras'));
+    await tester.pumpAndSettle();
+    // Front pills now (1 / 1.5), rear 0.5 gone.
+    expect(find.byKey(const Key('lens-1.5')), findsOneWidget);
+    expect(find.byKey(const Key('lens-0.5')), findsNothing);
+    await tester.tap(find.byKey(const Key('lens-1.5')));
+    await tester.pumpAndSettle();
+    expect(fake.lensSelections, [(true, 1.5)]);
+  });
+
+  testWidgets('map section switches compass mode and hides the circle',
+      (tester) async {
+    final positions = StreamController<LatLng>.broadcast();
+    addTearDown(positions.close);
+    await openCamera(tester,
+        mapLocationService: FakeMapLocationService(
+            positions: positions.stream,
+            headings: const Stream<double>.empty()));
+    positions.add(const LatLng(51.5, -0.12));
+    await tester.pump();
+    expect(find.byType(MapCircle), findsOneWidget);
+    await tester.tap(find.byKey(const Key('menu-map')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('North-up'));
+    await tester.pumpAndSettle();
+    // Hide the circle from the same section.
+    await tester.tap(find.widgetWithText(SwitchListTile, 'Location circle'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('Close Camera settings'));
+    await tester.pumpAndSettle();
+    expect(find.byType(MapCircle), findsNothing);
+    expect(menuItemIsBold(tester, 'menu-map'), isFalse);
+  });
+
+  testWidgets('rear video quality offers 4K only when the device supports it',
+      (tester) async {
+    await openCamera(tester);
+    await tester.tap(find.byKey(const Key('menu-rear')));
+    await tester.pumpAndSettle();
+    expect(find.text('4K is not available on this device.'), findsOneWidget);
+    final chip4k =
+        tester.widget<ChoiceChip>(find.widgetWithText(ChoiceChip, '4K'));
+    expect(chip4k.onSelected, isNull);
+    await tester.tap(find.byTooltip('Close Camera settings'));
+    await tester.pumpAndSettle();
+
+    // Same screen, 4K-capable fake: the chip is enabled and selects 4K.
+    fake.supports4kValue = true;
+    await tester.pumpWidget(const SizedBox());
+    await tester.pumpAndSettle();
+    await openCamera(tester);
+    await tester.tap(find.byKey(const Key('menu-rear')));
+    await tester.pumpAndSettle();
+    expect(find.text('4K is not available on this device.'), findsNothing);
+    await tester.tap(find.text('4K'));
+    await tester.pumpAndSettle();
+    expect(fake.resolution, DualResolution.ultraHd2160);
+  });
+
+  testWidgets('mirror selfie row wires the debug channel', (tester) async {
+    final values = <bool>[];
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(const MethodChannel('dual_cameras/debug'),
+            (call) async {
+      if (call.method == 'setMirrorFront') {
+        values.add(call.arguments['on'] as bool);
+      }
+      return null;
+    });
+    await openCamera(tester);
+    // _reapplyTuning already sent the stored value on start; the tap
+    // below must be the only call after this point.
+    values.clear();
+    await tester.tap(find.byKey(const Key('menu-front')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(SwitchListTile, 'Mirror selfie'));
+    await tester.pumpAndSettle();
+    expect(values, [true]);
+  });
+
+  testWidgets('slider, pills and menu overlay the full-screen preview',
+      (tester) async {
+    await openCamera(tester);
+    final preview = tester.getRect(find.byType(Texture));
+    // The video is full-screen (letterboxed 9:16 inside the Stack).
+    expect(preview.width, greaterThan(0));
+    final slider = tester.getRect(find.byKey(const Key('filter-slider')));
+    final pills = tester.getRect(find.byKey(const Key('lens-pills')));
+    final menu = tester.getRect(find.byKey(const Key('bottom-menu')));
+    final shutter = tester.getRect(find.byTooltip('Start recording'));
+    // All controls sit inside the preview area, stacked bottom-up:
+    // pills above the slider, slider above the shutter, menu at the bottom.
+    for (final rect in [slider, pills, menu, shutter]) {
+      expect(preview.contains(rect.center), isTrue);
+    }
+    expect(pills.bottom, lessThanOrEqualTo(slider.top));
+    expect(slider.bottom, lessThanOrEqualTo(shutter.top));
+    expect(shutter.bottom, lessThanOrEqualTo(menu.top));
+  });
 }

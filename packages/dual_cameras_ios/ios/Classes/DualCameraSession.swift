@@ -48,8 +48,76 @@ final class DualCameraSession: NSObject,
 
     /// Switch the color-grade preset live (v0.3.0). Runs on the data queue,
     /// where the compositor state is read during compose().
-    func setFilter(moody: Bool) {
-        dataQueue.async { self.compositor.setFilter(moody: moody) }
+    func setFilter(filter: VideoFilter) {
+        dataQueue.async { self.compositor.setFilter(filter: filter) }
+    }
+
+    /// Lens probe (issue #20): the ratios the camera API offers for one
+    /// facing. DiscoverySession lists the device types that exist for the
+    /// position (ultrawide 0.5x, wide 1x); the list is then intersected with
+    /// what the bound device can actually reach, so a pill never promises a
+    /// lens the session cannot use. The session still binds the plain
+    /// wide-angle device (see addCamera), so on current hardware the rear
+    /// list is [1.0] and the 0.5x ultrawide needs the triple-camera virtual
+    /// device bound as the back input — a session rework, not done here.
+    /// Front adds the 1.5x zoom preset when the bound device's zoom range
+    /// covers it (Den, wireframe v5).
+    func lenses(front: Bool) -> [LensOption] {
+        let position: AVCaptureDevice.Position = front ? .front : .back
+        var ratios = Set<Double>()
+        let discovery = AVCaptureDevice.DiscoverySession(
+            deviceTypes: [.builtInWideAngleCamera, .builtInUltraWideCamera,
+                          .builtInTelephotoCamera, .builtInDualCamera,
+                          .builtInDualWideCamera, .builtInTripleCamera],
+            mediaType: .video, position: position)
+        let types = Set(discovery.devices.map { $0.deviceType })
+        if types.contains(.builtInUltraWideCamera) { ratios.insert(0.5) }
+        if types.contains(.builtInWideAngleCamera) { ratios.insert(1.0) }
+        if let device = front ? frontDevice : backDevice {
+            let minZ = Double(device.minAvailableVideoZoomFactor)
+            let maxZ = Double(device.maxAvailableVideoZoomFactor)
+            ratios = Set(ratios.filter { $0 >= minZ && $0 <= maxZ })
+            if ratios.isEmpty { ratios.insert(1.0) }
+            if front && maxZ >= 1.5 { ratios.insert(1.5) }
+        } else if ratios.isEmpty {
+            ratios.insert(1.0)
+        }
+        return ratios.sorted().map { LensOption(ratio: $0, label: Self.lensLabel($0)) }
+    }
+
+    /// Switch lens (issue #20): set the bound device's video zoom factor.
+    /// No rebind; safe while recording. Returns false when the ratio is
+    /// outside the bound device's zoom range or the pipeline is not up.
+    func setLens(front: Bool, ratio: Double) -> Bool {
+        guard let device = front ? frontDevice : backDevice else { return false }
+        guard ratio >= Double(device.minAvailableVideoZoomFactor),
+              ratio <= Double(device.maxAvailableVideoZoomFactor) else { return false }
+        guard (try? device.lockForConfiguration()) != nil else { return false }
+        device.videoZoomFactor = CGFloat(ratio)
+        device.unlockForConfiguration()
+        return true
+    }
+
+    /// 4K probe (issue #20): both devices must offer a 3840x2160 format.
+    /// Capability probe only — multicam hardwareCost may still refuse the
+    /// session at bind time; that surfaces as a camera error with retry.
+    /// Call after the session is configured (devices are nil before that).
+    func supports4k() -> Bool {
+        guard let back = backDevice, let front = frontDevice else { return false }
+        for device in [back, front] {
+            let has4k = device.formats.contains { format in
+                let dims = CMVideoFormatDescriptionGetDimensions(format.formatDescription)
+                return dims.width == 3840 && dims.height == 2160
+            }
+            if !has4k { return false }
+        }
+        return true
+    }
+
+    private static func lensLabel(_ ratio: Double) -> String {
+        let tenth = Int((ratio * 10).rounded())
+        if tenth % 10 == 0 { return "\(tenth / 10)" }
+        return "\(tenth / 10).\(tenth % 10)"
     }
 
     /// Sony-style EV dial: exposure-target bias on both capture devices.

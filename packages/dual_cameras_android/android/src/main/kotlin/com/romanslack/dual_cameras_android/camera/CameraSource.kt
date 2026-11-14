@@ -135,6 +135,49 @@ class CameraSource(private val context: Context) {
     }
 
     /**
+     * Lens switch (issue #20): apply a zoom ratio to one facing's bound camera.
+     * CameraX switches the physical camera internally when the ratio crosses
+     * a physical switch point, so no rebind is needed and this is safe while
+     * recording. Returns false when nothing is bound for that facing or the
+     * ratio is outside the camera's zoom range — the caller reports that
+     * instead of silently clamping to a different lens.
+     */
+    fun setLensZoom(front: Boolean, ratio: Float): Boolean {
+        val camera = cameraFor(front) ?: return false
+        return try {
+            val state = camera.cameraInfo.zoomState.value ?: return false
+            if (ratio < state.minZoomRatio || ratio > state.maxZoomRatio) {
+                return false
+            }
+            camera.cameraControl.setZoomRatio(ratio)
+            true
+        } catch (t: Throwable) {
+            Log.w(TAG, "setLensZoom failed", t)
+            false
+        }
+    }
+
+    /** Min/max zoom ratio of one facing's bound camera, or null when unbound. */
+    fun zoomRatioRange(front: Boolean): ClosedFloatingPointRange<Float>? {
+        val camera = cameraFor(front) ?: return null
+        return try {
+            val state = camera.cameraInfo.zoomState.value ?: return null
+            state.minZoomRatio..state.maxZoomRatio
+        } catch (_: Throwable) {
+            null
+        }
+    }
+
+    private fun cameraFor(front: Boolean): Camera? {
+        val facing = if (front) {
+            CameraSelector.LENS_FACING_FRONT
+        } else {
+            CameraSelector.LENS_FACING_BACK
+        }
+        return boundCameras.firstOrNull { it.cameraInfo.lensFacing == facing }
+    }
+
+    /**
      * Sony-style EV dial: apply exposure compensation to both cameras.
      * Converts EV to the nearest compensation index via each camera's
      * [androidx.camera.core.ExposureState] and clamps to its range.
