@@ -217,7 +217,7 @@ jobs:
             sleep 8
             adb exec-out screencap -p > 05-after-recording.png
             python3 tools/emulator_tap.py 'Share'
-            sleep 2
+            sleep 5
             adb exec-out screencap -p > 06-share-sheet.png
             python3 tools/assert_share_chooser.py
             adb shell pidof app.storycam || (adb logcat -d | grep -i -E "storycam|flutter|fatal|crash" | tail -30; exit 1)
