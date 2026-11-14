@@ -78,6 +78,27 @@ public final class DualCamerasPlugin: NSObject, FlutterPlugin, DualCameraHostApi
 
     func initialize(config: RecordingConfig,
                     completion: @escaping (Result<InitResult, Error>) -> Void) {
+        // Release-before-rebind (issue #16, mirroring Android PR #17):
+        // a second initialize() (resume re-init, video-quality row,
+        // direct re-bootstrap) must not orphan the previous running
+        // AVCaptureMultiCamSession. Await the full teardown of the old
+        // session/texture first, then build the new ones. Null-safe when
+        // nothing is initialized yet — releasePrevious() is a no-op then.
+        releasePrevious { [weak self] in
+            guard let self = self else {
+                completion(.failure(NSError(domain: "dual_cameras", code: 2,
+                    userInfo: [NSLocalizedDescriptionKey: "plugin released during re-initialize"])))
+                return
+            }
+            self.initializeAfterRelease(config: config, completion: completion)
+        }
+    }
+
+    /// Build a fresh session/compositor/texture after the previous ones
+    /// have been fully released (see initialize()). Never called while an
+    /// old session is still alive.
+    private func initializeAfterRelease(config: RecordingConfig,
+                                        completion: @escaping (Result<InitResult, Error>) -> Void) {
         let caps = detectCapabilities()
         let (w, h) = resolution(config.resolution)
         hevc = config.codec == .hevc
@@ -198,6 +219,23 @@ public final class DualCamerasPlugin: NSObject, FlutterPlugin, DualCameraHostApi
     }
 
     func dispose(completion: @escaping (Result<Void, Error>) -> Void) {
+        releasePrevious {
+            DispatchQueue.main.async { completion(.success(())) }
+        }
+    }
+
+    /// Shared teardown for dispose() and initialize()'s release-first step
+    /// (issue #16). Unregisters the old preview texture and stops the old
+    /// session, and only fires [completion] once the session-queue teardown
+    /// has actually relinquished the camera + mic — so the caller (a fresh
+    /// initialize() or Dart awaiting dispose()) never races a still-held
+    /// device. Idempotent and null-safe: every step is guarded by the
+    /// stored texture id / session being non-nil, and each guard clears
+    /// what it releases, so a second call — e.g. dispose() after an
+    /// initialize() that already released — is a no-op. The texture
+    /// unregister is guarded by that stored-id nil check, so the same id
+    /// is never unregistered twice.
+    private func releasePrevious(completion: @escaping () -> Void) {
         // Release the preview texture immediately on the platform thread.
         if let id = textureId { textureRegistry.unregisterTexture(id) }
         previewTexture = nil
@@ -211,11 +249,11 @@ public final class DualCamerasPlugin: NSObject, FlutterPlugin, DualCameraHostApi
         let dying = session
         session = nil
         guard let dying = dying else {
-            completion(.success(()))
+            completion()
             return
         }
         dying.stop {
-            DispatchQueue.main.async { completion(.success(())) }
+            DispatchQueue.main.async { completion() }
         }
     }
 
