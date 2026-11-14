@@ -40,7 +40,11 @@ enum DualLayoutMode {
 
 /// Target capture resolution (the hardware caps this; 720p is the safe ceiling
 /// for Android concurrent cameras).
-enum DualResolution { sd480, hd720, hd1080 }
+///
+/// `ultraHd2160` (4K) is probe-gated: [DualCameraHostApi.supports4k] reports
+/// whether this device can record it with both cameras at once. The UI must
+/// offer 4K only when the probe passes — never assume it.
+enum DualResolution { sd480, hd720, hd1080, ultraHd2160 }
 
 /// Recorded video codec.
 enum VideoCodec { h264, hevc }
@@ -190,12 +194,53 @@ class ExposureCompensationRange {
 /// NOTE: declared after the data classes so the Pigeon codec type number
 /// (142) matches the checked-in generated code; see
 /// lib/src/messages.g.dart.
+///
+/// The 7 presets after [moody] must each map to a distinct [GradeParams]
+/// tuple on both native sides — two names over identical params would be
+/// two pills for one look. The game-look names (GTA, San Andreas, GTA 3)
+/// are as heard from Den and unconfirmed (issue #20).
 enum VideoFilter {
   /// No grade (identity).
   none,
 
   /// Dark moody grade: desaturated, low-key, teal shadows / warm highlights.
   moody,
+
+  /// Hyper: punchy, over-saturated, lifted exposure (Instagram-style).
+  hyper,
+
+  /// Midnight: cold blue shadows, crushed blacks, low saturation.
+  midnight,
+
+  /// Simple: clean and near-neutral, slight warmth, no vignette.
+  simple,
+
+  /// Jakarta: warm golden-hour grade, amber highlights, soft contrast.
+  jakarta,
+
+  /// GTA: saturated warm game look, high contrast, orange-teal split tone.
+  gta,
+
+  /// San Andreas: dusty warm haze, lifted blacks, orange highlights.
+  sanAndreas,
+
+  /// GTA 3: cold desaturated grit, heavy vignette, crushed shadows.
+  gta3,
+}
+
+/// One lens the camera API offers for a facing, as a zoom ratio.
+///
+/// The ratio is relative to the main (1x) lens: 0.5 is the ultrawide,
+/// 1.0 the main lens, 1.5 the front zoom preset Den asked for. Only ratios
+/// the API reports are listed — the UI shows exactly this list, nothing
+/// hardcoded. [label] is the pill text ("0.5", "1", "1.5").
+/// NOTE: declared after [VideoFilter], so the Pigeon codec type number is
+/// 143; see lib/src/messages.g.dart.
+class LensOption {
+  LensOption({required this.ratio, required this.label});
+
+  double ratio;
+  String label;
 }
 
 /// Commands: Dart -> native.
@@ -243,6 +288,30 @@ abstract class DualCameraHostApi {
   /// Affects both preview and recording; the grade runs after exposure.
   @async
   void setFilter(VideoFilter filter);
+
+  /// Lenses the camera API offers for one facing, as zoom ratios.
+  /// Android: physical cameras (Camera2 focal lengths) + the CameraX zoom
+  /// range; iOS: DiscoverySession device types intersected with what the
+  /// bound device can actually reach. Only probed ratios are returned —
+  /// never a hardcoded list. Empty when the camera reports nothing (or
+  /// before the pipeline is up on a platform that needs it).
+  @async
+  List<LensOption> getLenses(bool front);
+
+  /// Switch to the lens at [ratio] on the front ([front] true) or rear
+  /// camera. Android switches the physical camera via the zoom ratio (no
+  /// rebind); iOS sets the bound device's video zoom factor. Fails when
+  /// the ratio is not in [getLenses] for that facing, or the pipeline
+  /// is not up.
+  @async
+  void setLens(bool front, double ratio);
+
+  /// Whether this device can record 4K ([DualResolution.ultraHd2160])
+  /// with both cameras at once (encoder + per-camera 4K output sizes).
+  /// A `true` answer is a capability probe, not a guarantee under thermal
+  /// load — the thermal governor can still stop a recording.
+  @async
+  bool supports4k();
 
   @async
   void dispose();

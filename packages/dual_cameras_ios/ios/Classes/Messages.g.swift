@@ -98,6 +98,7 @@ enum DualResolution: Int {
   case sd480 = 0
   case hd720 = 1
   case hd1080 = 2
+  case ultraHd2160 = 3
 }
 
 /// Recorded video codec.
@@ -353,6 +354,32 @@ struct ExposureCompensationRange {
   }
 }
 
+/// One lens the camera API offers for a facing, as a zoom ratio.
+struct LensOption {
+  /// Zoom ratio relative to the main (1x) lens: 0.5 ultrawide, 1.0 main.
+  var ratio: Double
+  /// Pill text ("0.5", "1", "1.5").
+  var label: String
+
+
+  // swift-format-ignore: AlwaysUseLowerCamelCase
+  static func fromList(_ pigeonVar_list: [Any?]) -> LensOption? {
+    let ratio = pigeonVar_list[0] as! Double
+    let label = pigeonVar_list[1] as! String
+
+    return LensOption(
+      ratio: ratio,
+      label: label
+    )
+  }
+  func toList() -> [Any?] {
+    return [
+      ratio,
+      label,
+    ]
+  }
+}
+
 /// Color-grade preset applied to the final composite (preview + recording).
 /// Designed for extension: new presets are new enum values, never an API
 /// break. The grade runs in the compositor's final pass, after exposure.
@@ -363,6 +390,20 @@ enum VideoFilter: Int {
   case none = 0
   /// Dark moody grade: desaturated, low-key, teal shadows / warm highlights.
   case moody = 1
+  /// Hyper: punchy, over-saturated, lifted exposure (Instagram-style).
+  case hyper = 2
+  /// Midnight: cold blue shadows, crushed blacks, low saturation.
+  case midnight = 3
+  /// Simple: clean and near-neutral, slight warmth, no vignette.
+  case simple = 4
+  /// Jakarta: warm golden-hour grade, amber highlights, soft contrast.
+  case jakarta = 5
+  /// GTA: saturated warm game look, high contrast, orange-teal split tone.
+  case gta = 6
+  /// San Andreas: dusty warm haze, lifted blacks, orange highlights.
+  case sanAndreas = 7
+  /// GTA 3: cold desaturated grit, heavy vignette, crushed shadows.
+  case gta3 = 8
 }
 
 private class MessagesPigeonCodecReader: FlutterStandardReader {
@@ -428,6 +469,8 @@ private class MessagesPigeonCodecReader: FlutterStandardReader {
         return VideoFilter(rawValue: enumResultAsInt)
       }
       return nil
+    case 143:
+      return LensOption.fromList(self.readValue() as! [Any?])
     default:
       return super.readValue(ofType: type)
     }
@@ -478,6 +521,9 @@ private class MessagesPigeonCodecWriter: FlutterStandardWriter {
     } else if let value = value as? VideoFilter {
       super.writeByte(142)
       super.writeValue(value.rawValue)
+    } else if let value = value as? LensOption {
+      super.writeByte(143)
+      super.writeValue(value.toList())
     } else {
       super.writeValue(value)
     }
@@ -525,6 +571,12 @@ protocol DualCameraHostApi {
   /// Apply a color-grade [VideoFilter] preset to the final composite, live.
   /// Affects both preview and recording; the grade runs after exposure.
   func setFilter(filter: VideoFilter, completion: @escaping (Result<Void, Error>) -> Void)
+  /// Lenses the camera API offers for one facing, as zoom ratios.
+  func getLenses(front: Bool, completion: @escaping (Result<[LensOption], Error>) -> Void)
+  /// Switch to the lens at [ratio] on the front ([front] true) or rear camera.
+  func setLens(front: Bool, ratio: Double, completion: @escaping (Result<Void, Error>) -> Void)
+  /// Whether this device can record 4K with both cameras at once.
+  func supports4k(completion: @escaping (Result<Bool, Error>) -> Void)
   func dispose(completion: @escaping (Result<Void, Error>) -> Void)
 }
 
@@ -666,6 +718,59 @@ class DualCameraHostApiSetup {
       }
     } else {
       setFilterChannel.setMessageHandler(nil)
+    }
+    /// Lenses the camera API offers for one facing, as zoom ratios.
+    let getLensesChannel = FlutterBasicMessageChannel(name: "dev.flutter.pigeon.dual_cameras_platform_interface.DualCameraHostApi.getLenses\(channelSuffix)", binaryMessenger: binaryMessenger, codec: codec)
+    if let api = api {
+      getLensesChannel.setMessageHandler { message, reply in
+        let args = message as! [Any?]
+        let frontArg = args[0] as! Bool
+        api.getLenses(front: frontArg) { result in
+          switch result {
+          case .success(let res):
+            reply(wrapResult(res))
+          case .failure(let error):
+            reply(wrapError(error))
+          }
+        }
+      }
+    } else {
+      getLensesChannel.setMessageHandler(nil)
+    }
+    /// Switch to the lens at [ratio] on the front ([front] true) or rear camera.
+    let setLensChannel = FlutterBasicMessageChannel(name: "dev.flutter.pigeon.dual_cameras_platform_interface.DualCameraHostApi.setLens\(channelSuffix)", binaryMessenger: binaryMessenger, codec: codec)
+    if let api = api {
+      setLensChannel.setMessageHandler { message, reply in
+        let args = message as! [Any?]
+        let frontArg = args[0] as! Bool
+        let ratioArg = args[1] as! Double
+        api.setLens(front: frontArg, ratio: ratioArg) { result in
+          switch result {
+          case .success:
+            reply(wrapResult(nil))
+          case .failure(let error):
+            reply(wrapError(error))
+          }
+        }
+      }
+    } else {
+      setLensChannel.setMessageHandler(nil)
+    }
+    /// Whether this device can record 4K with both cameras at once.
+    let supports4kChannel = FlutterBasicMessageChannel(name: "dev.flutter.pigeon.dual_cameras_platform_interface.DualCameraHostApi.supports4k\(channelSuffix)", binaryMessenger: binaryMessenger, codec: codec)
+    if let api = api {
+      supports4kChannel.setMessageHandler { _, reply in
+        api.supports4k { result in
+          switch result {
+          case .success(let res):
+            reply(wrapResult(res))
+          case .failure(let error):
+            reply(wrapError(error))
+          }
+        }
+      }
+    } else {
+      supports4kChannel.setMessageHandler(nil)
     }
     let disposeChannel = FlutterBasicMessageChannel(name: "dev.flutter.pigeon.dual_cameras_platform_interface.DualCameraHostApi.dispose\(channelSuffix)", binaryMessenger: binaryMessenger, codec: codec)
     if let api = api {

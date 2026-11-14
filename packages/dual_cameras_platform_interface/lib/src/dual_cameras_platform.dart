@@ -80,6 +80,21 @@ abstract class DualCamerasPlatform extends PlatformInterface {
   Future<void> setFilter(VideoFilter filter) =>
       throw UnimplementedError('setFilter() has not been implemented.');
 
+  /// Lenses the camera API offers for one facing, as zoom ratios.
+  /// Only probed ratios are returned — never a hardcoded list.
+  Future<List<LensOption>> getLenses(bool front) =>
+      throw UnimplementedError('getLenses() has not been implemented.');
+
+  /// Switch to the lens at [ratio] on the front ([front] true) or rear
+  /// camera. Fails when the ratio is not offered, or the pipeline is
+  /// not up.
+  Future<void> setLens(bool front, double ratio) =>
+      throw UnimplementedError('setLens() has not been implemented.');
+
+  /// Whether this device can record 4K with both cameras at once.
+  Future<bool> supports4k() =>
+      throw UnimplementedError('supports4k() has not been implemented.');
+
   Future<void> dispose() =>
       throw UnimplementedError('dispose() has not been implemented.');
 }

@@ -77,6 +77,16 @@ class PigeonDualCameras extends DualCamerasPlatform
   Future<void> setFilter(VideoFilter filter) => _api.setFilter(filter);
 
   @override
+  Future<List<LensOption>> getLenses(bool front) => _api.getLenses(front);
+
+  @override
+  Future<void> setLens(bool front, double ratio) =>
+      _api.setLens(front, ratio);
+
+  @override
+  Future<bool> supports4k() => _api.supports4k();
+
+  @override
   Future<void> dispose() => _api.dispose();
 
   // --- DualCameraFlutterApi (native -> Dart) ---

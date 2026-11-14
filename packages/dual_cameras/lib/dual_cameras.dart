@@ -12,6 +12,7 @@ export 'package:dual_cameras_platform_interface/dual_cameras_platform_interface.
         FrameStats,
         InsetCorner,
         LayoutConfig,
+        LensOption,
         ThermalLevel,
         UnsupportedReason,
         VideoCodec,

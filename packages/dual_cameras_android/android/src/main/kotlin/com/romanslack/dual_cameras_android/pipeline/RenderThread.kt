@@ -10,6 +10,7 @@ import android.os.HandlerThread
 import android.os.Message
 import android.util.Log
 import android.view.Surface
+import com.romanslack.dual_cameras_android.VideoFilter
 import com.romanslack.dual_cameras_android.gl.CompositeLayout
 import com.romanslack.dual_cameras_android.gl.DualCompositor
 import com.romanslack.dual_cameras_android.gl.EglCore
@@ -120,8 +121,8 @@ class RenderThread(
     }
 
     /** Switch the color-grade preset live (applied on the GL thread). */
-    fun setFilter(moody: Boolean) {
-        handler.post { compositor.setFilter(moody) }
+    fun setFilter(filter: VideoFilter) {
+        handler.post { compositor.setFilter(filter) }
     }
 
     /** Report a camera's real frame size so the compositor can aspect-fill. */
@@ -172,9 +173,14 @@ class RenderThread(
             outputPath = path
             startNanos = System.nanoTime()
             val mux = Muxer(outputPath, expectAudio = recordAudio)
+            // Bitrate scales with canvas pixels (720p keeps its 4 Mbps;
+            // 1080p ~9 Mbps, 4K ~36 Mbps) — a fixed 4 Mbps would starve 4K.
+            val bitRate =
+                ((width.toLong() * height * 4_000_000L) / (1280L * 720L))
+                    .coerceIn(4_000_000L, 40_000_000L).toInt()
             val venc = VideoEncoder(
                 width, height,
-                bitRate = 4_000_000, frameRate = 30, hevc = hevc, muxer = mux,
+                bitRate = bitRate, frameRate = 30, hevc = hevc, muxer = mux,
             )
             encoderSurface = egl.createWindowSurface(venc.inputSurface)
             venc.start()

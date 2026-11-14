@@ -4,12 +4,17 @@ import android.content.Context
 import android.content.pm.PackageManager
 import android.hardware.camera2.CameraCharacteristics
 import android.hardware.camera2.CameraManager
+import android.media.MediaCodecList
+import android.media.MediaFormat
+import android.media.MediaRecorder
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.os.PowerManager
+import android.util.Size
 import android.view.Surface
 import java.util.concurrent.Executor
+import kotlin.math.roundToInt
 import com.romanslack.dual_cameras_android.camera.CameraSource
 import com.romanslack.dual_cameras_android.gl.CompositeLayout
 import com.romanslack.dual_cameras_android.pipeline.RenderThread
@@ -253,11 +258,193 @@ class DualCamerasPlugin : FlutterPlugin, DualCameraHostApi {
 
   override fun setFilter(filter: VideoFilter, callback: (Result<Unit>) -> Unit) {
     try {
-      renderThread?.setFilter(filter == VideoFilter.MOODY)
+      renderThread?.setFilter(filter)
       callback(Result.success(Unit))
     } catch (t: Throwable) {
       callback(Result.failure(t))
     }
+  }
+
+  override fun getLenses(front: Boolean, callback: (Result<List<LensOption>>) -> Unit) {
+    try {
+      callback(Result.success(probeLenses(front)))
+    } catch (t: Throwable) {
+      callback(Result.failure(t))
+    }
+  }
+
+  override fun setLens(front: Boolean, ratio: Double, callback: (Result<Unit>) -> Unit) {
+    try {
+      val ok = cameraSource?.setLensZoom(front, ratio.toFloat()) ?: false
+      if (ok) {
+        callback(Result.success(Unit))
+      } else {
+        callback(Result.failure(IllegalStateException(
+          "Lens ${formatRatio(ratio)}x is not available right now " +
+            "(camera not ready, or the ratio is outside the zoom range)")))
+      }
+    } catch (t: Throwable) {
+      callback(Result.failure(t))
+    }
+  }
+
+  override fun supports4k(callback: (Result<Boolean>) -> Unit) {
+    try {
+      callback(Result.success(probeSupports4k()))
+    } catch (t: Throwable) {
+      callback(Result.failure(t))
+    }
+  }
+
+  /**
+   * Lens probe (issue #20): the ratios the camera API offers for one facing.
+   *
+   * Physical lenses come from Camera2: each physical camera's focal length
+   * against the main (1x) lens — the physical camera with the largest sensor
+   * (on phones the main sensor is the largest; ultrawide/tele are smaller).
+   * When no physical cameras are readable, the logical camera's zoom range
+   * says whether it is wider than 1x. Front 1.5x is the zoom preset Den
+   * asked for (wireframe v5): the front camera has no telephoto lens, so
+   * 1.5x is offered when the API's zoom range covers it; rear pills are
+   * physical lenses only. Nothing here is hardcoded to a phone model.
+   */
+  private fun probeLenses(front: Boolean): List<LensOption> {
+    val ctx = context ?: return emptyList()
+    val manager = ctx.getSystemService(Context.CAMERA_SERVICE) as? CameraManager
+      ?: return emptyList()
+    val facing = if (front) {
+      CameraCharacteristics.LENS_FACING_FRONT
+    } else {
+      CameraCharacteristics.LENS_FACING_BACK
+    }
+    val logicalId = manager.cameraIdList.firstOrNull { id ->
+      try {
+        manager.getCameraCharacteristics(id).get(CameraCharacteristics.LENS_FACING) == facing
+      } catch (_: Throwable) {
+        false
+      }
+    } ?: return emptyList()
+    val chars = try {
+      manager.getCameraCharacteristics(logicalId)
+    } catch (_: Throwable) {
+      return emptyList()
+    }
+    val ratios = mutableSetOf<Double>()
+    var mainFocal = 0f
+    var mainArea = -1f
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+      val focals = mutableMapOf<String, Float>()
+      val physical = try {
+        chars.physicalCameraIds
+      } catch (_: Throwable) {
+        emptySet<String>()
+      }
+      for (pid in physical) {
+        try {
+          val pc = manager.getCameraCharacteristics(pid)
+          val f = pc.get(CameraCharacteristics.LENS_INFO_AVAILABLE_FOCAL_LENGTHS)
+            ?.firstOrNull() ?: continue
+          val size = pc.get(CameraCharacteristics.SENSOR_INFO_PHYSICAL_SIZE)
+            ?: continue
+          focals[pid] = f
+          val area = size.width * size.height
+          if (area > mainArea) {
+            mainArea = area
+            mainFocal = f
+          }
+        } catch (_: Throwable) {
+          continue
+        }
+      }
+      if (mainFocal > 0f) {
+        for ((_, f) in focals) {
+          val r = (f / mainFocal).toDouble()
+          if (r in 0.4..10.0) ratios.add(roundToTenth(r))
+        }
+      }
+    }
+    val zoomRange = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+      chars.get(CameraCharacteristics.CONTROL_ZOOM_RATIO_RANGE)
+    } else {
+      null
+    }
+    if (ratios.isEmpty()) {
+      // Single physical camera (or unreadable focals): the logical camera
+      // may still be wider than 1x — the zoom range says so.
+      if (zoomRange != null && zoomRange.lower < 0.95f) {
+        ratios.add(roundToTenth(zoomRange.lower.toDouble()))
+      }
+      ratios.add(1.0)
+    } else {
+      ratios.add(1.0)
+    }
+    if (front && zoomRange != null && zoomRange.upper >= 1.5f) ratios.add(1.5)
+    return ratios.filter { it in 0.4..10.0 }.sorted()
+      .map { LensOption(it, formatRatio(it)) }
+  }
+
+  /**
+   * 4K probe (issue #20): both cameras must list 3840x2160 as a
+   * MediaRecorder output size, and an AVC encoder must accept 3840x2160.
+   * This is a capability probe only — it cannot prove two concurrent 4K
+   * streams stay within the thermal budget; the ThermalGovernor still
+   * watches, and a 4K session that fails to bind surfaces as an error
+   * with a retry, like any other camera failure.
+   */
+  private fun probeSupports4k(): Boolean {
+    val ctx = context ?: return false
+    val manager = ctx.getSystemService(Context.CAMERA_SERVICE) as? CameraManager
+      ?: return false
+    val target = Size(3840, 2160)
+    for (facing in listOf(
+      CameraCharacteristics.LENS_FACING_BACK,
+      CameraCharacteristics.LENS_FACING_FRONT,
+    )) {
+      val id = manager.cameraIdList.firstOrNull { cid ->
+        try {
+          manager.getCameraCharacteristics(cid).get(CameraCharacteristics.LENS_FACING) == facing
+        } catch (_: Throwable) {
+          false
+        }
+      } ?: return false
+      val chars = try {
+        manager.getCameraCharacteristics(id)
+      } catch (_: Throwable) {
+        return false
+      }
+      val map = chars.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP)
+        ?: return false
+      val sizes = try {
+        map.getOutputSizes(MediaRecorder::class.java)
+      } catch (_: Throwable) {
+        null
+      } ?: return false
+      if (!sizes.contains(target)) return false
+    }
+    return try {
+      MediaCodecList(MediaCodecList.ALL_CODECS).codecInfos.any { info ->
+        if (!info.isEncoder) return@any false
+        if (!info.supportedTypes.contains(MediaFormat.MIMETYPE_VIDEO_AVC)) {
+          return@any false
+        }
+        val caps = try {
+          info.getCapabilitiesForType(MediaFormat.MIMETYPE_VIDEO_AVC)
+        } catch (_: Throwable) {
+          null
+        } ?: return@any false
+        caps.videoCapabilities?.isSizeSupported(3840, 2160) ?: false
+      }
+    } catch (_: Throwable) {
+      false
+    }
+  }
+
+  private fun roundToTenth(value: Double): Double =
+    (value * 10).roundToInt() / 10.0
+
+  private fun formatRatio(ratio: Double): String {
+    val tenth = (ratio * 10).roundToInt()
+    return if (tenth % 10 == 0) "${tenth / 10}" else "${tenth / 10}.${tenth % 10}"
   }
 
   override fun dispose(callback: (Result<Unit>) -> Unit) {
@@ -326,6 +513,7 @@ class DualCamerasPlugin : FlutterPlugin, DualCameraHostApi {
     DualResolution.SD480 -> 480 to 854
     DualResolution.HD720 -> 720 to 1280
     DualResolution.HD1080 -> 1080 to 1920
+    DualResolution.ULTRA_HD2160 -> 2160 to 3840
   }
 
   private fun toCompositeLayout(layout: LayoutConfig, w: Int, h: Int): CompositeLayout {

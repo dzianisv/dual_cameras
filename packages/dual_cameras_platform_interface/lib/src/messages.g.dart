@@ -55,6 +55,7 @@ enum DualResolution {
   sd480,
   hd720,
   hd1080,
+  ultraHd2160,
 }
 
 /// Recorded video codec.
@@ -338,6 +339,49 @@ enum VideoFilter {
   none,
   /// Dark moody grade: desaturated, low-key, teal shadows / warm highlights.
   moody,
+  /// Hyper: punchy, over-saturated, lifted exposure (Instagram-style).
+  hyper,
+  /// Midnight: cold blue shadows, crushed blacks, low saturation.
+  midnight,
+  /// Simple: clean and near-neutral, slight warmth, no vignette.
+  simple,
+  /// Jakarta: warm golden-hour grade, amber highlights, soft contrast.
+  jakarta,
+  /// GTA: saturated warm game look, high contrast, orange-teal split tone.
+  gta,
+  /// San Andreas: dusty warm haze, lifted blacks, orange highlights.
+  sanAndreas,
+  /// GTA 3: cold desaturated grit, heavy vignette, crushed shadows.
+  gta3,
+}
+
+/// One lens the camera API offers for a facing, as a zoom ratio.
+class LensOption {
+  LensOption({
+    required this.ratio,
+    required this.label,
+  });
+
+  /// Zoom ratio relative to the main (1x) lens: 0.5 ultrawide, 1.0 main.
+  double ratio;
+
+  /// Pill text ("0.5", "1", "1.5").
+  String label;
+
+  Object encode() {
+    return <Object?>[
+      ratio,
+      label,
+    ];
+  }
+
+  static LensOption decode(Object result) {
+    result as List<Object?>;
+    return LensOption(
+      ratio: result[0]! as double,
+      label: result[1]! as String,
+    );
+  }
 }
 
 
@@ -372,6 +416,9 @@ class _PigeonCodec extends StandardMessageCodec {
     }    else if (value is VideoFilter) {
       buffer.putUint8(142);
       writeValue(buffer, value.index);
+    }    else if (value is LensOption) {
+      buffer.putUint8(143);
+      writeValue(buffer, value.encode());
     }    else if (value is CameraCapabilities) {
       buffer.putUint8(136);
       writeValue(buffer, value.encode());
@@ -422,6 +469,8 @@ class _PigeonCodec extends StandardMessageCodec {
       case 142: 
         final int? value = readValue(buffer) as int?;
         return value == null ? null : VideoFilter.values[value];
+      case 143: 
+        return LensOption.decode(readValue(buffer)!);
       case 136: 
         return CameraCapabilities.decode(readValue(buffer)!);
       case 137: 
@@ -731,6 +780,85 @@ class DualCameraHostApi {
       );
     } else {
       return;
+    }
+  }
+
+  /// Lenses the camera API offers for one facing, as zoom ratios.
+  Future<List<LensOption>> getLenses(bool front) async {
+    final String pigeonVar_channelName = 'dev.flutter.pigeon.dual_cameras_platform_interface.DualCameraHostApi.getLenses$pigeonVar_messageChannelSuffix';
+    final BasicMessageChannel<Object?> pigeonVar_channel = BasicMessageChannel<Object?>(
+      pigeonVar_channelName,
+      pigeonChannelCodec,
+      binaryMessenger: pigeonVar_binaryMessenger,
+    );
+    final List<Object?>? pigeonVar_replyList =
+        await pigeonVar_channel.send(<Object?>[front]) as List<Object?>?;
+    if (pigeonVar_replyList == null) {
+      throw _createConnectionError(pigeonVar_channelName);
+    } else if (pigeonVar_replyList.length > 1) {
+      throw PlatformException(
+        code: pigeonVar_replyList[0]! as String,
+        message: pigeonVar_replyList[1] as String?,
+        details: pigeonVar_replyList[2],
+      );
+    } else if (pigeonVar_replyList[0] == null) {
+      throw PlatformException(
+        code: 'null-error',
+        message: 'Host platform returned null value for non-null return value.',
+      );
+    } else {
+      return (pigeonVar_replyList[0] as List<Object?>?)!.cast<LensOption>();
+    }
+  }
+
+  /// Switch to the lens at [ratio] on the front ([front] true) or rear camera.
+  Future<void> setLens(bool front, double ratio) async {
+    final String pigeonVar_channelName = 'dev.flutter.pigeon.dual_cameras_platform_interface.DualCameraHostApi.setLens$pigeonVar_messageChannelSuffix';
+    final BasicMessageChannel<Object?> pigeonVar_channel = BasicMessageChannel<Object?>(
+      pigeonVar_channelName,
+      pigeonChannelCodec,
+      binaryMessenger: pigeonVar_binaryMessenger,
+    );
+    final List<Object?>? pigeonVar_replyList =
+        await pigeonVar_channel.send(<Object?>[front, ratio]) as List<Object?>?;
+    if (pigeonVar_replyList == null) {
+      throw _createConnectionError(pigeonVar_channelName);
+    } else if (pigeonVar_replyList.length > 1) {
+      throw PlatformException(
+        code: pigeonVar_replyList[0]! as String,
+        message: pigeonVar_replyList[1] as String?,
+        details: pigeonVar_replyList[2],
+      );
+    } else {
+      return;
+    }
+  }
+
+  /// Whether this device can record 4K with both cameras at once.
+  Future<bool> supports4k() async {
+    final String pigeonVar_channelName = 'dev.flutter.pigeon.dual_cameras_platform_interface.DualCameraHostApi.supports4k$pigeonVar_messageChannelSuffix';
+    final BasicMessageChannel<Object?> pigeonVar_channel = BasicMessageChannel<Object?>(
+      pigeonVar_channelName,
+      pigeonChannelCodec,
+      binaryMessenger: pigeonVar_binaryMessenger,
+    );
+    final List<Object?>? pigeonVar_replyList =
+        await pigeonVar_channel.send(null) as List<Object?>?;
+    if (pigeonVar_replyList == null) {
+      throw _createConnectionError(pigeonVar_channelName);
+    } else if (pigeonVar_replyList.length > 1) {
+      throw PlatformException(
+        code: pigeonVar_replyList[0]! as String,
+        message: pigeonVar_replyList[1] as String?,
+        details: pigeonVar_replyList[2],
+      );
+    } else if (pigeonVar_replyList[0] == null) {
+      throw PlatformException(
+        code: 'null-error',
+        message: 'Host platform returned null value for non-null return value.',
+      );
+    } else {
+      return (pigeonVar_replyList[0] as bool?)!;
     }
   }
 }

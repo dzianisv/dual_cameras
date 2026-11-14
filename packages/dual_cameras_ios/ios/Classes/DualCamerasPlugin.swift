@@ -160,8 +160,28 @@ public final class DualCamerasPlugin: NSObject, FlutterPlugin, DualCameraHostApi
 
     func setFilter(filter: VideoFilter, completion: @escaping (Result<Void, Error>) -> Void) {
         guard let session = session else { return completion(notReady()) }
-        session.setFilter(moody: filter == .moody)
+        session.setFilter(filter: filter)
         completion(.success(()))
+    }
+
+    func getLenses(front: Bool, completion: @escaping (Result<[LensOption], Error>) -> Void) {
+        guard let session = session else { return completion(notReady()) }
+        completion(.success(session.lenses(front: front)))
+    }
+
+    func setLens(front: Bool, ratio: Double, completion: @escaping (Result<Void, Error>) -> Void) {
+        guard let session = session else { return completion(notReady()) }
+        if session.setLens(front: front, ratio: ratio) {
+            completion(.success(()))
+        } else {
+            completion(.failure(NSError(domain: "dual_cameras", code: 5,
+                userInfo: [NSLocalizedDescriptionKey: "Lens \(ratio)x is not available right now"])))
+        }
+    }
+
+    func supports4k(completion: @escaping (Result<Bool, Error>) -> Void) {
+        guard let session = session else { return completion(notReady()) }
+        completion(.success(session.supports4k()))
     }
 
     func setExposureCompensation(ev: Double, completion: @escaping (Result<Void, Error>) -> Void) {
@@ -219,6 +239,7 @@ public final class DualCamerasPlugin: NSObject, FlutterPlugin, DualCameraHostApi
         case .sd480: return (480, 854)
         case .hd720: return (720, 1280)
         case .hd1080: return (1080, 1920)
+        case .ultraHd2160: return (2160, 3840)
         }
     }
 

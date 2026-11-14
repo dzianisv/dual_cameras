@@ -42,6 +42,66 @@ private struct GradeUniforms {
         highlightTint: simd_float4(0.050, 0.025, -0.015, 0),
         enabled: 1, exposure: 0.92, contrast: 1.08, saturation: 0.70,
         splitStrength: 1.0, vignette: 0.28)
+
+    // Issue #20 — the 7 new presets. Values mirror Android GradeParams
+    // exactly (same numbers on both sides); every tuple differs from every
+    // other preset on at least three knobs, so no two names share one look.
+    static let hyper = GradeUniforms(
+        shadowTint: simd_float4(-0.010, 0.005, 0.020, 0),
+        highlightTint: simd_float4(0.030, 0.010, -0.010, 0),
+        enabled: 1, exposure: 1.10, contrast: 1.15, saturation: 1.45,
+        splitStrength: 0.6, vignette: 0.05)
+
+    static let midnight = GradeUniforms(
+        shadowTint: simd_float4(-0.010, 0.010, 0.060, 0),
+        highlightTint: simd_float4(0.000, 0.010, 0.040, 0),
+        enabled: 1, exposure: 0.88, contrast: 1.18, saturation: 0.55,
+        splitStrength: 1.0, vignette: 0.35)
+
+    static let simple = GradeUniforms(
+        shadowTint: simd_float4(0.005, 0.003, 0.000, 0),
+        highlightTint: simd_float4(0.010, 0.005, 0.000, 0),
+        enabled: 1, exposure: 1.02, contrast: 1.02, saturation: 1.05,
+        splitStrength: 0.4, vignette: 0.0)
+
+    static let jakarta = GradeUniforms(
+        shadowTint: simd_float4(0.010, 0.000, -0.020, 0),
+        highlightTint: simd_float4(0.060, 0.030, -0.010, 0),
+        enabled: 1, exposure: 1.06, contrast: 1.05, saturation: 1.15,
+        splitStrength: 0.9, vignette: 0.12)
+
+    static let gta = GradeUniforms(
+        shadowTint: simd_float4(-0.020, 0.020, 0.040, 0),
+        highlightTint: simd_float4(0.060, 0.030, -0.020, 0),
+        enabled: 1, exposure: 1.04, contrast: 1.22, saturation: 1.35,
+        splitStrength: 1.0, vignette: 0.18)
+
+    static let sanAndreas = GradeUniforms(
+        shadowTint: simd_float4(0.020, 0.010, -0.010, 0),
+        highlightTint: simd_float4(0.050, 0.030, 0.000, 0),
+        enabled: 1, exposure: 1.12, contrast: 0.94, saturation: 1.10,
+        splitStrength: 0.7, vignette: 0.08)
+
+    static let gta3 = GradeUniforms(
+        shadowTint: simd_float4(-0.010, -0.005, 0.010, 0),
+        highlightTint: simd_float4(0.010, 0.010, 0.020, 0),
+        enabled: 1, exposure: 0.90, contrast: 1.25, saturation: 0.45,
+        splitStrength: 0.8, vignette: 0.45)
+
+    /// Map a VideoFilter to its grade. Keep in sync with Android.
+    static func forFilter(_ filter: VideoFilter) -> GradeUniforms {
+        switch filter {
+        case .none: return .none
+        case .moody: return .moody
+        case .hyper: return .hyper
+        case .midnight: return .midnight
+        case .simple: return .simple
+        case .jakarta: return .jakarta
+        case .gta: return .gta
+        case .sanAndreas: return .sanAndreas
+        case .gta3: return .gta3
+        }
+    }
 }
 
 private struct QuadUniforms {
@@ -77,8 +137,8 @@ final class MetalCompositor {
     private var grade: GradeUniforms = .none
 
     /// Switch the color-grade preset live.
-    func setFilter(moody: Bool) {
-        grade = moody ? .moody : .none
+    func setFilter(filter: VideoFilter) {
+        grade = GradeUniforms.forFilter(filter)
     }
 
     // Orientation correction. Unlike Android's SurfaceTexture (which silently

@@ -98,7 +98,8 @@ enum class DualLayoutMode(val raw: Int) {
 enum class DualResolution(val raw: Int) {
   SD480(0),
   HD720(1),
-  HD1080(2);
+  HD1080(2),
+  ULTRA_HD2160(3);
 
   companion object {
     fun ofRaw(raw: Int): DualResolution? {
@@ -360,6 +361,29 @@ data class ExposureCompensationRange (
   }
 }
 
+/** One lens the camera API offers for a facing, as a zoom ratio. */
+data class LensOption (
+  /** Zoom ratio relative to the main (1x) lens: 0.5 ultrawide, 1.0 main. */
+  val ratio: Double,
+  /** Pill text ("0.5", "1", "1.5"). */
+  val label: String
+)
+ {
+  companion object {
+    fun fromList(pigeonVar_list: List<Any?>): LensOption {
+      val ratio = pigeonVar_list[0] as Double
+      val label = pigeonVar_list[1] as String
+      return LensOption(ratio, label)
+    }
+  }
+  fun toList(): List<Any?> {
+    return listOf(
+      ratio,
+      label,
+    )
+  }
+}
+
 /**
  * Color-grade preset applied to the final composite (preview + recording).
  * Designed for extension: new presets are new enum values, never an API
@@ -371,7 +395,21 @@ enum class VideoFilter(val raw: Int) {
   /** No grade (identity). */
   NONE(0),
   /** Dark moody grade: desaturated, low-key, teal shadows / warm highlights. */
-  MOODY(1);
+  MOODY(1),
+  /** Hyper: punchy, over-saturated, lifted exposure (Instagram-style). */
+  HYPER(2),
+  /** Midnight: cold blue shadows, crushed blacks, low saturation. */
+  MIDNIGHT(3),
+  /** Simple: clean and near-neutral, slight warmth, no vignette. */
+  SIMPLE(4),
+  /** Jakarta: warm golden-hour grade, amber highlights, soft contrast. */
+  JAKARTA(5),
+  /** GTA: saturated warm game look, high contrast, orange-teal split tone. */
+  GTA(6),
+  /** San Andreas: dusty warm haze, lifted blacks, orange highlights. */
+  SAN_ANDREAS(7),
+  /** GTA 3: cold desaturated grit, heavy vignette, crushed shadows. */
+  GTA3(8);
 
   companion object {
     fun ofRaw(raw: Int): VideoFilter? {
@@ -452,6 +490,11 @@ private open class MessagesPigeonCodec : StandardMessageCodec() {
           VideoFilter.ofRaw(it.toInt())
         }
       }
+      143.toByte() -> {
+        return (readValue(buffer) as? List<Any?>)?.let {
+          LensOption.fromList(it)
+        }
+      }
       else -> super.readValueOfType(type, buffer)
     }
   }
@@ -513,6 +556,10 @@ private open class MessagesPigeonCodec : StandardMessageCodec() {
         stream.write(142)
         writeValue(stream, value.raw)
       }
+      is LensOption -> {
+        stream.write(143)
+        writeValue(stream, value.toList())
+      }
       else -> super.writeValue(stream, value)
     }
   }
@@ -551,6 +598,12 @@ interface DualCameraHostApi {
    * Affects both preview and recording; the grade runs after exposure.
    */
   fun setFilter(filter: VideoFilter, callback: (Result<Unit>) -> Unit)
+  /** Lenses the camera API offers for one facing, as zoom ratios. */
+  fun getLenses(front: Boolean, callback: (Result<List<LensOption>>) -> Unit)
+  /** Switch to the lens at [ratio] on the front ([front] true) or rear camera. */
+  fun setLens(front: Boolean, ratio: Double, callback: (Result<Unit>) -> Unit)
+  /** Whether this device can record 4K with both cameras at once. */
+  fun supports4k(callback: (Result<Boolean>) -> Unit)
   fun dispose(callback: (Result<Unit>) -> Unit)
 
   companion object {
@@ -701,6 +754,64 @@ interface DualCameraHostApi {
                 reply.reply(wrapError(error))
               } else {
                 reply.reply(wrapResult(null))
+              }
+            }
+          }
+        } else {
+          channel.setMessageHandler(null)
+        }
+      }
+      run {
+        val channel = BasicMessageChannel<Any?>(binaryMessenger, "dev.flutter.pigeon.dual_cameras_platform_interface.DualCameraHostApi.getLenses$separatedMessageChannelSuffix", codec)
+        if (api != null) {
+          channel.setMessageHandler { message, reply ->
+            val args = message as List<Any?>
+            val frontArg = args[0] as Boolean
+            api.getLenses(frontArg) { result: Result<List<LensOption>> ->
+              val error = result.exceptionOrNull()
+              if (error != null) {
+                reply.reply(wrapError(error))
+              } else {
+                val data = result.getOrNull()
+                reply.reply(wrapResult(data))
+              }
+            }
+          }
+        } else {
+          channel.setMessageHandler(null)
+        }
+      }
+      run {
+        val channel = BasicMessageChannel<Any?>(binaryMessenger, "dev.flutter.pigeon.dual_cameras_platform_interface.DualCameraHostApi.setLens$separatedMessageChannelSuffix", codec)
+        if (api != null) {
+          channel.setMessageHandler { message, reply ->
+            val args = message as List<Any?>
+            val frontArg = args[0] as Boolean
+            val ratioArg = args[1] as Double
+            api.setLens(frontArg, ratioArg) { result: Result<Unit> ->
+              val error = result.exceptionOrNull()
+              if (error != null) {
+                reply.reply(wrapError(error))
+              } else {
+                reply.reply(wrapResult(null))
+              }
+            }
+          }
+        } else {
+          channel.setMessageHandler(null)
+        }
+      }
+      run {
+        val channel = BasicMessageChannel<Any?>(binaryMessenger, "dev.flutter.pigeon.dual_cameras_platform_interface.DualCameraHostApi.supports4k$separatedMessageChannelSuffix", codec)
+        if (api != null) {
+          channel.setMessageHandler { _, reply ->
+            api.supports4k{ result: Result<Boolean> ->
+              val error = result.exceptionOrNull()
+              if (error != null) {
+                reply.reply(wrapError(error))
+              } else {
+                val data = result.getOrNull()
+                reply.reply(wrapResult(data))
               }
             }
           }

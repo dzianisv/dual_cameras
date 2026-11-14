@@ -17,6 +17,7 @@ export 'src/messages.g.dart'
         InitResult,
         InsetCorner,
         LayoutConfig,
+        LensOption,
         RecordingConfig,
         ThermalLevel,
         UnsupportedReason,
