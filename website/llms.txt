@@ -24,8 +24,8 @@ Dual Cameras fills a real gap: as of 2026 no other Flutter plugin records a comp
 
 > StoryCam is a free Android app that records the front and back cameras at the same time into one portrait video, with live filters and on-device captions in Russian and English. Captions use the Whisper speech model running entirely on the phone — no account, no cloud, no audio upload. The model download (~160 MB, first use) and captioning run as system notifications with a progress bar and a Stop button. The original video is always kept.
 
-- Current version: 0.5.3 (test build, ARM64 Android only)
-- Status: test build sideloaded from GitHub Releases. NOT on Google Play yet.
+- Current version: 0.5.9 (ARM64 Android only)
+- Status: sideloaded from GitHub Releases. NOT on Google Play yet.
 - Install: download the APK from the releases page, allow "install unknown apps" when prompted, grant camera and microphone.
 - Requirements: ARM64 Android phone with concurrent-camera support (e.g. Pixel 6+ / Galaxy S22+); falls back to single-camera recording otherwise.
 - Captions: Auto-detect, or force Русский / English. Karaoke highlighting. Silence and noise produce no captions. Single short words are the hardest case for auto-detection — force a language for short clips.
