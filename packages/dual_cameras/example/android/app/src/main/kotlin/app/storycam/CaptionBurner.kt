@@ -93,6 +93,7 @@ object CaptionBurner {
         val argb = IntArray(w * h)
         val yuv = ByteArray(w * h * 3 / 2)
         val info = MediaCodec.BufferInfo()
+        var framesBurned = 0
 
         extractor.selectTrack(videoTrack)
         var decoderInputDone = false
@@ -162,6 +163,15 @@ object CaptionBurner {
                 if (frame != null) {
                     try {
                         val tSec = frame.timestamp / 1_000_000_000.0
+                        framesBurned++
+                        // Progress heartbeat: the burn is two full-frame
+                        // per-pixel Kotlin loops + software encode per
+                        // frame, so a 15 s clip takes minutes on an
+                        // emulator — log every 10th frame so a stall is
+                        // distinguishable from slow progress.
+                        if (framesBurned % 10 == 1) {
+                            Log.i(TAG, "frame $framesBurned t=${"%.2f".format(tSec)}")
+                        }
                         YuvConverter.toBitmap(frame, bitmap, argb)
                         // Issue #49: map first (top-left), then karaoke
                         // (lower-middle, 74% height) — one pass, no overlap.
@@ -201,6 +211,7 @@ object CaptionBurner {
                         }
                     }
                     if (decoderOutputDone) {
+                        Log.i(TAG, "decoder EOS after $framesBurned frames")
                         val inIndex = encoder.dequeueInputBuffer(TIMEOUT_US)
                         if (inIndex >= 0) {
                             encoder.queueInputBuffer(inIndex, 0, 0, 0,
@@ -222,7 +233,7 @@ object CaptionBurner {
             bitmap.recycle()
             MapRenderer.reset()
         }
-        Log.i(TAG, "done: $outPath")
+        Log.i(TAG, "done: $outPath ($framesBurned frames)")
         return outPath
     }
 

@@ -138,8 +138,9 @@ def main() -> int:
     if done is None:
         note("MAPBURN FAIL: no [MAPBURN] DONE line in logcat within "
              f"{args.timeout_secs}s (burn never finished or never ran)")
-        tail = [ln for ln in logcat().splitlines() if "MAPBURN" in ln]
-        note("MAPBURN lines seen:\n" + ("\n".join(tail) or "(none)"))
+        tail = [ln for ln in logcat().splitlines()
+                if "MAPBURN" in ln or "CaptionBurner" in ln]
+        note("MAPBURN/CaptionBurner lines seen:\n" + ("\n".join(tail) or "(none)"))
         return fail(log_lines)
     d = done.groupdict()
     note(f"MAPBURN DONE original={d['orig']} burned={d['burned']} "

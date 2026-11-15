@@ -2731,7 +2731,41 @@ void main() {
         mapLocationService: FakeMapLocationService());
     // The map circle must be on screen for the snapshot tick to capture.
     expect(find.byKey(const Key('map-circle')), findsOneWidget);
-    await recordVideoWithFile(tester);
+    // Fake video file + thumbnail mock (as recordVideoWithFile does),
+    // but the take is started and stopped manually: snapshot capture is
+    // real async I/O (temp dir + boundary render + PNG write), so the
+    // take must live until the first snapshot lands — recordAndStop's
+    // ~12 ms take ends before the capture even starts.
+    File('/tmp/story.mp4').writeAsStringSync('fake-video');
+    addTearDown(() {
+      final file = File('/tmp/story.mp4');
+      if (file.existsSync()) file.deleteSync();
+    });
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(
+            const MethodChannel('dual_cameras_example/thumbnail'),
+            (call) async => base64Decode(
+                'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=='));
+    addTearDown(() => TestDefaultBinaryMessengerBinding.instance
+        .defaultBinaryMessenger
+        .setMockMethodCallHandler(
+            const MethodChannel('dual_cameras_example/thumbnail'), null));
+    await tester.tap(find.byTooltip('Start recording'));
+    await tester.pumpAndSettle();
+    var snapshots = 0;
+    for (var i = 0; snapshots == 0 && i < 50; i++) {
+      await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 100)));
+      await tester.pump();
+      snapshots = tempDir
+          .listSync(recursive: true)
+          .whereType<File>()
+          .where((f) => f.path.contains('map_') && f.path.endsWith('.png'))
+          .length;
+    }
+    expect(snapshots, greaterThan(0));
+    await tester.tap(find.byTooltip('Stop recording'));
+    await tester.pumpAndSettle();
     // The burn finishes in the background: the map notifier reports done.
     // Snapshot capture does real dart:io I/O — flush it with runAsync
     // turns (same pattern as the iOS twin test above).
