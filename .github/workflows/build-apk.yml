@@ -146,7 +146,7 @@ jobs:
           echo "AAB OK: app.storycam + arm64-v8a, $(du -h "$AAB" | cut -f1)"
 
       # APK asset name is storycam-<version>-arm64.apk (versionName from
-      # pubspec.yaml). The static paths below name 0.5.14 literally — on a
+      # pubspec.yaml). The static paths below name 0.5.15 literally — on a
       # version bump, update them here, in the release files list, and in
       # website/latest.html, exactly as the release checklist already does.
       - name: Prepare APK artifact
@@ -164,9 +164,9 @@ jobs:
       - name: Upload StoryCam APK
         uses: actions/upload-artifact@v4
         with:
-          name: storycam-0.5.14-arm64-${{ github.sha }}
+          name: storycam-0.5.15-arm64-${{ github.sha }}
           path: |
-            packages/dual_cameras/example/storycam-0.5.14-arm64.apk
+            packages/dual_cameras/example/storycam-0.5.15-arm64.apk
             packages/dual_cameras/example/SHA256SUMS
             packages/dual_cameras/example/storycam-play-release.aab
             packages/dual_cameras/example/SHA256SUMS.aab
@@ -185,10 +185,19 @@ jobs:
           prerelease: true
           fail_on_unmatched_files: true
           files: |
-            packages/dual_cameras/example/storycam-0.5.14-arm64.apk
+            packages/dual_cameras/example/storycam-0.5.15-arm64.apk
             packages/dual_cameras/example/SHA256SUMS
             packages/dual_cameras/example/build-info.txt
           body: |
+            ## What's new in 0.5.15
+
+            - Map overlay is now burned into the recorded video (#49) — the map you see while recording is in the saved file.
+            - Filter names fixed: GTA is now **Vice City**, GTA 3 removed, San Andreas stays.
+            - Camera auto-starts when you open the app; tap a lens pill to switch — the wide lens now works.
+            - Map: pinch-to-zoom, place name, settings survive relaunch.
+            - Last video thumbnail with Open / Delete / Share instead of the persistent Share button.
+            - Production-signed release (CN=StoryCam) — this build is the Play upload candidate.
+
             ## StoryCam ${{ github.ref_name }}
 
             Android ARM64 build with the StoryCam capture interface and
@@ -216,7 +225,7 @@ jobs:
               caption processing.
 
             ### Install
-            1. Download `storycam-0.5.14-arm64.apk` below.
+            1. Download `storycam-0.5.15-arm64.apk` below.
             2. Sideload it (allow "install unknown apps" when prompted).
             3. Open StoryCam, grant Camera and Microphone, then use the shutter
                to open the camera and start or stop recording.
@@ -236,12 +245,11 @@ jobs:
             gallery saving, audio sync, GPU performance and native caption inference
             still need device testing. Launcher artwork is unchanged. A stop tapped during the transcribe step itself takes effect after that step finishes, before burn-in — the decode can't be interrupted mid-word — but no captioned video is ever saved after a stop.
 
-            This APK uses the **Android debug signing key**, not a production key.
-            A production-signed build requires the upload keystore (issue #32 follow-up).
-            Android may reject updating a build signed with a different key.
-            This build is debug-signed; a future production-signed build will require
-            reinstalling. If so, back up anything needed before uninstalling the old
-            app; uninstalling removes app-local data.
+            This APK is signed with the production upload key (CN=StoryCam).
+            It cannot update a build signed with a different key in place — if you
+            have an older debug-signed build installed, uninstall it first (back up
+            anything needed; uninstalling removes app-local data). The matching
+            production-signed AAB is the Play upload candidate.
 
       # Always delete the decoded release keystore, even if the build failed.
       - name: Remove release keystore (if installed)
