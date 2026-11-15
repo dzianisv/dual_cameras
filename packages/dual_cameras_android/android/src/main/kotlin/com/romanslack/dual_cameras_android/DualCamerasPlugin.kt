@@ -11,6 +11,7 @@ import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.os.PowerManager
+import android.util.Log
 import android.util.Size
 import android.view.Surface
 import java.util.concurrent.Executor
@@ -276,6 +277,9 @@ class DualCamerasPlugin : FlutterPlugin, DualCameraHostApi {
   override fun setLens(front: Boolean, ratio: Double, callback: (Result<Unit>) -> Unit) {
     try {
       val ok = cameraSource?.setLensZoom(front, ratio.toFloat()) ?: false
+      // Issue #48: log every switch attempt (ratios only) so the phone
+      // run can report whether setLens was reached and what it decided.
+      Log.i(TAG, "setLens(front=$front ratio=${formatRatio(ratio)}) ok=$ok")
       if (ok) {
         callback(Result.success(Unit))
       } else {
@@ -368,19 +372,56 @@ class DualCamerasPlugin : FlutterPlugin, DualCameraHostApi {
     } else {
       null
     }
+    // Issue #48: intersect the focal-derived ratios with the zoom range
+    // the switch enforces — mirror the iOS guard
+    // (DualCameraSession.lenses filters on the bound device's zoom
+    // range). Probe and switch were built against two different
+    // authorities: a focal ratio below the bound camera's minZoomRatio
+    // was offered as a pill and rejected at tap. The bound CameraX
+    // zoomState range is the authority when the cameras are bound
+    // (exactly what setLensZoom checks); before bind completes, the
+    // logical camera's CONTROL_ZOOM_RATIO_RANGE is the same range from
+    // Camera2. The filter applies to the rounded ratio — the switch
+    // checks the rounded value — with only a float-noise epsilon: a
+    // tenth below the range is a real rejection, not rounding noise.
+    val boundRange = cameraSource?.zoomRange(front)
+    val effectiveRange: Pair<Double, Double>? = boundRange?.let {
+      it.first.toDouble() to it.second.toDouble()
+    } ?: zoomRange?.let { it.lower.toDouble() to it.upper.toDouble() }
+    val physicalRatios = ratios.toList()
+    if (effectiveRange != null) {
+      ratios.retainAll {
+        it >= effectiveRange.first - ZOOM_EPSILON &&
+          it <= effectiveRange.second + ZOOM_EPSILON
+      }
+    }
     if (ratios.isEmpty()) {
       // Single physical camera (or unreadable focals): the logical camera
-      // may still be wider than 1x — the zoom range says so.
-      if (zoomRange != null && zoomRange.lower < 0.95f) {
-        ratios.add(roundToTenth(zoomRange.lower.toDouble()))
+      // may still be wider than 1x — the zoom range says so. The rounded
+      // wide end must itself be inside the range: rounding down below
+      // the lower bound would offer a pill the switch rejects.
+      val lower = effectiveRange?.first ?: zoomRange?.lower?.toDouble()
+      if (lower != null && lower < 0.95) {
+        val wide = roundToTenth(lower)
+        if (wide >= lower - ZOOM_EPSILON) ratios.add(wide)
       }
       ratios.add(1.0)
     } else {
       ratios.add(1.0)
     }
-    if (front && zoomRange != null && zoomRange.upper >= 1.5f) ratios.add(1.5)
-    return ratios.filter { it in 0.4..10.0 }.sorted()
+    if (front && (effectiveRange?.second
+        ?: zoomRange?.upper?.toDouble()
+        ?: 0.0) >= 1.5) ratios.add(1.5)
+    val offered = ratios.filter { it in 0.4..10.0 }.sorted()
       .map { LensOption(it, formatRatio(it)) }
+    // Issue #48: log the probe list + the range it was intersected with
+    // at open (getLenses runs at open) so the phone run can report pill
+    // label, probe list, and zoom range. Ratios only, no secrets.
+    Log.i(TAG, "probeLenses(front=$front) physical=$physicalRatios " +
+      "zoomRange=${effectiveRange?.let { "${it.first}..${it.second}" } ?: "unknown"} " +
+      "source=${if (boundRange != null) "bound" else "camera2"} " +
+      "offered=${offered.map { it.label }}")
+    return offered
   }
 
   /**
@@ -609,5 +650,11 @@ class DualCamerasPlugin : FlutterPlugin, DualCameraHostApi {
 
   private companion object {
     const val DEBUG_CHANNEL = "dual_cameras/debug"
+    const val TAG = "DualCam"
+    // Issue #48: probe/switch intersect tolerance. Float zoom-range
+    // bounds (e.g. 0.1f) are not exact in Double, so a rounded ratio
+    // equal to a bound needs a hair of slack — but far less than half a
+    // tenth (0.05), so a genuinely below-range tenth is still dropped.
+    const val ZOOM_EPSILON = 0.001
   }
 }

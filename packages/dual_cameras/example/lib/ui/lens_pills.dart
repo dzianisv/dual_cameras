@@ -5,14 +5,16 @@ import 'package:flutter/material.dart';
 /// slider, over the video. Selected pill is white; the rest are dark.
 /// Shows ONLY the lenses the camera API reports for the active camera —
 /// the list comes from [lenses], never hardcoded. Empty list = no pills
-/// (the API reported nothing for this camera).
+/// (the API reported nothing for this camera). The pills stay enabled
+/// while a camera command is in flight (issue #48): a tap that lands
+/// mid-command is queued by the screen instead of vanishing silently,
+/// so there is no disabled state here.
 class LensPills extends StatelessWidget {
   const LensPills({
     super.key,
     required this.lenses,
     required this.selectedRatio,
     required this.onSelected,
-    this.enabled = true,
   });
 
   final List<LensOption> lenses;
@@ -21,7 +23,6 @@ class LensPills extends StatelessWidget {
   /// (the main lens is the default).
   final double? selectedRatio;
   final ValueChanged<double> onSelected;
-  final bool enabled;
 
   @override
   Widget build(BuildContext context) {
@@ -37,7 +38,7 @@ class LensPills extends StatelessWidget {
               padding: const EdgeInsets.symmetric(horizontal: 4),
               child: GestureDetector(
                 key: ValueKey('lens-${lens.label}'),
-                onTap: enabled ? () => onSelected(lens.ratio) : null,
+                onTap: () => onSelected(lens.ratio),
                 behavior: HitTestBehavior.opaque,
                 child: Container(
                   padding:
