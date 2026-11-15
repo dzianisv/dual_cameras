@@ -67,7 +67,7 @@ object CaptionBurner {
 
         val reader = ImageReader.newInstance(w, h,
             android.graphics.ImageFormat.YUV_420_888, 3)
-        val decoder = MediaCodec.createDecoderByType(mime)
+        val decoder = createVideoDecoder(mime)
         Log.i(TAG, "decoder=${decoder.codecInfo.name} mime=$mime")
         decoder.configure(srcFormat, reader.surface, null, 0)
         decoder.start()
@@ -307,6 +307,36 @@ object CaptionBurner {
             if (mime != null && mime.startsWith(prefix)) return i
         }
         return null
+    }
+
+    /**
+     * Decoder for [mime]. The emulator's default AVC decoder
+     * (c2.goldfish.h264.decoder) never yields an input buffer with this
+     * pipeline — the burn spun with inputDone=false for 8 min — so on a
+     * Goldfish decoder prefer the software decoder (c2.android.* /
+     * OMX.google.*) instead. On real hardware the default decoder is
+     * never Goldfish, so this changes nothing there.
+     */
+    private fun createVideoDecoder(mime: String): MediaCodec {
+        val decoder = MediaCodec.createDecoderByType(mime)
+        if (!decoder.codecInfo.name.contains("goldfish", ignoreCase = true)) {
+            return decoder
+        }
+        decoder.release()
+        val list = android.media.MediaCodecList(
+            android.media.MediaCodecList.ALL_CODECS)
+        for (info in list.codecInfos) {
+            if (info.isEncoder || !info.supportedTypes.contains(mime)) continue
+            val name = info.name
+            if (name.contains("goldfish", ignoreCase = true)) continue
+            if (name.contains("android", ignoreCase = true) ||
+                name.contains("google", ignoreCase = true)) {
+                Log.i(TAG, "goldfish decoder wedged; using $name instead")
+                return MediaCodec.createByCodecName(name)
+            }
+        }
+        Log.w(TAG, "no software decoder for $mime; using default")
+        return MediaCodec.createDecoderByType(mime)
     }
 
     private fun pickColorFormat(encoder: MediaCodec): Int {
