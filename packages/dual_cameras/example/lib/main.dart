@@ -1202,11 +1202,19 @@ class _DemoScreenState extends State<DemoScreen> with WidgetsBindingObserver {
       // The take may have stopped while toImage was in flight: the stop
       // already cleared _mapTakeId, so drop the stale snapshot instead of
       // appending it to the next take's track.
-      if (takeId != _mapTakeId) return;
+      if (takeId != _mapTakeId) {
+        debugPrint('[MAPBURN] SNAPSHOT STALE tMs=$tMs takeId=$takeId '
+            'current=$_mapTakeId stage=after-bytes');
+        return;
+      }
       final bytes = byteData.buffer.asUint8List();
       final name = 'map_$tMs.png';
       await File('${dir.path}/$name').writeAsBytes(bytes, flush: true);
-      if (takeId != _mapTakeId) return; // stopped during the write
+      if (takeId != _mapTakeId) {
+        debugPrint('[MAPBURN] SNAPSHOT STALE tMs=$tMs takeId=$takeId '
+            'current=$_mapTakeId stage=after-write');
+        return; // stopped during the write
+      }
       _mapSnapCaptured++;
       _mapSnapBytes += bytes.length;
       if (bytes.length > _mapSnapMaxBytes) _mapSnapMaxBytes = bytes.length;
@@ -1250,9 +1258,15 @@ class _DemoScreenState extends State<DemoScreen> with WidgetsBindingObserver {
       try {
         await inFlight.timeout(const Duration(seconds: 2));
       } catch (_) {
-        // A stuck snapshot must never stall the stop: the burn holds the
-        // last good snapshot for the rest of the take.
+        debugPrint('[MAPBURN] STOP FLUSH TIMEOUT takeId=$_mapTakeId');
       }
+      debugPrint('[MAPBURN] STOP FLUSHED takeId=$_mapTakeId '
+          'attempted=$_mapSnapAttempted captured=$_mapSnapCaptured '
+          'failed=$_mapSnapFailed track=${_mapTrack.length}');
+    } else {
+      debugPrint('[MAPBURN] STOP NO-INFLIGHT takeId=$_mapTakeId '
+          'attempted=$_mapSnapAttempted captured=$_mapSnapCaptured '
+          'failed=$_mapSnapFailed track=${_mapTrack.length}');
     }
     final takeId = _mapTakeId;
     final dir = _mapFramesDir;
