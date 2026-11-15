@@ -1168,7 +1168,7 @@ class _DemoScreenState extends State<DemoScreen> with WidgetsBindingObserver {
     }));
   }
 
-  /// One snapshot: boundary → PNG at burn diameter → map_<tMs>.png, plus a
+  /// One snapshot: boundary → PNG at burn diameter → `map_<tMs>.png`, plus a
   /// track sample. tMs is take-relative (N-C). Never throws; a failure is
   /// counted and logged, never crashes the recording.
   Future<void> _mapCaptureSnapshot() async {
@@ -1409,16 +1409,12 @@ class _DemoScreenState extends State<DemoScreen> with WidgetsBindingObserver {
     late final String file;
     // Issue #49: the map-burn manifest for this take (null when the map
     // was off the whole take). Finalized after stopRecording, consumed by
-    // the burn gate below. Initialized so the catch can read it when
-    // stopRecording throws before the assignment.
-    MapBurnManifest? mapManifest = null;
+    // the burn gate below.
+    MapBurnManifest? mapManifest;
     try {
       file = await _cameraCommand(_controller.stopRecording);
       // Issue #49: stop the snapshot tick and finalize the manifest.
       mapManifest = await _mapStopCapture();
-      // While the burn is queued its frames dir is guarded: the next
-      // take's stale-dir cleanup must not delete it.
-      if (mapManifest != null) _pendingMapDirs.add(mapManifest.framesDir);
       _lastFile = file;
       await Gal.putVideo(file);
       // Only after a successful save: on a Gal failure _lastVideo stays
@@ -1434,12 +1430,7 @@ class _DemoScreenState extends State<DemoScreen> with WidgetsBindingObserver {
       // recording timer exists at this hook, and none is added.)
       unawaited(Analytics.coreActionDone(
           captionsOn: captions, captionLanguage: _captionLanguage.code));
-      // Issue #49: no burn is queued on this path either — drop the
-      // pending guard so the next take's stale-dir cleanup can run.
-      if (!mounted && !_usesBackgroundJobs) {
-        if (mapManifest != null) _pendingMapDirs.remove(mapManifest.framesDir);
-        return;
-      }
+      if (!mounted && !_usesBackgroundJobs) return;
       _update(() {
         _status = 'Video saved to gallery';
       });
@@ -1449,7 +1440,6 @@ class _DemoScreenState extends State<DemoScreen> with WidgetsBindingObserver {
       // is queued: the catch returns below, and the manifest (if any) is
       // discarded — its dir is stale and the next take cleans it up.
       unawaited(_mapStopCapture());
-      if (mapManifest != null) _pendingMapDirs.remove(mapManifest.framesDir);
       _update(() {
         _lastVideo = null;
         _status = 'Could not save video. See settings for details.';
@@ -1464,6 +1454,14 @@ class _DemoScreenState extends State<DemoScreen> with WidgetsBindingObserver {
     // (CaptionJobs.enqueue carries mp4+language only, and the worker is
     // transcription-only with no manifest); the map burn is foreground
     // only in v1, and the original is already in the gallery.
+    // Issue #49: the guard is added here, not at finalization — nothing
+    // can delete the frames dir while _stop holds the guard lock, so it
+    // only needs guarding once the burn is queued below. Foreground only:
+    // a background build never consumes the manifest (N-F), so its dir
+    // stays stale and the next take cleans it up.
+    if (!_usesBackgroundJobs && mapManifest != null) {
+      _pendingMapDirs.add(mapManifest.framesDir);
+    }
     if (captions || mapManifest != null) {
       if (_usesBackgroundJobs) {
         if (captions) {
