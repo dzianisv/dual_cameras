@@ -1,0 +1,165 @@
+name: Publish to Google Play Store
+
+# StoryCam Play publish. Manual dispatch only (no tag trigger): the first
+# publish needs a human-created app in Play Console, and every publish
+# after that is a deliberate act. Flow per run: internal track first to
+# verify the install, then a second dispatch to production (staged).
+#
+# Requires repo secrets:
+#   STORYCAM_KEYSTORE_BASE64 / STORYCAM_KEYSTORE_PASSWORD /
+#   STORYCAM_KEY_ALIAS / STORYCAM_KEY_PASSWORD — the production upload
+#   keystore (Bitwarden Secrets Manager is the source of truth).
+#   PLAY_STORE_SERVICE_ACCOUNT_JSON — the VIBE TECHNOLOGIES Play service
+#   account (playstore-deploy@opencode-mobile-deploy.iam.gserviceaccount.com,
+#   account-level API access already granted). Same account that publishes
+#   OpenCode Mobile; it can publish any app under the VIBE developer account.
+#
+# Unlike build-apk.yml this workflow FAILS if the keystore secrets are
+# absent — a Play upload must never be debug-signed.
+on:
+  workflow_dispatch:
+    inputs:
+      track:
+        description: "Play track to release to"
+        required: false
+        default: "internal"
+        type: choice
+        options:
+          - internal
+          - alpha
+          - beta
+          - production
+      status:
+        description: "Release status (draft = uploads without going live/review; completed = submit; inProgress/halted = staged rollout at user_fraction)"
+        required: false
+        default: "completed"
+        type: choice
+        options:
+          - completed
+          - draft
+          - inProgress
+          - halted
+      user_fraction:
+        description: "Staged-rollout user fraction (0.0-1.0). Used only when status is inProgress or halted."
+        required: false
+        default: "0.20"
+        type: string
+
+permissions:
+  contents: read
+
+# Concurrent runs for the same ref must not race two uploads into the same
+# track. Serialize per ref instead of cancelling, because cancelling
+# mid-upload can leave a half-created Play release.
+concurrency:
+  group: publish-play-store-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  EXAMPLE_DIR: packages/dual_cameras/example
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: 3.47.7
+          channel: stable
+          cache: true
+
+      - name: Fetch packages
+        working-directory: ${{ env.EXAMPLE_DIR }}
+        run: flutter pub get
+
+      - name: Install release keystore from secrets (required)
+        env:
+          STORYCAM_KEYSTORE_BASE64: ${{ secrets.STORYCAM_KEYSTORE_BASE64 }}
+          STORYCAM_KEYSTORE_PASSWORD: ${{ secrets.STORYCAM_KEYSTORE_PASSWORD }}
+          STORYCAM_KEY_ALIAS: ${{ secrets.STORYCAM_KEY_ALIAS }}
+          STORYCAM_KEY_PASSWORD: ${{ secrets.STORYCAM_KEY_PASSWORD }}
+        run: |
+          if [ -z "$STORYCAM_KEYSTORE_BASE64" ]; then
+            echo "::error::STORYCAM_KEYSTORE_BASE64 is not set — a Play upload must never be debug-signed."
+            exit 1
+          fi
+          KEYSTORE_PATH="$RUNNER_TEMP/storycam-release.keystore"
+          printf '%s' "$STORYCAM_KEYSTORE_BASE64" | base64 -d > "$KEYSTORE_PATH"
+          {
+            echo "STORYCAM_KEYSTORE_FILE=$KEYSTORE_PATH"
+            echo "STORYCAM_KEYSTORE_PASSWORD=$STORYCAM_KEYSTORE_PASSWORD"
+            echo "STORYCAM_KEY_ALIAS=$STORYCAM_KEY_ALIAS"
+            echo "STORYCAM_KEY_PASSWORD=$STORYCAM_KEY_PASSWORD"
+          } >> "$GITHUB_ENV"
+
+      - name: Build release app bundle (arm64)
+        working-directory: ${{ env.EXAMPLE_DIR }}
+        run: flutter build appbundle --release --target-platform android-arm64 --dart-define POSTHOG_API_KEY=${{ secrets.POSTHOG_API_KEY }}
+
+      - name: Verify release-signed AAB
+        working-directory: ${{ env.EXAMPLE_DIR }}
+        run: |
+          AAB=build/app/outputs/bundle/release/app-release.aab
+          test -s "$AAB"
+          unzip -l "$AAB" | grep -q "base/lib/arm64-v8a/"
+          jarsigner -verify -verbose -certs "$AAB" > signing-aab.txt
+          grep -q "CN=StoryCam" signing-aab.txt
+          if grep -q "CN=Android Debug" signing-aab.txt; then
+            echo "FAIL: Play AAB is debug-signed" >&2
+            exit 1
+          fi
+          APP_VERSION=$(sed -n 's/^version: //p' pubspec.yaml)
+          echo "AAB OK: app.storycam ${APP_VERSION} release-signed (CN=StoryCam), $(du -h "$AAB" | cut -f1)"
+
+      - name: Resolve Play track
+        id: channel
+        run: |
+          set -euo pipefail
+          TRACK="${{ github.event.inputs.track || 'internal' }}"
+          STATUS="${{ github.event.inputs.status || 'completed' }}"
+          USER_FRACTION_INPUT="${{ github.event.inputs.user_fraction || '0.20' }}"
+          USER_FRACTION=""
+          if [ "$STATUS" = "inProgress" ] || [ "$STATUS" = "halted" ]; then
+            USER_FRACTION="$USER_FRACTION_INPUT"
+          fi
+          echo "track=$TRACK" >> "$GITHUB_OUTPUT"
+          echo "status=$STATUS" >> "$GITHUB_OUTPUT"
+          echo "user_fraction=$USER_FRACTION" >> "$GITHUB_OUTPUT"
+          echo "dispatch -> track=$TRACK status=$STATUS user_fraction=${USER_FRACTION:-none}"
+
+      - name: Publish to Play Store
+        uses: r0adkll/upload-google-play@e738b9dd8f2476ea806d921b64aacd24f34515a5 # v1.1.5
+        with:
+          serviceAccountJsonPlainText: ${{ secrets.PLAY_STORE_SERVICE_ACCOUNT_JSON }}
+          packageName: app.storycam
+          releaseFiles: packages/dual_cameras/example/build/app/outputs/bundle/release/app-release.aab
+          track: ${{ steps.channel.outputs.track }}
+          status: ${{ steps.channel.outputs.status }}
+          userFraction: ${{ steps.channel.outputs.user_fraction }}
+          whatsNewDirectory: distribution/whatsnew
+
+      - name: Record where it landed
+        if: always()
+        run: |
+          {
+            echo "### Play publish"
+            echo ""
+            echo "- track: \`${{ steps.channel.outputs.track }}\`"
+            echo "- status: \`${{ steps.channel.outputs.status }}\`"
+            echo "- userFraction: \`${{ steps.channel.outputs.user_fraction || 'none' }}\`"
+            echo "- version: \`$(sed -n 's/^version: //p' packages/dual_cameras/example/pubspec.yaml)\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # Always delete the decoded release keystore, even if the build failed.
+      - name: Remove release keystore (if installed)
+        if: always()
+        run: rm -f "$RUNNER_TEMP/storycam-release.keystore"
