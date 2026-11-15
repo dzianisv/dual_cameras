@@ -12,7 +12,8 @@ import android.util.Log
 import java.nio.ByteBuffer
 
 /**
- * Burns karaoke word-highlight captions into a copy of [mp4Path].
+ * Burns karaoke word-highlight captions and/or the map circle (issue #49)
+ * into a copy of [mp4Path] — one pass, one output file.
  *
  * Pipeline (all CPU, no GL, no ffmpeg): video track -> MediaCodec decoder ->
  * ImageReader (YUV_420_888) -> ARGB Bitmap -> Canvas karaoke overlay ->
@@ -28,11 +29,27 @@ object CaptionBurner {
 
     /**
      * @param wordsJson JSON array of {"text","start","end"} (seconds).
-     * @return absolute path of the captioned .mp4.
+     * @param mapManifestJson JSON map manifest (issue #49) — the snapshot
+     *   list + per-sample mapVisible flags — or null when the map was off.
+     *   One burn pass draws the map first (top-left), then the karaoke
+     *   captions (lower-middle); chained burns are rejected (each pass is
+     *   a full CPU decode-draw-re-encode to AVC). When [mapManifestJson]
+     *   is null the existing captions-only path runs, unchanged; when
+     *   [wordsJson] is "[]" it is a map-only pass.
+     * @return absolute path of the burned .mp4.
      */
-    fun burn(mp4Path: String, wordsJson: String, outPath: String): String {
+    fun burn(
+        mp4Path: String,
+        wordsJson: String,
+        mapManifestJson: String?,
+        outPath: String,
+    ): String {
         val words = parseWords(wordsJson)
-        Log.i(TAG, "burning ${words.size} words: $mp4Path -> $outPath")
+        val mapFrames = MapRenderer.parseManifest(mapManifestJson)
+        Log.i(TAG, "burning ${words.size} words" +
+            (if (mapFrames == null) "" else " + ${mapFrames.size} map frames") +
+            ": $mp4Path -> $outPath")
+        MapRenderer.reset()
 
         val extractor = MediaExtractor()
         extractor.setDataSource(mp4Path)
@@ -146,6 +163,11 @@ object CaptionBurner {
                     try {
                         val tSec = frame.timestamp / 1_000_000_000.0
                         YuvConverter.toBitmap(frame, bitmap, argb)
+                        // Issue #49: map first (top-left), then karaoke
+                        // (lower-middle, 74% height) — one pass, no overlap.
+                        if (mapFrames != null) {
+                            MapRenderer.draw(canvas, mapFrames, tSec, w, h)
+                        }
                         KaraokeRenderer.draw(canvas, words, tSec, w, h)
                         ArgbToYuv.convert(bitmap, argb, yuv, colorFormat)
                         // Retry until the encoder takes the frame (never drop).
@@ -198,6 +220,7 @@ object CaptionBurner {
             reader.close()
             extractor.release()
             bitmap.recycle()
+            MapRenderer.reset()
         }
         Log.i(TAG, "done: $outPath")
         return outPath

@@ -30,6 +30,18 @@ abstract class CaptionJobNotifier {
   /// settings; the retry lives in the Captions sheet.
   Future<void> showFailed(String error);
 
+  /// A map-only burn is in flight (issue #49): [progress] (0..1 within
+  /// the burn). The map-only pass must not take the caption label —
+  /// showProgress/showDone would claim "Adding captions".
+  Future<void> showMapProgress(double progress);
+
+  /// The map was burned into the video (no captions in this pass).
+  /// Replaces the progress notification.
+  Future<void> showMapDone();
+
+  /// The map burn failed: the original video is kept.
+  Future<void> showMapFailed(String error);
+
   /// Clear the progress notification (job stopped by the user, or stale
   /// from a previous app run). No-op when nothing was shown.
   Future<void> clear();
@@ -162,6 +174,40 @@ class SystemCaptionJobNotifier implements CaptionJobNotifier {
     await _center.show(
       _notificationId,
       'Captioning failed',
+      'Original video kept. See settings for details.',
+      _terminalDetails(),
+    );
+  }
+
+  @override
+  Future<void> showMapProgress(double progress) async {
+    // Single-stage burn: the progress is the whole job (0..99%), not a
+    // band of the caption pipeline. Same notification id — the terminal
+    // showMapDone replaces it, and the same Stop action cancels the job.
+    final percent = (progress.clamp(0.0, 1.0) * 100).floor().clamp(0, 99);
+    await _center.show(
+      _notificationId,
+      'Adding map to video',
+      'Adding map to video · $percent%',
+      _progressDetails(percent),
+    );
+  }
+
+  @override
+  Future<void> showMapDone() async {
+    await _center.show(
+      _notificationId,
+      'Map added to video',
+      'Map burned in — saved to gallery',
+      _terminalDetails(),
+    );
+  }
+
+  @override
+  Future<void> showMapFailed(String error) async {
+    await _center.show(
+      _notificationId,
+      'Map burn failed',
       'Original video kept. See settings for details.',
       _terminalDetails(),
     );

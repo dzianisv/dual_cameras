@@ -1,13 +1,16 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:ui' as ui;
 
 import 'package:dual_cameras/dual_cameras.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:gal/gal.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:package_info_plus/package_info_plus.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:video_player/video_player.dart';
 
@@ -296,6 +299,35 @@ class _DemoScreenState extends State<DemoScreen> with WidgetsBindingObserver {
   StreamSubscription<LatLng>? _positionSub;
   StreamSubscription<double>? _headingSub;
 
+  // Map in recorded video (issue #49): 2 fps RepaintBoundary snapshots
+  // of the map circle while recording, burned into the video after stop.
+  // Mechanism validated by the pre-implementation spike (99.2% capture,
+  // 0 dropped frames, 6.0 MB/min on the emulator) — reused as-is.
+  // N-H: the boundary key is a stable State field, created once.
+  final GlobalKey _mapBoundaryKey = GlobalKey();
+  Timer? _mapCaptureTimer;
+  int? _mapTakeId;
+  Directory? _mapFramesDir;
+  DateTime? _mapRecStart;
+  Future<void>? _mapInFlight;
+  int _mapSnapAttempted = 0;
+  int _mapSnapCaptured = 0;
+  int _mapSnapFailed = 0;
+  int _mapSnapBytes = 0;
+  int _mapSnapMaxBytes = 0;
+  int _mapCapHit = 0;
+  // Track: (take-relative tMs, mapVisible, file) — one sample per snapshot
+  // plus one on every map toggle (N-D: the tick skips capture when the
+  // boundary is unmounted, i.e. map toggled off, but still records the
+  // off-sample). The track IS the burn manifest: the burner draws the
+  // latest snapshot at or before each frame time, gated by mapVisible.
+  final List<({int tMs, bool mapVisible, String? file})> _mapTrack = [];
+  // Frames dirs with a burn still queued (manifest extracted, burn not
+  // yet run): _mapStartCapture deletes stale dirs but must never delete
+  // one of these — the queued burn reads its snapshots.
+  final Set<String> _pendingMapDirs = {};
+  static const int _mapCapBytes = 100 * 1024 * 1024;
+
   // Place name (issue #47): reverse-geocoded label under the map circle,
   // derived from the live position on every launch — never persisted as a
   // display value (yesterday's place under today's dot would be wrong).
@@ -322,6 +354,12 @@ class _DemoScreenState extends State<DemoScreen> with WidgetsBindingObserver {
   // as in-app text: there is no _captionStatus anymore.
   bool _captions = false;
   String? _captionedFile;
+  // Issue #49 (N-G): the map-only burn's output. The map-only pass must
+  // not take the caption label, so it gets its own twin fields: Delete
+  // removes it with the original (same as the captioned twin), and the
+  // debug panel shows it under its own label.
+  String? _mapBurnedFile;
+  String? _mapBurnedSourceFile;
   final CaptionPipeline _captionPipeline = CaptionPipeline();
   late final ModelManager _modelManager = widget.modelManager ?? ModelManager();
   Future<WhisperModelFiles>? _modelFuture;
@@ -1061,6 +1099,198 @@ class _DemoScreenState extends State<DemoScreen> with WidgetsBindingObserver {
     _location.stop();
   }
 
+  /// Recorded frame width in px (portrait short side), from the resolution
+  /// setting. Burn diameter is 315 px at 1080p (design §4), scaled linearly.
+  int get _mapVideoWidth => switch (_settings.videoQuality) {
+        DualResolution.sd480 => 480,
+        DualResolution.hd720 => 720,
+        DualResolution.hd1080 => 1080,
+        DualResolution.ultraHd2160 => 2160,
+      };
+
+  /// pixelRatio so toImage() renders at burn diameter: MapCircle is 120
+  /// logical px across; 315 px at 1080p, 630 px at 4K.
+  double get _mapPixelRatio => (_mapVideoWidth * 315 / 1080) / 120;
+
+  /// Start the 500 ms snapshot tick (issue #49). takeId is milliseconds
+  /// since epoch at the _record / startRecording call (N-A correction —
+  /// _start is camera-open, recording starts in _record).
+  Future<void> _mapStartCapture() async {
+    await _mapStopCapture(); // Defensive: never double-run.
+    _mapTakeId = DateTime.now().millisecondsSinceEpoch;
+    _mapRecStart = DateTime.now();
+    _mapSnapAttempted = 0;
+    _mapSnapCaptured = 0;
+    _mapSnapFailed = 0;
+    _mapSnapBytes = 0;
+    _mapSnapMaxBytes = 0;
+    _mapCapHit = 0;
+    _mapTrack.clear();
+    try {
+      final cache = await getTemporaryDirectory();
+      // Drop stale snapshot dirs from earlier takes (design: deleted on
+      // the next _start) — but never one with a burn still queued.
+      for (final e in cache.listSync()) {
+        if (e is Directory &&
+            e.path.contains('map_frames_') &&
+            !_pendingMapDirs.contains(e.path)) {
+          try {
+            await e.delete(recursive: true);
+          } catch (_) {}
+        }
+      }
+      _mapFramesDir = Directory('${cache.path}/map_frames_$_mapTakeId');
+      await _mapFramesDir!.create(recursive: true);
+    } catch (e) {
+      debugPrint('[MAPBURN] START FAILED takeId=$_mapTakeId error=$e');
+      _mapTakeId = null;
+      _mapRecStart = null;
+      return;
+    }
+    debugPrint('[MAPBURN] START takeId=$_mapTakeId '
+        'videoWidth=$_mapVideoWidth '
+        'pixelRatio=${_mapPixelRatio.toStringAsFixed(3)} '
+        'dir=${_mapFramesDir!.path}');
+    // N-C: immediate snapshot at recording start — the first periodic tick
+    // lands at 500 ms, leaving tSec 0–0.5 s with no snapshot otherwise.
+    _mapTick();
+    _mapCaptureTimer =
+        Timer.periodic(const Duration(milliseconds: 500), (_) => _mapTick());
+  }
+
+  /// One tick: snapshot the boundary, tracking the in-flight future so
+  /// [_mapStopCapture] can flush it before finalizing the manifest.
+  void _mapTick() {
+    final f = _mapCaptureSnapshot();
+    _mapInFlight = f;
+    unawaited(f.whenComplete(() {
+      if (identical(_mapInFlight, f)) _mapInFlight = null;
+    }));
+  }
+
+  /// One snapshot: boundary → PNG at burn diameter → map_<tMs>.png, plus a
+  /// track sample. tMs is take-relative (N-C). Never throws; a failure is
+  /// counted and logged, never crashes the recording.
+  Future<void> _mapCaptureSnapshot() async {
+    final takeId = _mapTakeId;
+    final dir = _mapFramesDir;
+    final start = _mapRecStart;
+    if (takeId == null || dir == null || start == null) return;
+    final tMs = DateTime.now().difference(start).inMilliseconds;
+    // N-D: tick guard — map toggled off unmounts the boundary; skip the
+    // capture but record the off-sample so the track still gates the burn.
+    final context = _mapBoundaryKey.currentContext;
+    if (context == null) {
+      _mapTrack.add((tMs: tMs, mapVisible: false, file: null));
+      return;
+    }
+    final boundary = context.findRenderObject() as RenderRepaintBoundary?;
+    if (boundary == null) {
+      _mapSnapFailed++;
+      return;
+    }
+    _mapSnapAttempted++;
+    try {
+      final image = await boundary.toImage(pixelRatio: _mapPixelRatio);
+      final byteData =
+          await image.toByteData(format: ui.ImageByteFormat.png);
+      image.dispose();
+      if (byteData == null) {
+        _mapSnapFailed++;
+        return;
+      }
+      // The take may have stopped while toImage was in flight: the stop
+      // already cleared _mapTakeId, so drop the stale snapshot instead of
+      // appending it to the next take's track.
+      if (takeId != _mapTakeId) return;
+      final bytes = byteData.buffer.asUint8List();
+      final name = 'map_$tMs.png';
+      await File('${dir.path}/$name').writeAsBytes(bytes, flush: true);
+      if (takeId != _mapTakeId) return; // stopped during the write
+      _mapSnapCaptured++;
+      _mapSnapBytes += bytes.length;
+      if (bytes.length > _mapSnapMaxBytes) _mapSnapMaxBytes = bytes.length;
+      _mapTrack.add((tMs: tMs, mapVisible: _settings.mapVisible, file: name));
+      if (_mapSnapBytes > _mapCapBytes) {
+        _mapCapHit++;
+        _mapCaptureTimer?.cancel();
+        _mapCaptureTimer = null;
+        debugPrint('[MAPBURN] CAP HIT takeId=$takeId bytes=$_mapSnapBytes '
+            'captured=$_mapSnapCaptured — capture stopped, recording continues');
+      }
+    } catch (e) {
+      _mapSnapFailed++;
+      debugPrint('[MAPBURN] SNAPSHOT FAILED tMs=$tMs error=$e');
+    }
+  }
+
+  /// Record a track sample on a map toggle during a take (N-D companion).
+  void _mapRecordToggle(bool visible) {
+    final start = _mapRecStart;
+    if (_mapTakeId == null || start == null) return;
+    _mapTrack.add((
+      tMs: DateTime.now().difference(start).inMilliseconds,
+      mapVisible: visible,
+      file: null,
+    ));
+  }
+
+  /// Stop the tick, flush the in-flight snapshot (spike lesson: the last
+  /// tick's snapshot was still in flight at SUMMARY time), and finalize
+  /// the burn manifest. Returns null when no snapshot was captured (map
+  /// off the whole take, or capture never started) — the caller then
+  /// skips the burn entirely. The frames dir is NOT deleted here: the
+  /// queued burn reads it; [_captionVideo] deletes it after a successful
+  /// burn, and the next _start deletes stale dirs.
+  Future<MapBurnManifest?> _mapStopCapture() async {
+    _mapCaptureTimer?.cancel();
+    _mapCaptureTimer = null;
+    final inFlight = _mapInFlight;
+    if (inFlight != null) {
+      try {
+        await inFlight.timeout(const Duration(seconds: 2));
+      } catch (_) {
+        // A stuck snapshot must never stall the stop: the burn holds the
+        // last good snapshot for the rest of the take.
+      }
+    }
+    final takeId = _mapTakeId;
+    final dir = _mapFramesDir;
+    final start = _mapRecStart;
+    final track = List.of(_mapTrack);
+    final durationMs =
+        start == null ? 0 : DateTime.now().difference(start).inMilliseconds;
+    final attempted = _mapSnapAttempted;
+    final captured = _mapSnapCaptured;
+    final failed = _mapSnapFailed;
+    final bytes = _mapSnapBytes;
+    final capHit = _mapCapHit;
+    _mapTakeId = null;
+    _mapRecStart = null;
+    _mapFramesDir = null;
+    _mapInFlight = null;
+    _mapSnapAttempted = 0;
+    _mapSnapCaptured = 0;
+    _mapSnapFailed = 0;
+    _mapSnapBytes = 0;
+    _mapSnapMaxBytes = 0;
+    _mapCapHit = 0;
+    _mapTrack.clear();
+    if (takeId == null || dir == null) return null;
+    debugPrint('[MAPBURN] STOP takeId=$takeId '
+        'durationMs=$durationMs attempted=$attempted captured=$captured '
+        'failed=$failed bytes=$bytes capHit=$capHit '
+        'trackSamples=${track.length} dir=${dir.path}');
+    if (!track.any((s) => s.file != null)) return null;
+    return MapBurnManifest(
+      framesDir: dir.path,
+      frames: track
+          .map((s) => MapBurnFrame(
+              file: s.file, tMs: s.tMs, mapVisible: s.mapVisible))
+          .toList(),
+    );
+  }
+
   Widget _evRow() {
     final divisions =
         _evStep > 0 ? ((_evMax - _evMin) / _evStep).round().clamp(1, 48) : null;
@@ -1177,8 +1407,18 @@ class _DemoScreenState extends State<DemoScreen> with WidgetsBindingObserver {
     _lastBackgroundJobId = null;
     final captions = _captions;
     late final String file;
+    // Issue #49: the map-burn manifest for this take (null when the map
+    // was off the whole take). Finalized after stopRecording, consumed by
+    // the burn gate below. Initialized so the catch can read it when
+    // stopRecording throws before the assignment.
+    MapBurnManifest? mapManifest = null;
     try {
       file = await _cameraCommand(_controller.stopRecording);
+      // Issue #49: stop the snapshot tick and finalize the manifest.
+      mapManifest = await _mapStopCapture();
+      // While the burn is queued its frames dir is guarded: the next
+      // take's stale-dir cleanup must not delete it.
+      if (mapManifest != null) _pendingMapDirs.add(mapManifest.framesDir);
       _lastFile = file;
       await Gal.putVideo(file);
       // Only after a successful save: on a Gal failure _lastVideo stays
@@ -1194,11 +1434,22 @@ class _DemoScreenState extends State<DemoScreen> with WidgetsBindingObserver {
       // recording timer exists at this hook, and none is added.)
       unawaited(Analytics.coreActionDone(
           captionsOn: captions, captionLanguage: _captionLanguage.code));
-      if (!mounted && !_usesBackgroundJobs) return;
+      // Issue #49: no burn is queued on this path either — drop the
+      // pending guard so the next take's stale-dir cleanup can run.
+      if (!mounted && !_usesBackgroundJobs) {
+        if (mapManifest != null) _pendingMapDirs.remove(mapManifest.framesDir);
+        return;
+      }
       _update(() {
         _status = 'Video saved to gallery';
       });
     } catch (e) {
+      // Issue #49: stopRecording failed — stop the tick too, so a failed
+      // stop cannot leave snapshots running against a dead take. No burn
+      // is queued: the catch returns below, and the manifest (if any) is
+      // discarded — its dir is stale and the next take cleans it up.
+      unawaited(_mapStopCapture());
+      if (mapManifest != null) _pendingMapDirs.remove(mapManifest.framesDir);
       _update(() {
         _lastVideo = null;
         _status = 'Could not save video. See settings for details.';
@@ -1206,21 +1457,30 @@ class _DemoScreenState extends State<DemoScreen> with WidgetsBindingObserver {
       });
       return;
     }
-    if (captions) {
+    // Issue #49 (C2): the gate widens from `if (captions)` to
+    // captions-or-map-on, so the burn path is entered when the map was on
+    // even with captions off. N-F: foreground-conditioned — in a
+    // background-jobs build a map-only take is never enqueued
+    // (CaptionJobs.enqueue carries mp4+language only, and the worker is
+    // transcription-only with no manifest); the map burn is foreground
+    // only in v1, and the original is already in the gallery.
+    if (captions || mapManifest != null) {
       if (_usesBackgroundJobs) {
-        try {
-          // Issue #50: retain the enqueued id so Delete can cancel the
-          // job for this video through _jobAction (it was discarded).
-          _lastBackgroundJobId =
-              await _jobs.enqueue(file, language: _captionLanguage.code);
-          _update(() => _jobError = null);
-          await _refreshJobs();
-        } catch (_) {
-          _update(() => _jobError =
-              'Could not queue captions. Your original video is saved in the gallery.');
+        if (captions) {
+          try {
+            // Issue #50: retain the enqueued id so Delete can cancel the
+            // job for this video through _jobAction (it was discarded).
+            _lastBackgroundJobId =
+                await _jobs.enqueue(file, language: _captionLanguage.code);
+            _update(() => _jobError = null);
+            await _refreshJobs();
+          } catch (_) {
+            _update(() => _jobError =
+                'Could not queue captions. Your original video is saved in the gallery.');
+          }
         }
       } else if (mounted) {
-        _queueCaptions(file);
+        _queueCaptions(file, mapManifest, captionsOn: captions);
       }
     }
     // In-app review prompt (issue #37): the core loop is complete — the
@@ -1393,6 +1653,20 @@ class _DemoScreenState extends State<DemoScreen> with WidgetsBindingObserver {
     );
   }
 
+  /// The burned twin for [path] (issue #49): the captioned copy, or the
+  /// map-only burn's copy when the take had no captions. At most one
+  /// exists per take — a combined burn is one file and takes the caption
+  /// label. Null when the take was never burned.
+  String? _burnedTwin(String path) {
+    if (_captionedFile != null && _captionSourceFile == path) {
+      return _captionedFile;
+    }
+    if (_mapBurnedFile != null && _mapBurnedSourceFile == path) {
+      return _mapBurnedFile;
+    }
+    return null;
+  }
+
   /// Delete the last video (issue #50): the cache file, the gallery copy
   /// Gal saved, and the captioned twin when it derives from this
   /// recording. Stops any in-flight caption job for the file FIRST —
@@ -1419,9 +1693,7 @@ class _DemoScreenState extends State<DemoScreen> with WidgetsBindingObserver {
       _lastBackgroundJobId = null;
       await _jobAction(jobId, () => _jobs.cancel(jobId));
     }
-    final twin = _captionedFile != null && _captionSourceFile == path
-        ? _captionedFile
-        : null;
+    final twin = _burnedTwin(path);
     // Issue #56: route on the target platform, not the host OS, so a
     // widget test can drive the iOS leg via debugDefaultTargetPlatformOverride
     // — identical on real devices, where the two always agree.
@@ -1453,13 +1725,14 @@ class _DemoScreenState extends State<DemoScreen> with WidgetsBindingObserver {
           if (result != null) _update(() => _status = 'Video kept.');
           return;
         }
-        // The original is already gone and only the captioned twin
+        // The original is already gone and only the burned twin
         // survives: never claim the video is kept. Name what survived
         // and drop the thumbnail — it shows a deleted file.
         _update(() {
           _lastVideo = null;
           _lastVideoThumb = null;
-          _status = 'Video deleted, captioned copy kept.';
+          _status = 'Video deleted, '
+              '${twin == _mapBurnedFile ? 'map' : 'captioned'} copy kept.';
         });
         return;
       }
@@ -1474,6 +1747,8 @@ class _DemoScreenState extends State<DemoScreen> with WidgetsBindingObserver {
         _lastFile = null;
         _captionedFile = null;
         _captionSourceFile = null;
+        _mapBurnedFile = null;
+        _mapBurnedSourceFile = null;
         _status = 'Video deleted.';
       });
       return;
@@ -1526,14 +1801,15 @@ class _DemoScreenState extends State<DemoScreen> with WidgetsBindingObserver {
     }
     if (failed) {
       if (!deletedAny) return;
-      // The original is already gone and only the captioned twin
+      // The original is already gone and only the burned twin
       // survives: never claim the video is kept. Name what survived
       // and drop the thumbnail — it shows a deleted file. _error keeps
       // naming the twin failure from the catch above.
       _update(() {
         _lastVideo = null;
         _lastVideoThumb = null;
-        _status = 'Video deleted, captioned copy kept.';
+        _status = 'Video deleted, '
+            '${twin == _mapBurnedFile ? 'map' : 'captioned'} copy kept.';
       });
       return;
     }
@@ -1543,6 +1819,8 @@ class _DemoScreenState extends State<DemoScreen> with WidgetsBindingObserver {
       _lastFile = null;
       _captionedFile = null;
       _captionSourceFile = null;
+      _mapBurnedFile = null;
+      _mapBurnedSourceFile = null;
       _status = 'Video deleted from StoryCam.';
     });
   }
@@ -1569,17 +1847,28 @@ class _DemoScreenState extends State<DemoScreen> with WidgetsBindingObserver {
     }
   }
 
-  void _queueCaptions(String mp4) {
+  void _queueCaptions(
+    String mp4,
+    MapBurnManifest? mapManifest, {
+    required bool captionsOn,
+  }) {
     final generation = _captionGeneration;
     _update(() => _captionJobs++);
     _captionQueue = _captionQueue.then((_) async {
-      if (!mounted) return;
+      if (!mounted) {
+        // Screen gone before the job started: no burn runs — drop the
+        // pending guard so the next take cleans the frames dir up.
+        if (mapManifest != null) _pendingMapDirs.remove(mapManifest.framesDir);
+        return;
+      }
       if (generation != _captionGeneration) {
         // Stopped while queued: drop the job, keep the original video.
+        if (mapManifest != null) _pendingMapDirs.remove(mapManifest.framesDir);
         _update(() => _captionJobs--);
         return;
       }
-      await _captionVideo(mp4, generation);
+      await _captionVideo(mp4, generation, mapManifest,
+          captionsOn: captionsOn);
       _update(() => _captionJobs--);
     });
   }
@@ -1598,56 +1887,104 @@ class _DemoScreenState extends State<DemoScreen> with WidgetsBindingObserver {
     unawaited(_captionNotifier.clear());
   }
 
-  Future<void> _captionVideo(String mp4, int generation) async {
+  /// One burn pass for captions + map (issue #49, design §5, C2). When
+  /// captions are off, the extract/model/transcribe stages are skipped
+  /// entirely and the burn runs map-only (words = []); when the map is
+  /// off it is the existing captions-only path, unchanged. The empty-words
+  /// early return fires only when there is no map manifest either — a
+  /// manifest present burns even with words = []. A map-only output never
+  /// takes the caption label (N-G): [_captionedFile] is set only when
+  /// captions were actually burned.
+  ///
+  /// Failure: the plain original remains the gallery video (it was saved
+  /// by _stop before this ran), with a failure notice and no partial or
+  /// duplicate entry — the failed burn never replaces the original.
+  Future<void> _captionVideo(
+    String mp4,
+    int generation,
+    MapBurnManifest? mapManifest, {
+    required bool captionsOn,
+  }) async {
+    var hasCaptions = false;
+    var inBurn = false;
+    var burnedOk = false;
     try {
-      await _captionNotifier.showProgress(CaptionStage.extracting, 0);
-      if (!mounted || _captionAborted(generation)) return;
-      final wav = await _captionPipeline.extractAudio(mp4);
-      if (!mounted || _captionAborted(generation)) return;
+      List<CaptionWord> words = const [];
+      String detectedLanguage = '';
+      if (captionsOn) {
+        await _captionNotifier.showProgress(CaptionStage.extracting, 0);
+        if (!mounted || _captionAborted(generation)) return;
+        final wav = await _captionPipeline.extractAudio(mp4);
+        if (!mounted || _captionAborted(generation)) return;
 
-      await _captionNotifier.showProgress(CaptionStage.preparingModel, 0);
-      if (!mounted || _captionAborted(generation)) return;
-      final model = await _ensureModel();
-      if (!mounted || _captionAborted(generation)) return;
+        await _captionNotifier.showProgress(CaptionStage.preparingModel, 0);
+        if (!mounted || _captionAborted(generation)) return;
+        final model = await _ensureModel();
+        if (!mounted || _captionAborted(generation)) return;
 
-      await _captionNotifier.showProgress(CaptionStage.transcribing, 0);
-      if (!mounted || _captionAborted(generation)) return;
-      // Let the progress notification paint before the blocking decode.
-      await Future<void>.delayed(const Duration(milliseconds: 150));
-      if (!mounted || _captionAborted(generation)) return;
-      final result = await _transcriber.transcribe(
-        wavPath: wav,
-        model: model,
-        language: _captionLanguage.code,
-      );
-      if (!mounted || _captionAborted(generation)) return;
-      final words = result.words;
-      if (words.isEmpty) {
-        await _captionNotifier.showNoSpeech();
-        return;
+        await _captionNotifier.showProgress(CaptionStage.transcribing, 0);
+        if (!mounted || _captionAborted(generation)) return;
+        // Let the progress notification paint before the blocking decode.
+        await Future<void>.delayed(const Duration(milliseconds: 150));
+        if (!mounted || _captionAborted(generation)) return;
+        final result = await _transcriber.transcribe(
+          wavPath: wav,
+          model: model,
+          language: _captionLanguage.code,
+        );
+        if (!mounted || _captionAborted(generation)) return;
+        words = result.words;
+        detectedLanguage = result.detectedLanguage;
+        hasCaptions = words.isNotEmpty;
+        if (words.isEmpty && mapManifest == null) {
+          await _captionNotifier.showNoSpeech();
+          return;
+        }
+      } else if (mapManifest == null) {
+        return; // Nothing to burn (the _stop gate should have prevented this).
       }
 
-      await _captionNotifier.showProgress(CaptionStage.burning, 0);
+      if (hasCaptions) {
+        await _captionNotifier.showProgress(CaptionStage.burning, 0);
+      } else {
+        await _captionNotifier.showMapProgress(0);
+      }
       if (!mounted || _captionAborted(generation)) return;
-      final captioned = await _captionPipeline.burnCaptions(
+      inBurn = true;
+      final burned = await _captionPipeline.burnCaptions(
         mp4Path: mp4,
         words: words,
+        mapManifest: mapManifest,
       );
       if (!mounted || _captionAborted(generation)) return;
-      await Gal.putVideo(captioned);
+      await Gal.putVideo(burned);
       if (!mounted || _captionAborted(generation)) return;
+      burnedOk = true;
       _update(() {
-        _captionedFile = captioned;
-        _captionSourceFile = mp4;
+        if (hasCaptions) {
+          _captionedFile = burned;
+          _captionSourceFile = mp4;
+        } else {
+          // N-G: map-only output (captions off, or on but no speech).
+          _mapBurnedFile = burned;
+          _mapBurnedSourceFile = mp4;
+        }
       });
-      await _captionNotifier.showDone(
-          words.length, result.detectedLanguage);
-      // Background jobs emit the same event with job='background' from
-      // runCaptionJob (the caption isolate initializes analytics itself).
-      Analytics.captionsDone(
-          wordCount: words.length,
-          language: result.detectedLanguage,
-          captionLanguage: _captionLanguage.code);
+      if (mapManifest != null) {
+        debugPrint('[MAPBURN] DONE original=$mp4 burned=$burned '
+            'mapFrames=${mapManifest.frames.length} words=${words.length}');
+      }
+      if (hasCaptions) {
+        await _captionNotifier.showDone(words.length, detectedLanguage);
+        // Background jobs emit the same event with job='background' from
+        // runCaptionJob (the caption isolate initializes analytics itself).
+        Analytics.captionsDone(
+            wordCount: words.length,
+            language: detectedLanguage,
+            captionLanguage: _captionLanguage.code);
+      } else {
+        await _captionNotifier.showMapDone();
+      }
     } catch (e) {
       if (!mounted) return;
       if (_captionAborted(generation) ||
@@ -1662,8 +1999,31 @@ class _DemoScreenState extends State<DemoScreen> with WidgetsBindingObserver {
         await _captionNotifier.clear();
         return;
       }
+      if (inBurn && mapManifest != null) {
+        debugPrint('[MAPBURN] FAILED original=$mp4 '
+            'mapFrames=${mapManifest.frames.length} captionsOn=$captionsOn '
+            'error=$e');
+      }
       _update(() => _error = '$e');
-      await _captionNotifier.showFailed('$e');
+      // Pre-burn failures are caption-job failures (only reachable with
+      // captions on); a burn-phase failure names the job that burned.
+      if (!inBurn || hasCaptions) {
+        await _captionNotifier.showFailed('$e');
+      } else {
+        await _captionNotifier.showMapFailed('$e');
+      }
+    } finally {
+      // The queued burn consumed the manifest: the frames dir is no
+      // longer guarded, and on success it is deleted (design §1) — on
+      // failure it stays for the next take's stale-dir cleanup.
+      if (mapManifest != null) {
+        _pendingMapDirs.remove(mapManifest.framesDir);
+        if (burnedOk) {
+          try {
+            await Directory(mapManifest.framesDir).delete(recursive: true);
+          } catch (_) {}
+        }
+      }
     }
   }
 
@@ -1690,6 +2050,7 @@ class _DemoScreenState extends State<DemoScreen> with WidgetsBindingObserver {
   @override
   void dispose() {
     _jobPoll?.cancel();
+    _mapCaptureTimer?.cancel();
     _stopMapLocation();
     if (_ownsMapService) _mapService?.dispose();
     WidgetsBinding.instance.removeObserver(this);
@@ -1907,6 +2268,8 @@ class _DemoScreenState extends State<DemoScreen> with WidgetsBindingObserver {
                 ? null
                 : (v) {
                     _updateSettings(_settings.copyWith(mapVisible: v));
+                    // Issue #49: track sample on every map toggle.
+                    _mapRecordToggle(v);
                     if (v) {
                       unawaited(_ensureMapLocation());
                     } else {
@@ -2093,6 +2456,10 @@ class _DemoScreenState extends State<DemoScreen> with WidgetsBindingObserver {
                 SelectableText('Caption source: $_captionSourceFile'),
                 SelectableText('Captioned: $_captionedFile'),
               ],
+              if (_mapBurnedFile != null) ...[
+                SelectableText('Map burn source: $_mapBurnedSourceFile'),
+                SelectableText('Map burn: $_mapBurnedFile'),
+              ],
               if (value.isInitialized)
                 FittedBox(
                     fit: BoxFit.scaleDown,
@@ -2131,6 +2498,8 @@ class _DemoScreenState extends State<DemoScreen> with WidgetsBindingObserver {
         await _stop();
       } else {
         await _cameraCommand(_controller.startRecording);
+        // Issue #49: start the 2 fps map snapshot tick.
+        unawaited(_mapStartCapture());
         Analytics.recordStarted(
             captionsOn: _captions, captionLanguage: _captionLanguage.code);
         _update(() {
@@ -2197,18 +2566,23 @@ class _DemoScreenState extends State<DemoScreen> with WidgetsBindingObserver {
           // Map circle (issue #20): only when the circle is on AND the
           // location permission was granted — a denial hides it, no crash,
           // no repeated prompt. No position yet = plain disc + N arrow.
+          // Issue #49: wrapped in a RepaintBoundary (stable State key,
+          // N-H) so the 2 fps snapshot tick can capture it for the burn.
           mapCircle: _settings.mapVisible && _locationGranted
-              ? MapCircle(
-                  position: _position,
-                  headingDeg: _heading,
-                  mode: _settings.compassMode,
-                  zoom: _settings.mapZoom,
-                  placeName: _placeName,
-                  onZoomChanged: (z) =>
-                      _updateSettings(_settings.copyWith(mapZoom: z)),
-                  // No tile fetches under `flutter test` (hermetic; the
-                  // disc + dot + N arrow still render).
-                  showTiles: Platform.environment['FLUTTER_TEST'] != 'true',
+              ? RepaintBoundary(
+                  key: _mapBoundaryKey,
+                  child: MapCircle(
+                    position: _position,
+                    headingDeg: _heading,
+                    mode: _settings.compassMode,
+                    zoom: _settings.mapZoom,
+                    placeName: _placeName,
+                    onZoomChanged: (z) =>
+                        _updateSettings(_settings.copyWith(mapZoom: z)),
+                    // No tile fetches under `flutter test` (hermetic; the
+                    // disc + dot + N arrow still render).
+                    showTiles: Platform.environment['FLUTTER_TEST'] != 'true',
+                  ),
                 )
               : null,
           // Lens pills (issue #20): only the active camera's probed

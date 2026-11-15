@@ -105,6 +105,9 @@ class FakeCaptionJobNotifier implements CaptionJobNotifier {
   int noSpeechCalls = 0;
   final List<String> failed = [];
   int clearCalls = 0;
+  int mapProgressCalls = 0;
+  int mapDoneCalls = 0;
+  final List<String> mapFailed = [];
   void Function()? _onStop;
 
   @override
@@ -131,6 +134,21 @@ class FakeCaptionJobNotifier implements CaptionJobNotifier {
   @override
   Future<void> showFailed(String error) async {
     failed.add(error);
+  }
+
+  @override
+  Future<void> showMapProgress(double progress) async {
+    mapProgressCalls++;
+  }
+
+  @override
+  Future<void> showMapDone() async {
+    mapDoneCalls++;
+  }
+
+  @override
+  Future<void> showMapFailed(String error) async {
+    mapFailed.add(error);
   }
 
   @override
@@ -2652,6 +2670,98 @@ void main() {
     expect(find.text('Video kept.'), findsNothing);
     expect(find.text('Could not delete video. See settings for details.'),
         findsNothing);
+    expect(find.byKey(const Key('last-video-thumbnail')), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets(
+      'map-only burn runs with captions off and takes the map twin, never the caption label (issue #49)',
+      (tester) async {
+    // Captions off (default), map on (default) with location granted:
+    // the take burns map-only — no transcription, words = [], the
+    // manifest carries snapshots, and the output is the map twin.
+    final shareCalls = mockShareChannel(deleteResults: [
+      {
+        'cacheDeleted': true,
+        'galleryDeleted': true,
+        'cancelled': false,
+      },
+      {
+        'cacheDeleted': false,
+        'galleryDeleted': false,
+        'cancelled': true,
+      },
+    ]);
+    // getTemporaryDirectory is unmocked in setUp (null reply) — the
+    // snapshot capture needs a real temp dir in tests.
+    final tempDir = Directory.systemTemp.createTempSync('storycam-map-');
+    addTearDown(() => tempDir.deleteSync(recursive: true));
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(
+            const MethodChannel('plugins.flutter.io/path_provider'),
+            (call) async {
+      if (call.method == 'getTemporaryDirectory') return tempDir.path;
+      return null;
+    });
+    addTearDown(() => TestDefaultBinaryMessengerBinding.instance
+        .defaultBinaryMessenger
+        .setMockMethodCallHandler(
+            const MethodChannel('plugins.flutter.io/path_provider'), null));
+    Map<String, Object?>? burnArgs;
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(
+            const MethodChannel('dual_cameras_example/captions'),
+            (call) async {
+      if (call.method == 'burnCaptions') {
+        burnArgs = (call.arguments as Map<Object?, Object?>)
+            .cast<String, Object?>();
+        return '/tmp/story-map.mp4';
+      }
+      // extractAudio must never run on the map-only pass (C2:
+      // transcription is skipped entirely when captions are off).
+      throw StateError('unexpected ${call.method}');
+    });
+    addTearDown(() => TestDefaultBinaryMessengerBinding.instance
+        .defaultBinaryMessenger
+        .setMockMethodCallHandler(
+            const MethodChannel('dual_cameras_example/captions'), null));
+    final captions = FakeCaptionJobNotifier();
+    await openCamera(tester,
+        captions: captions,
+        mapLocationService: FakeMapLocationService());
+    // The map circle must be on screen for the snapshot tick to capture.
+    expect(find.byKey(const Key('map-circle')), findsOneWidget);
+    await recordVideoWithFile(tester);
+    // The burn finishes in the background: the map notifier reports done.
+    // Snapshot capture does real dart:io I/O — flush it with runAsync
+    // turns (same pattern as the iOS twin test above).
+    for (var i = 0; captions.mapDoneCalls == 0 && i < 50; i++) {
+      await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 100)));
+      await tester.pump();
+    }
+    expect(captions.mapDoneCalls, 1);
+    expect(captions.mapFailed, isEmpty);
+    // N-G: no caption label anywhere — no captions were burned.
+    expect(captions.done, isEmpty);
+    expect(captions.progresses, isEmpty);
+    expect(burnArgs, isNotNull);
+    expect(burnArgs!['words'], '[]');
+    final manifest = burnArgs!['mapManifest'] as String;
+    expect(manifest, contains('map_'));
+    expect(manifest, contains('"mapVisible":true'));
+    // Delete: the map burn is the twin — the original goes, the map copy
+    // is cancelled, and the status names the map copy, not a caption.
+    expect(find.byKey(const Key('last-video-thumbnail')), findsOneWidget);
+    await tester.tap(find.byKey(const Key('last-video-thumbnail')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('last-video-menu-delete')));
+    await tester.pumpAndSettle();
+    expect(shareCalls.length, 2);
+    expect((shareCalls[0].$2 as Map)['path'], '/tmp/story.mp4');
+    expect((shareCalls[1].$2 as Map)['path'], '/tmp/story-map.mp4');
+    expect(find.text('Video deleted, map copy kept.'), findsOneWidget);
+    expect(find.text('Video deleted, captioned copy kept.'), findsNothing);
     expect(find.byKey(const Key('last-video-thumbnail')), findsNothing);
     expect(tester.takeException(), isNull);
   });
