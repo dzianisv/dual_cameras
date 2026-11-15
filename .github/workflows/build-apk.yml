@@ -68,9 +68,10 @@ jobs:
       # rejects the workflow at parse time), so the presence check lives
       # in the shell below: an unset secret arrives as an empty env var
       # and the step exits early, leaving the debug fallback in place.
-      # NOTE: once this step first activates, the "Verify StoryCam APK"
-      # step's CN=Android Debug assertion must become conditional on the
-      # signing path — a release-signed tag build would fail it as written.
+      # NOTE: the "Verify StoryCam APK" step's signing assertion is
+      # conditional on the signing path (made conditional when the
+      # keystore first activated): a release-signed tag build asserts
+      # NOT debug-signed, a build without the keystore asserts debug.
       - name: Install release keystore from secrets (if provided)
         env:
           STORYCAM_KEYSTORE_BASE64: ${{ secrets.STORYCAM_KEYSTORE_BASE64 }}
@@ -120,8 +121,19 @@ jobs:
             test "$GITHUB_REF_NAME" = "v${APP_VERSION%+*}"
           fi
           "$(dirname "$AAPT2")/apksigner" verify --verbose --print-certs "$APK" > signing.txt
-          grep -q "CN=Android Debug" signing.txt
-          echo "APK OK: StoryCam + package + CAMERA, RECORD_AUDIO, INTERNET + debug certificate"
+          # Signing assertion is conditional on the signing path (issue #32
+          # follow-up): a release-keystore build must NOT be debug-signed,
+          # a build without the keystore must be debug-signed.
+          if [ -n "$STORYCAM_KEYSTORE_FILE" ]; then
+            if grep -q "CN=Android Debug" signing.txt; then
+              echo "FAIL: release-keystore build is debug-signed" >&2
+              exit 1
+            fi
+            echo "APK OK: StoryCam + package + CAMERA, RECORD_AUDIO, INTERNET + release certificate"
+          else
+            grep -q "CN=Android Debug" signing.txt
+            echo "APK OK: StoryCam + package + CAMERA, RECORD_AUDIO, INTERNET + debug certificate"
+          fi
 
       - name: Verify StoryCam app bundle
         working-directory: ${{ env.EXAMPLE_DIR }}
@@ -146,7 +158,8 @@ jobs:
           sha256sum "$APK_NAME" > SHA256SUMS
           cp build/app/outputs/bundle/release/app-release.aab storycam-play-release.aab
           sha256sum storycam-play-release.aab > SHA256SUMS.aab
-          printf 'commit=%s\nref=%s\nsigning=debug\n' "$GITHUB_SHA" "$GITHUB_REF" > build-info.txt
+          if [ -n "$STORYCAM_KEYSTORE_FILE" ]; then SIGNING=release; else SIGNING=debug; fi
+          printf 'commit=%s\nref=%s\nsigning=%s\n' "$GITHUB_SHA" "$GITHUB_REF" "$SIGNING" > build-info.txt
 
       - name: Upload StoryCam APK
         uses: actions/upload-artifact@v4
