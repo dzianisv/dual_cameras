@@ -31,7 +31,11 @@ NATIVE_RE = re.compile(
 def main() -> int:
     with open(sys.argv[1], errors="replace") as f:
         text = f.read()
-    m = SUMMARY_RE.search(text)
+    # Last match wins: an earlier short take (e.g. the smoke test's own
+    # recording leg) also logs MAPSPIKE lines; the 60 s take is the last.
+    m = None
+    for cand in SUMMARY_RE.finditer(text):
+        m = cand
     if not m:
         print("MAPSPIKE FAIL: no SUMMARY line in logcat dump")
         return 1
@@ -45,7 +49,9 @@ def main() -> int:
     rate = float(s["rate"])
     mins = dur / 60000.0
 
-    n = NATIVE_RE.search(text)
+    n = None
+    for cand in NATIVE_RE.finditer(text):
+        n = cand
     enc = exp_frames = native_drop = None
     if n:
         enc = int(n.group("enc"))

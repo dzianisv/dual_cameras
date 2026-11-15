@@ -6,10 +6,12 @@
 # (see ~/workspace/storycam/PHONE_TEST_PLAN.md).
 #
 # SPIKE #49 (spike/map-capture-49 branch only, never merge): a 60 s recording
-# leg is appended at the end of the script, dumping [MAPSPIKE] logcat lines
-# and judging them with tools/mapspike_check.py against the design §1 pass
-# bar (>=95% snapshots, duration x fps or zero encoder drops, storage
-# within budget). The smoke checks above it are unchanged.
+# leg sits after the first recording leg, before the resume legs, dumping
+# [MAPSPIKE] logcat lines and judging them with tools/mapspike_check.py
+# against the design §1 pass bar (>=95% snapshots, duration x fps or zero
+# encoder drops, storage within budget). Placed before the resume legs
+# because the preview-motion checks flake on main (control 43703993609);
+# the smoke checks themselves are unchanged.
 #
 # BUG FIX 2026-11-14: the first-ever run (43491636991) failed before
 # installing the APK — `adb: filename doesn't end .apk or .apex:` with an
@@ -205,6 +207,16 @@ jobs:
             sleep 3
             python3 tools/emulator_tap.py 'Stop recording'
             sleep 8
+            echo 'SPIKE #49: 60 s recording for the 2 fps map-snapshot capture measurement (spike branch only; placed here, before the resume legs, so a flaky resume check cannot block the measurement — main control 43703993609 fails the same preview-motion checks without this change)'
+            adb logcat -c
+            python3 tools/emulator_tap.py 'Start recording'
+            sleep 60
+            python3 tools/emulator_tap.py 'Stop recording'
+            sleep 15
+            adb logcat -d | grep MAPSPIKE > mapspike.log || true
+            cat mapspike.log
+            adb logcat -d > logcat-full.txt || true
+            python3 tools/mapspike_check.py mapspike.log
             adb shell input keyevent 3
             sleep 5
             adb shell am start -n app.storycam/.MainActivity
@@ -219,15 +231,6 @@ jobs:
             python3 tools/preview_diff.py resume-after-rec-1.png resume-after-rec-2.png --min-diff 0.1 || (echo 'RESUME FAILED (after recording): no motion in the preview region after background/foreground - camera frozen (issue #13)'; adb logcat -d | grep -i -E "storycam|flutter|fatal|crash" | tail -30; adb logcat -d -b crash | tail -40 || true; exit 1)
             echo 'resume (after recording): preview region shows motion after background/foreground (live preview restored)'
             adb shell dumpsys activity activities | grep -i -A2 -B2 storycam || true
-            echo 'SPIKE #49: 60 s recording for the 2 fps map-snapshot capture measurement (spike branch only; the smoke checks above are unchanged)'
-            python3 tools/emulator_tap.py 'Start recording'
-            sleep 60
-            python3 tools/emulator_tap.py 'Stop recording'
-            sleep 15
-            adb logcat -d | grep MAPSPIKE > mapspike.log || true
-            cat mapspike.log
-            adb logcat -d > logcat-full.txt || true
-            python3 tools/mapspike_check.py mapspike.log
             adb logcat -d | grep -i -E "storycam|flutter|fatal|crash" | tail -50 || true
             
       - name: Upload launch screenshot
