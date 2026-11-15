@@ -57,8 +57,8 @@
 # This test guards "no worse", not "fixed": it passes on unfixed code, and
 # Den's phone is the proof gate for the fix.
 # Taps reuse tools/emulator_tap.py and the 'Wait'/'Allow' fallbacks from
-# emulator-screenshots.yml (same rules: pre-grant POST_NOTIFICATIONS so
-# the first-launch modal never covers the shutter).
+# emulator-screenshots.yml (same rules: pre-grant POST_NOTIFICATIONS and
+# location so the permission dialogs never cover the shutter).
 name: StoryCam emulator smoke test
 
 on:
@@ -161,6 +161,8 @@ jobs:
             adb shell pm grant app.storycam android.permission.CAMERA || true
             adb shell pm grant app.storycam android.permission.RECORD_AUDIO || true
             adb shell pm grant app.storycam android.permission.POST_NOTIFICATIONS || true
+            adb shell pm grant app.storycam android.permission.ACCESS_FINE_LOCATION || true
+            adb shell pm grant app.storycam android.permission.ACCESS_COARSE_LOCATION || true
             adb shell am start -n app.storycam/.MainActivity
             sleep 20
             adb shell pidof app.storycam || (adb logcat -d | grep -i -E "storycam|flutter|fatal|crash" | tail -30; adb logcat -d -b crash | tail -40 || true; exit 1)

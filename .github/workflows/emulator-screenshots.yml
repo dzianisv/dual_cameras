@@ -46,7 +46,7 @@
 # took the first substring match. The matcher now prefers an exact
 # text match, then a clickable node (see tools/emulator_tap.py).
 # Belt-and-braces: the workflow also pre-grants POST_NOTIFICATIONS
-# with `pm grant` (same as CAMERA/RECORD_AUDIO below), so on a fresh
+# with `pm grant` (same as CAMERA/RECORD_AUDIO/location below), so on a fresh
 # install the dialog never appears at all; the 'Allow' tap stays as
 # the fallback in case the grant does not suppress it on this API
 # level. Granting is fine for Play screenshots — the later shots
@@ -175,6 +175,8 @@ jobs:
             adb shell pm grant app.storycam android.permission.CAMERA || true
             adb shell pm grant app.storycam android.permission.RECORD_AUDIO || true
             adb shell pm grant app.storycam android.permission.POST_NOTIFICATIONS || true
+            adb shell pm grant app.storycam android.permission.ACCESS_FINE_LOCATION || true
+            adb shell pm grant app.storycam android.permission.ACCESS_COARSE_LOCATION || true
             adb shell am start -n app.storycam/.MainActivity
             sleep 30
             adb shell pidof app.storycam || (adb logcat -d | grep -i -E "storycam|flutter|fatal|crash" | tail -30; exit 1)
