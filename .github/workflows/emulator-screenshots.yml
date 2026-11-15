@@ -1,7 +1,8 @@
 # Purpose: capture Play screenshots from real tested flows on the CI
 # emulator. Same app, same build as the smoke test — but it taps through
-# the camera screen, the Captions sheet, the Filters sheet, and a
-# recording, saving one screenshot per step. It does NOT prove concurrent
+# the camera screen, the Captions section of the Settings dialog,
+# the filter slider above the record button, and a recording, saving
+# one screenshot per step. It does NOT prove concurrent
 # cameras, mic audio, or caption inference: emulator cameras are
 # virtual, and sherpa-onnx runs through the native bridge. A real phone
 # is still the proof gate and the source of the best screenshots (see
@@ -192,11 +193,9 @@ jobs:
             adb exec-out screencap -p > 02-captions-sheet.png
             adb shell input keyevent 4
             sleep 2
-            python3 tools/emulator_tap.py 'Filters'
+            python3 tools/emulator_tap.py 'Moody'
             sleep 3
             adb exec-out screencap -p > 03-filters.png
-            adb shell input keyevent 4
-            sleep 2
             python3 tools/emulator_tap.py 'Start recording'
             sleep 6
             python3 tools/emulator_tap.py 'Wait' || true
