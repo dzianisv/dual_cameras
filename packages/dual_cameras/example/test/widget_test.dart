@@ -2344,7 +2344,8 @@ void main() {
   // Issue #50 helpers: one full recording with a real file on disk
   // (the camera fake returns '/tmp/story.mp4' from stopRecording, and
   // Open/Share/Delete all check the file exists). The thumbnail channel
-  // answers with a 1x1 PNG, so the tile renders the real-frame path.
+  // (dual_cameras_example/thumbnail, native frame extraction) answers
+  // with a 1x1 PNG, so the tile renders the real-frame path.
   Future<void> recordVideoWithFile(WidgetTester tester) async {
     File('/tmp/story.mp4').writeAsStringSync('fake-video');
     addTearDown(() {
@@ -2353,13 +2354,13 @@ void main() {
     });
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(
-            const MethodChannel('plugins.justsoft.xyz/video_thumbnail'),
+            const MethodChannel('dual_cameras_example/thumbnail'),
             (call) async => base64Decode(
                 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=='));
     addTearDown(() => TestDefaultBinaryMessengerBinding.instance
         .defaultBinaryMessenger
         .setMockMethodCallHandler(
-            const MethodChannel('plugins.justsoft.xyz/video_thumbnail'),
+            const MethodChannel('dual_cameras_example/thumbnail'),
             null));
     await recordAndStop(tester);
   }

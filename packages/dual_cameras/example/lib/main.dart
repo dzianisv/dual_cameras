@@ -9,7 +9,6 @@ import 'package:latlong2/latlong.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:video_player/video_player.dart';
-import 'package:video_thumbnail/video_thumbnail.dart';
 
 import 'analytics.dart';
 import 'captions/caption_job_notifier.dart';
@@ -382,6 +381,18 @@ class _DemoScreenState extends State<DemoScreen> with WidgetsBindingObserver {
   // dead `caption_jobs` share path — that channel has no native handler.
   static const MethodChannel _shareChannel =
       MethodChannel('dual_cameras_example/share');
+  // Last-video thumbnail (issue #50): `videoThumbnail {path, maxWidth,
+  // quality, timeMs}` returns one frame as JPEG bytes, extracted
+  // natively (Android MediaMetadataRetriever, iOS AVAssetImageGenerator).
+  // Own channel, not the share channel: the thumbnail is a read-only
+  // frame extraction whose failure is an invisible fallback, while
+  // share/delete failures set status — and the widget tests mock the
+  // two channels independently. No third-party dep: video_thumbnail
+  // 0.5.6 was removed — its android/build.gradle calls jcenter(),
+  // gone under this project's AGP 9+ setup, and 0.5.6 is the latest
+  // version on pub.dev, so no newer release fixes it.
+  static const MethodChannel _thumbnailChannel =
+      MethodChannel('dual_cameras_example/thumbnail');
   int _frontOffset = 90; // matches FRONT_ROTATION_OFFSET default
   int _backOffset = -90; // matches BACK_ROTATION_OFFSET default
   double _frontAspect = 0; // 0 = auto (use camera-reported)
@@ -1257,19 +1268,18 @@ class _DemoScreenState extends State<DemoScreen> with WidgetsBindingObserver {
   }
 
   /// Generate the last-video thumbnail bytes (issue #50): a real frame
-  /// at 500 ms, JPEG, max width 128, quality 75. Fire-and-forget from
-  /// _stop(); never throws. Second half of the N8 stale-frame guard:
+  /// at 500 ms, JPEG, max width 128, quality 75 — extracted natively
+  /// through the `dual_cameras_example/thumbnail` channel (Android
+  /// MediaMetadataRetriever, iOS AVAssetImageGenerator). Fire-and-forget
+  /// from _stop(); never throws. Second half of the N8 stale-frame guard:
   /// only write the bytes when the path is still the last video, so a
   /// slow generation from a previous recording (or one that completed
   /// after Delete) can never overwrite the current frame.
   Future<void> _generateLastVideoThumb(String path) async {
     try {
-      final bytes = await VideoThumbnail.thumbnailData(
-        video: path,
-        imageFormat: ImageFormat.JPEG,
-        maxWidth: 128,
-        quality: 75,
-        timeMs: 500,
+      final bytes = await _thumbnailChannel.invokeMethod<Uint8List>(
+        'videoThumbnail',
+        {'path': path, 'maxWidth': 128, 'quality': 75, 'timeMs': 500},
       );
       if (bytes == null || _lastVideo != path) return;
       _update(() => _lastVideoThumb = bytes);

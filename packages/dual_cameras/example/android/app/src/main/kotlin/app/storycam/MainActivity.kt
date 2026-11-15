@@ -20,6 +20,12 @@ class MainActivity : FlutterActivity() {
         ).setMethodCallHandler { call, result ->
             ShareChannel.handle(this, call, result)
         }
+        MethodChannel(
+            flutterEngine.dartExecutor.binaryMessenger,
+            ThumbnailChannel.NAME,
+        ).setMethodCallHandler { call, result ->
+            ThumbnailChannel.handle(call, result)
+        }
     }
 
     // Delete system confirmation (issue #50): ShareChannel.deleteVideo
