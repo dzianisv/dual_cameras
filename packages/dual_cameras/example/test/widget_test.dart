@@ -18,6 +18,7 @@ import 'package:dual_cameras_example/review_prompt.dart';
 import 'package:dual_cameras_example/ui/filter_slider.dart';
 import 'package:dual_cameras_example/ui/map_circle.dart';
 import 'package:dual_cameras_platform_interface/dual_cameras_platform_interface.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_map/flutter_map.dart';
@@ -517,6 +518,7 @@ void main() {
       ReviewPrompt? reviewPrompt,
       ReviewPromptGate? reviewPromptGate,
       String? appVersion,
+      Future<void> Function(File file)? deleteFile,
       Transcriber? transcriber}) async {
     await tester.pumpWidget(DemoApp(
         modelManager: model,
@@ -528,6 +530,7 @@ void main() {
         reviewPrompt: reviewPrompt,
         reviewPromptGate: reviewPromptGate,
         appVersion: appVersion,
+        deleteFile: deleteFile,
         transcriber: transcriber));
     await tester.pumpAndSettle();
     expect(find.byTooltip('Start recording'), findsOneWidget);
@@ -2563,6 +2566,93 @@ void main() {
         (shareCalls[1].$2 as Map)['path'], '/tmp/story-captioned.mp4');
     expect(find.text('Video deleted, captioned copy kept.'), findsOneWidget);
     expect(find.text('Video kept.'), findsNothing);
+    expect(find.byKey(const Key('last-video-thumbnail')), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets(
+      'last-video menu Delete with the twin delete failing on iOS deletes the original only (issue #56)',
+      (tester) async {
+    // Issue #56, iOS analog of the F2 leg above: the original's delete
+    // succeeds and the twin's throws — the status must not claim total
+    // failure, and the thumbnail must go away with the deleted original.
+    // The routing seam (defaultTargetPlatform) drives the iOS leg on
+    // the Linux test host; the deleteFile seam forces the twin throw,
+    // which the filesystem cannot (the host runs as root).
+    debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
+    addTearDown(() => debugDefaultTargetPlatformOverride = null);
+    final deleteCalls = <String>[];
+    Future<void> deleteFile(File file) async {
+      deleteCalls.add(file.path);
+      if (file.path == '/tmp/story-captioned.mp4') {
+        throw const FileSystemException('Simulated twin delete failure',
+            '/tmp/story-captioned.mp4');
+      }
+      await file.delete();
+    }
+
+    final captions = FakeCaptionJobNotifier();
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(
+            const MethodChannel('dual_cameras_example/captions'),
+            (call) async {
+      if (call.method == 'extractAudio') return '/tmp/audio.wav';
+      if (call.method == 'burnCaptions') return '/tmp/story-captioned.mp4';
+      throw StateError('unexpected ${call.method}');
+    });
+    addTearDown(() => TestDefaultBinaryMessengerBinding.instance
+        .defaultBinaryMessenger
+        .setMockMethodCallHandler(
+            const MethodChannel('dual_cameras_example/captions'), null));
+    // The iOS leg only deletes files that exist, so the twin must be a
+    // real file on disk for the throw to be reached.
+    File('/tmp/story-captioned.mp4').writeAsStringSync('fake-captioned');
+    addTearDown(() {
+      final twin = File('/tmp/story-captioned.mp4');
+      if (twin.existsSync()) twin.deleteSync();
+    });
+    await openCamera(tester,
+        captions: captions,
+        transcriber: FakeTranscriber(),
+        deleteFile: deleteFile);
+    // Auto-captions on, as in the caption-job tests.
+    await tester.ensureVisible(find.byKey(const Key('menu-captions')));
+    await tester.tap(find.byKey(const Key('menu-captions')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(SwitchListTile, 'Auto-captions'));
+    await tester.tap(find.byTooltip('Close Camera settings'));
+    await tester.pumpAndSettle();
+    await recordVideoWithFile(tester);
+    // The caption job finishes in the background: the twin exists once
+    // the notifier reports done.
+    for (var i = 0; captions.done.isEmpty && i < 50; i++) {
+      await tester.pump(const Duration(milliseconds: 100));
+    }
+    expect(captions.done, isNotEmpty);
+    expect(find.byKey(const Key('last-video-thumbnail')), findsOneWidget);
+    await tester.tap(find.byKey(const Key('last-video-thumbnail')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('last-video-menu-delete')));
+    // The iOS leg does real dart:io file I/O, which only completes on
+    // the real event loop — flush it with runAsync turns until both
+    // deletes have been attempted, then settle.
+    for (var i = 0; deleteCalls.length < 2 && i < 10; i++) {
+      await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 100)));
+      await tester.pump();
+    }
+    await tester.pumpAndSettle();
+    // Reset inline, not only in tearDown: flutter_test verifies all
+    // foundation debug variables are unset at the end of the test body,
+    // before tearDowns run — restoring only in tearDown fails that check.
+    debugDefaultTargetPlatformOverride = null;
+    expect(deleteCalls, ['/tmp/story.mp4', '/tmp/story-captioned.mp4']);
+    expect(File('/tmp/story.mp4').existsSync(), isFalse);
+    expect(File('/tmp/story-captioned.mp4').existsSync(), isTrue);
+    expect(find.text('Video deleted, captioned copy kept.'), findsOneWidget);
+    expect(find.text('Video kept.'), findsNothing);
+    expect(find.text('Could not delete video. See settings for details.'),
+        findsNothing);
     expect(find.byKey(const Key('last-video-thumbnail')), findsNothing);
     expect(tester.takeException(), isNull);
   });

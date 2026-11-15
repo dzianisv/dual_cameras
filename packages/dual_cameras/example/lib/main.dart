@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:dual_cameras/dual_cameras.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:gal/gal.dart';
@@ -68,6 +69,7 @@ class DemoApp extends StatelessWidget {
       this.reviewPromptGate,
       this.reviewPrompt,
       this.appVersion,
+      this.deleteFile,
       this.transcriber});
 
   final ModelManager? modelManager;
@@ -87,6 +89,11 @@ class DemoApp extends StatelessWidget {
   final ReviewPromptGate? reviewPromptGate;
   final ReviewPrompt? reviewPrompt;
   final String? appVersion;
+  // Issue #56: the real File.delete cannot be forced to throw in a widget
+  // test (the host runs as root, so a read-only directory does not fail
+  // the unlink), so the twin-failure leg is untestable without this seam
+  // — same pattern as transcriber below.
+  final Future<void> Function(File file)? deleteFile;
   // Issue #50 (F2 fix): the real Transcriber is sherpa-onnx FFI and
   // cannot run in a widget test, so the twin path is untestable without
   // this seam — same pattern as modelManager above.
@@ -123,6 +130,7 @@ class DemoApp extends StatelessWidget {
           reviewPromptGate: reviewPromptGate,
           reviewPrompt: reviewPrompt,
           appVersion: appVersion,
+          deleteFile: deleteFile,
           transcriber: transcriber),
     );
   }
@@ -144,6 +152,7 @@ class DemoScreen extends StatefulWidget {
       this.reviewPromptGate,
       this.reviewPrompt,
       this.appVersion,
+      this.deleteFile,
       this.transcriber});
 
   final ModelManager? modelManager;
@@ -159,6 +168,7 @@ class DemoScreen extends StatefulWidget {
   final ReviewPromptGate? reviewPromptGate;
   final ReviewPrompt? reviewPrompt;
   final String? appVersion;
+  final Future<void> Function(File file)? deleteFile;
   final Transcriber? transcriber;
 
   @override
@@ -316,6 +326,13 @@ class _DemoScreenState extends State<DemoScreen> with WidgetsBindingObserver {
   late final ModelManager _modelManager = widget.modelManager ?? ModelManager();
   Future<WhisperModelFiles>? _modelFuture;
   String? _modelError;
+  // Issue #56: injectable so a widget test can force the twin delete to
+  // throw; defaults to the real File.delete.
+  late final Future<void> Function(File file) _deleteFile =
+      widget.deleteFile ??
+          (File file) async {
+            await file.delete();
+          };
   // Issue #50 (F2 fix): injectable so a widget test can complete a
   // caption job and produce the twin; defaults to the real FFI one.
   late final Transcriber _transcriber =
@@ -1405,7 +1422,10 @@ class _DemoScreenState extends State<DemoScreen> with WidgetsBindingObserver {
     final twin = _captionedFile != null && _captionSourceFile == path
         ? _captionedFile
         : null;
-    if (Platform.isIOS) {
+    // Issue #56: route on the target platform, not the host OS, so a
+    // widget test can drive the iOS leg via debugDefaultTargetPlatformOverride
+    // — identical on real devices, where the two always agree.
+    if (defaultTargetPlatform == TargetPlatform.iOS) {
       await _deleteLastVideoIos(path, twin);
       return;
     }
@@ -1479,21 +1499,44 @@ class _DemoScreenState extends State<DemoScreen> with WidgetsBindingObserver {
   /// from the same recording. No Swift handler, no channel call. The
   /// Photos copy is NOT deleted in v1 (PHAssetChangeRequest is possible
   /// with authorization, but it is not built in v1) — it stays in Photos.
+  /// Issue #56: track whether anything was already deleted, not just
+  /// whether anything failed — the iOS analog of Android's
+  /// `results.isEmpty` test in _deleteLastVideoAndroid. If the twin's
+  /// delete throws after the original is gone, the status must not claim
+  /// total failure: the thumbnail shows the deleted original, so it goes
+  /// away, and the kept twin's bookkeeping stays (same two-field clear
+  /// as the Android F2 leg).
   Future<void> _deleteLastVideoIos(String path, String? twin) async {
-    var deleted = true;
+    var deletedAny = false;
+    var failed = false;
     for (final target in [path, if (twin != null) twin]) {
       try {
         final file = File(target);
-        if (await file.exists()) await file.delete();
+        if (await file.exists()) {
+          await _deleteFile(file);
+          deletedAny = true;
+        }
       } catch (e) {
-        deleted = false;
+        failed = true;
         _update(() {
           _status = 'Could not delete video. See settings for details.';
           _error = '$e';
         });
       }
     }
-    if (!deleted) return;
+    if (failed) {
+      if (!deletedAny) return;
+      // The original is already gone and only the captioned twin
+      // survives: never claim the video is kept. Name what survived
+      // and drop the thumbnail — it shows a deleted file. _error keeps
+      // naming the twin failure from the catch above.
+      _update(() {
+        _lastVideo = null;
+        _lastVideoThumb = null;
+        _status = 'Video deleted, captioned copy kept.';
+      });
+      return;
+    }
     _update(() {
       _lastVideo = null;
       _lastVideoThumb = null;
