@@ -121,6 +121,14 @@
   article ul b { color: var(--ink); }
   article a.inline { color: var(--blue); font-weight: 600; }
   article a.inline:hover { text-decoration: underline; }
+  figure { margin: 40px 0 0; }
+  figure img { display: block; width: 100%; height: auto; border-radius: var(--radius); border: 1px solid var(--line); }
+  figcaption { margin-top: 12px; color: var(--muted); font-size: 14.5px; line-height: 1.55; }
+  figcaption b { color: var(--ink); }
+  .fig-single { max-width: 340px; }
+  .fig-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
+  .fig-pair figure { margin-top: 0; }
+  @media (max-width: 720px) { .fig-pair { grid-template-columns: 1fr; } }
   .cta-box {
     margin-top: 56px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius);
     padding: 30px 32px;
@@ -154,12 +162,28 @@
 
   <p class="lead">I was traveling, and I wanted to send my family and friends videos that felt like being there with me. Not a photo dump, not a shaky clip of a street — a video where they could see my face and the place at the same time.</p>
 
+  <figure class="fig-single">
+    <img src="../assets/blog-bali-real.png" alt="StoryCam running on a phone in Bali: a temple shrine fills the screen, the photographer in a circular selfie inset, with record, filters and captions controls below." width="912" height="2048" loading="lazy">
+    <figcaption><b>StoryCam on my phone in Bali.</b> The temple in front of me, me in the circle. This is the app running on a real phone — not a mockup.</figcaption>
+  </figure>
+
   <p>My phone made me choose. Selfie mode showed me talking, but not what I was looking at. The back camera showed the place, but not me in it. I could record one, then the other, then stitch them together — but nobody does that on a trip. By the time you open an editor, the moment is gone, and your family gets the video three weeks later, or never.</p>
 
   <p>So I looked for a free camera app that records the front and back cameras together, into one video, while I am recording. I could not find one that just did that — free, no account, no watermark, no “upload to our cloud and we will send you a link.” So I built it.</p>
 
   <h2>What StoryCam does</h2>
   <p>StoryCam is a free Android app. You open it, you press record, and it records both cameras at the same time into one portrait video: the place fills the screen, and you are in a circle in the corner, reacting to it live. What you see on screen is exactly what gets saved.</p>
+
+  <div class="fig-pair">
+    <figure>
+      <img src="../assets/demo-back-primary.jpg" alt="A real dual-camera shot: snowy mountains fill the frame, the photographer in a circular selfie inset at the bottom right." width="1080" height="1920" loading="lazy">
+      <figcaption><b>Back camera full-frame, you in the circle.</b> A real dual-camera shot — the mountains fill the frame.</figcaption>
+    </figure>
+    <figure>
+      <img src="../assets/demo-front-primary.jpg" alt="A real dual-camera shot: the photographer fills the frame, a red rock canyon in a circular inset at the top right." width="1080" height="1920" loading="lazy">
+      <figcaption><b>Front camera full-frame, the place in the circle.</b> The same video, the other way round — tap to swap.</figcaption>
+    </figure>
+  </div>
   <ul>
     <li><b>Two cameras, one video.</b> Front and back record together — no switching, no editing, no second take.</li>
     <li><b>Filters.</b> A slider with looks from clean to game-style, so a plain walk looks like something you actually want to send.</li>
