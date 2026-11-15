@@ -61,7 +61,7 @@ object CaptionBurner {
         val frameRate = if (srcFormat.containsKey(MediaFormat.KEY_FRAME_RATE))
             srcFormat.getInteger(MediaFormat.KEY_FRAME_RATE) else 30
         val mime = srcFormat.getString(MediaFormat.KEY_MIME)!!
-
+        Log.i(TAG, "input mime=$mime ${w}x$h fps=$frameRate")
         // Audio passthrough, extracted up-front (short clips; ~1-2 MB).
         val audioSamples = extractAudioSamples(mp4Path)
 
@@ -99,6 +99,7 @@ object CaptionBurner {
         var decoderInputDone = false
         var decoderOutputDone = false
         var encoderOutputDone = false
+        var lastHeartbeatMs = android.os.SystemClock.elapsedRealtime()
 
         fun drainEncoder(endOfStream: Boolean) {
             while (true) {
@@ -138,6 +139,15 @@ object CaptionBurner {
 
         try {
             while (!encoderOutputDone) {
+                // Heartbeat: the loop is silent until the first frame, so
+                // a stall before frame 1 is indistinguishable from slow
+                // progress without it. Log at most every 10 s.
+                val nowMs = android.os.SystemClock.elapsedRealtime()
+                if (nowMs - lastHeartbeatMs >= 10_000) {
+                    lastHeartbeatMs = nowMs
+                    Log.i(TAG, "loop inputDone=$decoderInputDone " +
+                        "decoderEos=$decoderOutputDone frames=$framesBurned")
+                }
                 // Feed the decoder.
                 if (!decoderInputDone) {
                     val inIndex = decoder.dequeueInputBuffer(TIMEOUT_US)
@@ -148,6 +158,7 @@ object CaptionBurner {
                             decoder.queueInputBuffer(inIndex, 0, 0, 0,
                                 MediaCodec.BUFFER_FLAG_END_OF_STREAM)
                             decoderInputDone = true
+                            Log.i(TAG, "decoder input done")
                         } else {
                             decoder.queueInputBuffer(inIndex, 0, n,
                                 extractor.sampleTime, 0)

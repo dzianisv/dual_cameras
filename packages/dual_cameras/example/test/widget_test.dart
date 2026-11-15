@@ -2764,6 +2764,16 @@ void main() {
           .length;
     }
     expect(snapshots, greaterThan(0));
+    // The file existing does not mean the snapshot's bookkeeping has
+    // run: the write's continuation (captured++ + track add) is real
+    // async work, and the stop flush's 2 s timeout is fake-time-driven
+    // in tests, so it can fire before the continuation runs — orphaning
+    // the file (STOP FLUSH TIMEOUT, then SNAPSHOT STALE after-write).
+    // Drain real async first so the snapshot is counted, not just
+    // written.
+    await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 300)));
+    await tester.pump();
     await tester.tap(find.byTooltip('Stop recording'));
     await tester.pumpAndSettle();
     // The burn finishes in the background: the map notifier reports done.
