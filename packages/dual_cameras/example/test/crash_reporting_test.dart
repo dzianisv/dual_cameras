@@ -60,8 +60,24 @@ void main() {
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(
             const MethodChannel('flutter.baseflow.com/permissions/methods'),
-            (call) async =>
-                call.method == 'requestPermissions' ? {0: 1, 1: 1} : null);
+            (call) async {
+      // Issue #46: _start checks status before requesting — see
+      // widget_test.dart setUp for why this must answer
+      // checkPermissionStatus. Keys are Permission values (camera=1,
+      // microphone=7); anything else reads as denied.
+      if (call.method == 'requestPermissions') return {1: 1, 7: 1};
+      if (call.method == 'checkPermissionStatus') {
+        return {1: 1, 7: 1}[call.arguments as int] ?? 0;
+      }
+      return null;
+    });
+    // Issue #46: _autoStart awaits the settings load (path_provider) —
+    // an unmocked channel never replies in widget tests, so the load
+    // would hang and auto-init would never fire (see widget_test).
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(
+            const MethodChannel('plugins.flutter.io/path_provider'),
+            (call) async => null);
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(const MethodChannel('gal'), (call) async {
       return null;
@@ -77,7 +93,9 @@ void main() {
     await tester.pumpWidget(
         DemoApp(modelManager: model, backgroundCaptions: false));
     await tester.pumpAndSettle();
-    expect(find.byTooltip('Open camera'), findsOneWidget);
+    // Issue #46: the camera auto-initializes on open when permissions are
+    // granted — the boot state is a live camera, not 'Open camera'.
+    expect(find.byTooltip('Start recording'), findsOneWidget);
     expect(CrashReporting.isInitialized, isFalse);
   });
 }

@@ -77,9 +77,27 @@ void main() {
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(
             const MethodChannel('flutter.baseflow.com/permissions/methods'),
-            (call) async => call.method == 'requestPermissions'
-                ? {for (final value in call.arguments as List) value: 1}
-                : null);
+            (call) async {
+      // Issue #46: _start checks status before requesting — see
+      // widget_test.dart setUp for why this must answer
+      // checkPermissionStatus. Keys are Permission values (camera=1,
+      // microphone=7); anything else reads as denied.
+      if (call.method == 'requestPermissions') {
+        return {for (final value in call.arguments as List) value: 1};
+      }
+      if (call.method == 'checkPermissionStatus') {
+        final value = call.arguments as int;
+        return (value == 1 || value == 7) ? 1 : 0;
+      }
+      return null;
+    });
+    // Issue #46: _autoStart awaits the settings load (path_provider) —
+    // an unmocked channel never replies in widget tests, so the load
+    // would hang and auto-init would never fire (see widget_test).
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(
+            const MethodChannel('plugins.flutter.io/path_provider'),
+            (call) async => null);
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(const MethodChannel('gal'), (call) async {
       saved.add(call.method);
@@ -318,9 +336,8 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.byTooltip('Close Camera settings'));
     await tester.pumpAndSettle();
-    await tester.ensureVisible(find.byTooltip('Open camera'));
-    await tester.tap(find.byTooltip('Open camera'));
-    await tester.pumpAndSettle();
+    // Issue #46: the camera auto-initialized on open; no 'Open camera' tap.
+    expect(find.byTooltip('Start recording'), findsOneWidget);
     for (var n = 0; n < 2; n++) {
       await tester.tap(find.byTooltip('Start recording'));
       await tester.pumpAndSettle();
