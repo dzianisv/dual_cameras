@@ -52,6 +52,7 @@ class CameraSettings {
     this.frontLens,
     this.rearLens,
     this.locationPermissionRequested = false,
+    this.mapZoom = 16.0,
   });
 
   final CompassMode compassMode;
@@ -80,6 +81,23 @@ class CameraSettings {
   /// the system settings instead.
   final bool locationPermissionRequested;
 
+  /// Map circle zoom (issue #47): the single source of truth — the
+  /// persisted setting IS the live zoom (pinch and the Settings slider
+  /// write the same value). Range 13–19, default 16.0 = the old fixed
+  /// zoom, so the map looks exactly as before until Den touches it.
+  final double mapZoom;
+
+  /// Allowed map zoom range (issue #47, D2): max 19 is the tile layer's
+  /// maxNativeZoom; below 13 the dot is a city-level pin and the place
+  /// label does the locating better than the map does.
+  static const double minMapZoom = 13.0;
+  static const double maxMapZoom = 19.0;
+  static const double defaultMapZoom = 16.0;
+
+  /// Clamp a stored zoom into the allowed range.
+  static double clampMapZoom(double value) =>
+      value.clamp(minMapZoom, maxMapZoom);
+
   CameraSettings copyWith({
     CompassMode? compassMode,
     bool? mapVisible,
@@ -89,6 +107,7 @@ class CameraSettings {
     double? frontLens,
     double? rearLens,
     bool? locationPermissionRequested,
+    double? mapZoom,
   }) {
     return CameraSettings(
       compassMode: compassMode ?? this.compassMode,
@@ -100,6 +119,7 @@ class CameraSettings {
       rearLens: rearLens ?? this.rearLens,
       locationPermissionRequested:
           locationPermissionRequested ?? this.locationPermissionRequested,
+      mapZoom: mapZoom ?? this.mapZoom,
     );
   }
 
@@ -112,6 +132,7 @@ class CameraSettings {
         'frontLens': frontLens,
         'rearLens': rearLens,
         'locationPermissionRequested': locationPermissionRequested,
+        'mapZoom': mapZoom,
       };
 
   static CameraSettings fromJson(Map<String, Object?> json) {
@@ -122,6 +143,9 @@ class CameraSettings {
         .firstWhere((v) => v.name == name, orElse: () => VideoFilter.none);
     double? lensFrom(Object? value) =>
         value is num ? value.toDouble() : null;
+    double zoomFrom(Object? value) => value is num
+        ? CameraSettings.clampMapZoom(value.toDouble())
+        : CameraSettings.defaultMapZoom;
     return CameraSettings(
       compassMode: CompassMode.fromCode(json['compassMode'] as String?),
       mapVisible: json['mapVisible'] as bool? ?? true,
@@ -132,6 +156,7 @@ class CameraSettings {
       rearLens: lensFrom(json['rearLens']),
       locationPermissionRequested:
           json['locationPermissionRequested'] as bool? ?? false,
+      mapZoom: zoomFrom(json['mapZoom']),
     );
   }
 }

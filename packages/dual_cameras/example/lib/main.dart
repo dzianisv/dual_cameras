@@ -25,6 +25,7 @@ import 'captions/transcriber.dart';
 import 'crash_reporting.dart';
 import 'map/camera_settings.dart';
 import 'map/map_location.dart';
+import 'map/place_name.dart';
 import 'review_prompt.dart';
 import 'ui/bottom_menu.dart';
 import 'ui/filter_slider.dart';
@@ -61,6 +62,7 @@ class DemoApp extends StatelessWidget {
       this.cameraCommandTimeout,
       this.cameraSettingsStore,
       this.mapLocationService,
+      this.placeNameService,
       this.reviewPromptGate,
       this.reviewPrompt,
       this.appVersion});
@@ -74,6 +76,7 @@ class DemoApp extends StatelessWidget {
   final Duration? cameraCommandTimeout;
   final CameraSettingsStore? cameraSettingsStore;
   final MapLocationService? mapLocationService;
+  final PlaceNameService? placeNameService;
   // In-app review prompt (issue #37): injectable seams for widget tests.
   // The gate persists the prompted version; the facade is the Play call;
   // the version string is injected so tests never touch the
@@ -109,6 +112,7 @@ class DemoApp extends StatelessWidget {
           cameraCommandTimeout: cameraCommandTimeout,
           cameraSettingsStore: cameraSettingsStore,
           mapLocationService: mapLocationService,
+          placeNameService: placeNameService,
           reviewPromptGate: reviewPromptGate,
           reviewPrompt: reviewPrompt,
           appVersion: appVersion),
@@ -128,6 +132,7 @@ class DemoScreen extends StatefulWidget {
       this.cameraCommandTimeout,
       this.cameraSettingsStore,
       this.mapLocationService,
+      this.placeNameService,
       this.reviewPromptGate,
       this.reviewPrompt,
       this.appVersion});
@@ -141,6 +146,7 @@ class DemoScreen extends StatefulWidget {
   final Duration? cameraCommandTimeout;
   final CameraSettingsStore? cameraSettingsStore;
   final MapLocationService? mapLocationService;
+  final PlaceNameService? placeNameService;
   final ReviewPromptGate? reviewPromptGate;
   final ReviewPrompt? reviewPrompt;
   final String? appVersion;
@@ -258,6 +264,14 @@ class _DemoScreenState extends State<DemoScreen> with WidgetsBindingObserver {
   bool _locationGranted = false;
   StreamSubscription<LatLng>? _positionSub;
   StreamSubscription<double>? _headingSub;
+
+  // Place name (issue #47): reverse-geocoded label under the map circle,
+  // derived from the live position on every launch — never persisted as a
+  // display value (yesterday's place under today's dot would be wrong).
+  PlaceNameService? _placeService;
+  PlaceNameService get _placeNames =>
+      _placeService ??= widget.placeNameService ?? PlaceNameService();
+  String? _placeName;
 
   // Lenses (issue #20): probed from the camera API after init, per facing.
   // Empty until the probe returns — the pills stay hidden meanwhile.
@@ -953,12 +967,35 @@ class _DemoScreenState extends State<DemoScreen> with WidgetsBindingObserver {
   void _subscribeMapStreams() {
     _positionSub ??= _location.positions.listen((p) {
       if (mounted) _update(() => _position = p);
+      unawaited(_lookupPlaceName(p));
     });
     _headingSub ??= _location.headings.listen((h) {
       if (!mounted) return;
       // Compass events fire rapidly; repaint only on a real turn.
       if ((h - _heading).abs() >= 2) _update(() => _heading = h);
     });
+  }
+
+  /// Reverse-geocode the current position for the place pill (issue #47,
+  /// D6/D7). The service gates on the 100 m move and the 1.1 s floor; the
+  /// accuracy gate lives here: a fix worse than 50 m is skipped, so GPS
+  /// jitter cannot random-walk the app past the move gate while standing
+  /// still. Fire-and-forget — a failed lookup clears the label (a missing
+  /// label is honest; a wrong place name is not).
+  Future<void> _lookupPlaceName(LatLng position) async {
+    // Hermetic widget tests run no network (the same rule as showTiles):
+    // the default service never looks up under `flutter test`. A service
+    // injected by a test (MockClient-backed) still runs, so the wiring
+    // from fix to pill stays covered.
+    if (widget.placeNameService == null &&
+        Platform.environment['FLUTTER_TEST'] == 'true') {
+      return;
+    }
+    final accuracy = _location.lastAccuracyMeters;
+    if (accuracy != null && accuracy > 50) return;
+    final label = await _placeNames.lookup(position);
+    if (!mounted) return;
+    if (label != _placeName) _update(() => _placeName = label);
   }
 
   /// Stop the map streams (the user hid the circle). The permission
@@ -1536,6 +1573,24 @@ class _DemoScreenState extends State<DemoScreen> with WidgetsBindingObserver {
                     child: const Text('Enable location in settings')),
               ],
             ),
+          // Map zoom (issue #47, D5): the same value the pinch writes.
+          // Live on drag (state-only _update), saved on release
+          // (_updateSettings) — the one sanctioned exception to D1.
+          Text('Map zoom ${_settings.mapZoom.toStringAsFixed(1)}'),
+          const Text('How close the map looks',
+              style: TextStyle(fontSize: 12)),
+          Slider(
+            key: const Key('map-zoom-slider'),
+            min: CameraSettings.minMapZoom,
+            max: CameraSettings.maxMapZoom,
+            divisions: 12,
+            label: _settings.mapZoom.toStringAsFixed(1),
+            value: _settings.mapZoom,
+            onChanged: (v) =>
+                _update(() => _settings = _settings.copyWith(mapZoom: v)),
+            onChangeEnd: (v) =>
+                _updateSettings(_settings.copyWith(mapZoom: v)),
+          ),
           _sectionHeader(SettingsSection.front),
           SwitchListTile(
             contentPadding: EdgeInsets.zero,
@@ -1793,6 +1848,10 @@ class _DemoScreenState extends State<DemoScreen> with WidgetsBindingObserver {
                   position: _position,
                   headingDeg: _heading,
                   mode: _settings.compassMode,
+                  zoom: _settings.mapZoom,
+                  placeName: _placeName,
+                  onZoomChanged: (z) =>
+                      _updateSettings(_settings.copyWith(mapZoom: z)),
                   // No tile fetches under `flutter test` (hermetic; the
                   // disc + dot + N arrow still render).
                   showTiles: Platform.environment['FLUTTER_TEST'] != 'true',
