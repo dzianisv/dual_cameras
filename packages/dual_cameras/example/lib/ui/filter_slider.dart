@@ -24,13 +24,13 @@ class FilterSlider extends StatelessWidget {
     VideoFilter.midnight,
     VideoFilter.simple,
     VideoFilter.jakarta,
-    VideoFilter.gta,
+    VideoFilter.viceCity,
     VideoFilter.sanAndreas,
-    VideoFilter.gta3,
   ];
 
-  /// Display name per filter. The game-look names (GTA, San Andreas,
-  /// GTA 3) are as heard from Den and unconfirmed (issue #20).
+  /// Display name per filter. The game-look names (Vice City, San Andreas)
+  /// are as confirmed by Den 2026-11-15 (issue #61); the old GTA name was
+  /// renamed to Vice City and GTA 3 was removed.
   static String label(VideoFilter filter) => switch (filter) {
         VideoFilter.none => 'Original',
         VideoFilter.moody => 'Moody',
@@ -38,9 +38,8 @@ class FilterSlider extends StatelessWidget {
         VideoFilter.midnight => 'Midnight',
         VideoFilter.simple => 'Simple',
         VideoFilter.jakarta => 'Jakarta',
-        VideoFilter.gta => 'GTA',
+        VideoFilter.viceCity => 'Vice City',
         VideoFilter.sanAndreas => 'San Andreas',
-        VideoFilter.gta3 => 'GTA 3',
       };
 
   final VideoFilter selected;

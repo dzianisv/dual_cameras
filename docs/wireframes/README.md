@@ -20,8 +20,8 @@ No implementation from the PRD until the design is approved
 - **v3** — Filter slider above the record button, iOS-style (like the
   Video / Photo / Portrait switcher): selected filter big and white,
   the rest dimmed, scrolls sideways. Filters: Original, Moody (built-in);
-  Hyper, Midnight, Simple, Jakarta (Instagram-style); GTA, San Andreas,
-  GTA 3 (game-look — names as heard from Den's message, unconfirmed).
+  Hyper, Midnight, Simple, Jakarta (Instagram-style); Vice City, San Andreas
+  (game-look — names as confirmed by Den 2026-11-15, issue #61).
 - **v4** — Bottom menu shows on/off at a glance: enabled = bold white,
   disabled = transparent and not bold (Map, Front, Rear, Captions;
   Settings is a button, stays bold white).

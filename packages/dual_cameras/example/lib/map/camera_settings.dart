@@ -139,8 +139,14 @@ class CameraSettings {
     DualResolution qualityFrom(String? name) =>
         DualResolution.values.firstWhere((v) => v.name == name,
             orElse: () => DualResolution.hd1080);
-    VideoFilter filterFrom(String? name) => VideoFilter.values
-        .firstWhere((v) => v.name == name, orElse: () => VideoFilter.none);
+    VideoFilter filterFrom(String? name) {
+      // Legacy name: the GTA filter was renamed to Vice City (issue #61);
+      // a saved 'gta' pick keeps its look. A saved 'gta3' has no
+      // mapping — it falls back to Original below, as before.
+      if (name == 'gta') return VideoFilter.viceCity;
+      return VideoFilter.values
+          .firstWhere((v) => v.name == name, orElse: () => VideoFilter.none);
+    }
     double? lensFrom(Object? value) =>
         value is num ? value.toDouble() : null;
     double zoomFrom(Object? value) => value is num

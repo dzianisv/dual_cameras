@@ -347,12 +347,10 @@ enum VideoFilter {
   simple,
   /// Jakarta: warm golden-hour grade, amber highlights, soft contrast.
   jakarta,
-  /// GTA: saturated warm game look, high contrast, orange-teal split tone.
-  gta,
+  /// Vice City: saturated warm game look, high contrast, orange-teal split tone.
+  viceCity,
   /// San Andreas: dusty warm haze, lifted blacks, orange highlights.
   sanAndreas,
-  /// GTA 3: cold desaturated grit, heavy vignette, crushed shadows.
-  gta3,
 }
 
 /// One lens the camera API offers for a facing, as a zoom ratio.

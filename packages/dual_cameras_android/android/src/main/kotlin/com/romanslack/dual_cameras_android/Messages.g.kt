@@ -404,12 +404,10 @@ enum class VideoFilter(val raw: Int) {
   SIMPLE(4),
   /** Jakarta: warm golden-hour grade, amber highlights, soft contrast. */
   JAKARTA(5),
-  /** GTA: saturated warm game look, high contrast, orange-teal split tone. */
-  GTA(6),
+  /** Vice City: saturated warm game look, high contrast, orange-teal split tone. */
+  VICE_CITY(6),
   /** San Andreas: dusty warm haze, lifted blacks, orange highlights. */
-  SAN_ANDREAS(7),
-  /** GTA 3: cold desaturated grit, heavy vignette, crushed shadows. */
-  GTA3(8);
+  SAN_ANDREAS(7);
 
   companion object {
     fun ofRaw(raw: Int): VideoFilter? {
