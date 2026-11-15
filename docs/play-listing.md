@@ -1,8 +1,10 @@
 # StoryCam — Google Play listing text
 
-Draft for the Play Console listing. Every claim matches the v0.5.3 test
+Draft for the Play Console listing. Every claim matches the v0.5.15
 build — nothing invented. Limits: title ≤ 30 characters, short
 description ≤ 80 characters, full description ≤ 4000 characters.
+Keywords (docs/aso-keywords.md) are placed in the text, not submitted
+separately — Play has no keyword field.
 
 ## English
 
@@ -14,14 +16,17 @@ Film front & back at once — with on-device captions.
 **Full description:**
 
 Record the front and back cameras at the same time — one take, one
-video. StoryCam is a dual-camera recorder: your reaction and the scene,
-together in a single portrait video, with on-device captions in Russian
-and English.
+video. StoryCam is a dual-camera recorder for vlogs and reaction
+videos: your reaction and the scene, together in a single portrait
+video, with on-device captions in Russian and English.
 
 WHAT YOU GET
 • Front + back recording in one file — picture-in-picture, circle, or
   split layout, live swap of the main lens
-• Live filters and exposure control while you record
+• Live map in the corner while you record — it moves with you and is
+  burned into the saved video
+• Live filters and exposure control while you record, including
+  game-look filters Vice City and San Andreas
 • On-device captions — automatic language detection (Russian / English),
   or force a language for short clips; karaoke highlighting follows the
   words as they are spoken
@@ -58,14 +63,18 @@ Free, no account, no ads. Your videos stay on your phone.
 **Полное описание:**
 
 Снимайте передней и задней камерами одновременно — один дубль, одно
-видео. StoryCam — это запись с двух камер сразу: ваша реакция и то,
-что происходит вокруг, в одном вертикальном видео, с субтитрами
-на русском и английском прямо на устройстве.
+видео. StoryCam — это запись с двух камер сразу для влогов и
+видео-реакций: ваша реакция и то, что происходит вокруг, в одном
+вертикальном видео, с субтитрами на русском и английском прямо на
+устройстве.
 
 ЧТО ВЫ ПОЛУЧАЕТЕ
 • Запись с двух камер в одном файле — картинка в картинке, круг или
   разделение экрана, переключение основной камеры на лету
-• Живые фильтры и управление экспозицией во время записи
+• Живая карта в углу во время записи — она движется за вами и
+  записывается прямо в сохранённое видео
+• Живые фильтры и управление экспозицией во время записи, включая
+  игровые фильтры Vice City и San Andreas
 • Субтитры на устройстве — автоматическое определение языка (русский /
   английский) или принудительный выбор языка для коротких клипов;
   подсветка караоке следует за словами
