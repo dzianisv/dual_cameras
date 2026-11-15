@@ -68,7 +68,8 @@ class DemoApp extends StatelessWidget {
       this.placeNameService,
       this.reviewPromptGate,
       this.reviewPrompt,
-      this.appVersion});
+      this.appVersion,
+      this.transcriber});
 
   final ModelManager? modelManager;
   final CaptionJobs? captionJobs;
@@ -87,6 +88,10 @@ class DemoApp extends StatelessWidget {
   final ReviewPromptGate? reviewPromptGate;
   final ReviewPrompt? reviewPrompt;
   final String? appVersion;
+  // Issue #50 (F2 fix): the real Transcriber is sherpa-onnx FFI and
+  // cannot run in a widget test, so the twin path is untestable without
+  // this seam — same pattern as modelManager above.
+  final Transcriber? transcriber;
 
   @override
   Widget build(BuildContext context) {
@@ -118,7 +123,8 @@ class DemoApp extends StatelessWidget {
           placeNameService: placeNameService,
           reviewPromptGate: reviewPromptGate,
           reviewPrompt: reviewPrompt,
-          appVersion: appVersion),
+          appVersion: appVersion,
+          transcriber: transcriber),
     );
   }
 }
@@ -138,7 +144,8 @@ class DemoScreen extends StatefulWidget {
       this.placeNameService,
       this.reviewPromptGate,
       this.reviewPrompt,
-      this.appVersion});
+      this.appVersion,
+      this.transcriber});
 
   final ModelManager? modelManager;
   final CaptionJobs? captionJobs;
@@ -153,6 +160,7 @@ class DemoScreen extends StatefulWidget {
   final ReviewPromptGate? reviewPromptGate;
   final ReviewPrompt? reviewPrompt;
   final String? appVersion;
+  final Transcriber? transcriber;
 
   @override
   State<DemoScreen> createState() => _DemoScreenState();
@@ -309,7 +317,10 @@ class _DemoScreenState extends State<DemoScreen> with WidgetsBindingObserver {
   late final ModelManager _modelManager = widget.modelManager ?? ModelManager();
   Future<WhisperModelFiles>? _modelFuture;
   String? _modelError;
-  final Transcriber _transcriber = Transcriber();
+  // Issue #50 (F2 fix): injectable so a widget test can complete a
+  // caption job and produce the twin; defaults to the real FFI one.
+  late final Transcriber _transcriber =
+      widget.transcriber ?? Transcriber();
   // Generation counter for foreground caption jobs (v0.5.3): every stop
   // request bumps it; a job whose captured generation is stale aborts at
   // the next stage boundary, and jobs queued behind it are dropped. A new
@@ -1396,17 +1407,30 @@ class _DemoScreenState extends State<DemoScreen> with WidgetsBindingObserver {
   /// recording). The native side deletes the gallery row first and the
   /// cache file after it — so a user-cancelled system confirmation
   /// deletes nothing — and reports what each step did; the status names
-  /// what survived on a partial failure. The thumbnail stays until both
-  /// copies of every file are gone.
+  /// what survived on a partial failure. The thumbnail shows the
+  /// original, so it goes away once the original is gone — even when the
+  /// captioned twin survives a cancelled twin delete (the status then
+  /// names the twin that was kept, never 'Video kept.').
   Future<void> _deleteLastVideoAndroid(String path, String? twin) async {
     final results = <_DeleteResult>[];
     for (final target in [path, if (twin != null) twin]) {
       final result = await _deleteVideoNative(target);
-      if (result == null) return; // channel error: status set there.
-      if (result.cancelled) {
-        // Nothing was deleted (gallery-first order): keep the video and
-        // the thumbnail.
-        _update(() => _status = 'Video kept.');
+      if (result == null || result.cancelled) {
+        if (results.isEmpty) {
+          // Nothing was deleted yet (gallery-first order on the first
+          // file): keep the video and the thumbnail. A channel error
+          // already set its own status in _deleteVideoNative.
+          if (result != null) _update(() => _status = 'Video kept.');
+          return;
+        }
+        // The original is already gone and only the captioned twin
+        // survives: never claim the video is kept. Name what survived
+        // and drop the thumbnail — it shows a deleted file.
+        _update(() {
+          _lastVideo = null;
+          _lastVideoThumb = null;
+          _status = 'Video deleted, captioned copy kept.';
+        });
         return;
       }
       results.add(result);

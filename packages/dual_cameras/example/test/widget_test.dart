@@ -10,6 +10,7 @@ import 'package:dual_cameras_example/captions/model_download_notifier.dart';
 import 'package:dual_cameras_example/captions/model_manager.dart';
 import 'package:dual_cameras_example/captions/caption_models.dart';
 import 'package:dual_cameras_example/captions/review_prompt_gate.dart';
+import 'package:dual_cameras_example/captions/transcriber.dart';
 import 'package:dual_cameras_example/map/camera_settings.dart';
 import 'package:dual_cameras_example/map/map_location.dart';
 import 'package:dual_cameras_example/map/place_name.dart';
@@ -134,6 +135,25 @@ class FakeCaptionJobNotifier implements CaptionJobNotifier {
   @override
   Future<void> clear() async {
     clearCalls++;
+  }
+}
+
+/// Fake on-device transcriber (issue #50, F2 fix): returns one word, so
+/// the foreground caption job completes and the captioned twin exists.
+/// The real Transcriber is sherpa-onnx FFI and cannot run in a widget
+/// test; injected through the DemoApp transcriber seam.
+class FakeTranscriber extends Transcriber {
+  @override
+  Future<TranscriptionResult> transcribe({
+    required String wavPath,
+    required WhisperModelFiles model,
+    String language = '',
+  }) async {
+    return const TranscriptionResult(
+      words: [CaptionWord(text: 'hello', start: 0, end: 1)],
+      detectedLanguage: 'en',
+      timingsValid: true,
+    );
   }
 }
 
@@ -496,7 +516,8 @@ void main() {
       PlaceNameService? placeNameService,
       ReviewPrompt? reviewPrompt,
       ReviewPromptGate? reviewPromptGate,
-      String? appVersion}) async {
+      String? appVersion,
+      Transcriber? transcriber}) async {
     await tester.pumpWidget(DemoApp(
         modelManager: model,
         backgroundCaptions: false,
@@ -506,7 +527,8 @@ void main() {
         placeNameService: placeNameService,
         reviewPrompt: reviewPrompt,
         reviewPromptGate: reviewPromptGate,
-        appVersion: appVersion));
+        appVersion: appVersion,
+        transcriber: transcriber));
     await tester.pumpAndSettle();
     expect(find.byTooltip('Start recording'), findsOneWidget);
     expect(find.text('Ready to tell your story'), findsOneWidget);
@@ -2343,18 +2365,28 @@ void main() {
   }
 
   /// Issue #50: mock the share channel (dual_cameras_example/share).
-  /// [deleteResult] is the map deleteVideo answers with; shareVideo
-  /// answers null (success). Returns the recorded (method, arguments)
-  /// calls.
+  /// [deleteResult] is the map every deleteVideo call answers with;
+  /// [deleteResults] answers each deleteVideo call in order instead —
+  /// for a twin delete where the original succeeds and the twin is
+  /// cancelled. shareVideo answers null (success). Returns the recorded
+  /// (method, arguments) calls.
   List<(String, Object?)> mockShareChannel(
-      {Map<String, Object>? deleteResult}) {
+      {Map<String, Object>? deleteResult,
+      List<Map<String, Object>>? deleteResults}) {
     final calls = <(String, Object?)>[];
+    var deleteCalls = 0;
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(
             const MethodChannel('dual_cameras_example/share'),
             (call) async {
       calls.add((call.method, call.arguments));
-      if (call.method == 'deleteVideo') return deleteResult;
+      if (call.method == 'deleteVideo') {
+        final result = deleteResults != null
+            ? deleteResults[deleteCalls]
+            : deleteResult;
+        deleteCalls++;
+        return result;
+      }
       return null;
     });
     addTearDown(() => TestDefaultBinaryMessengerBinding.instance
@@ -2469,6 +2501,68 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('Video kept.'), findsOneWidget);
     expect(find.byKey(const Key('last-video-thumbnail')), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets(
+      'last-video menu Delete with the twin cancelled deletes the original only',
+      (tester) async {
+    // F2: the original's delete succeeds and the twin's is cancelled —
+    // the status must not claim the video is kept, and the thumbnail
+    // must go away with the deleted original.
+    final shareCalls = mockShareChannel(deleteResults: [
+      {
+        'cacheDeleted': true,
+        'galleryDeleted': true,
+        'cancelled': false,
+      },
+      {
+        'cacheDeleted': false,
+        'galleryDeleted': false,
+        'cancelled': true,
+      },
+    ]);
+    final captions = FakeCaptionJobNotifier();
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(
+            const MethodChannel('dual_cameras_example/captions'),
+            (call) async {
+      if (call.method == 'extractAudio') return '/tmp/audio.wav';
+      if (call.method == 'burnCaptions') return '/tmp/story-captioned.mp4';
+      throw StateError('unexpected ${call.method}');
+    });
+    addTearDown(() => TestDefaultBinaryMessengerBinding.instance
+        .defaultBinaryMessenger
+        .setMockMethodCallHandler(
+            const MethodChannel('dual_cameras_example/captions'), null));
+    await openCamera(tester,
+        captions: captions, transcriber: FakeTranscriber());
+    // Auto-captions on, as in the caption-job tests.
+    await tester.ensureVisible(find.byKey(const Key('menu-captions')));
+    await tester.tap(find.byKey(const Key('menu-captions')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(SwitchListTile, 'Auto-captions'));
+    await tester.tap(find.byTooltip('Close Camera settings'));
+    await tester.pumpAndSettle();
+    await recordVideoWithFile(tester);
+    // The caption job finishes in the background: the twin exists once
+    // the notifier reports done.
+    for (var i = 0; captions.done.isEmpty && i < 50; i++) {
+      await tester.pump(const Duration(milliseconds: 100));
+    }
+    expect(captions.done, isNotEmpty);
+    expect(find.byKey(const Key('last-video-thumbnail')), findsOneWidget);
+    await tester.tap(find.byKey(const Key('last-video-thumbnail')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('last-video-menu-delete')));
+    await tester.pumpAndSettle();
+    expect(shareCalls.length, 2);
+    expect((shareCalls[0].$2 as Map)['path'], '/tmp/story.mp4');
+    expect(
+        (shareCalls[1].$2 as Map)['path'], '/tmp/story-captioned.mp4');
+    expect(find.text('Video deleted, captioned copy kept.'), findsOneWidget);
+    expect(find.text('Video kept.'), findsNothing);
+    expect(find.byKey(const Key('last-video-thumbnail')), findsNothing);
     expect(tester.takeException(), isNull);
   });
 
