@@ -303,7 +303,11 @@ void main() {
         final file = File('/tmp/story.mp4');
         if (file.existsSync()) file.deleteSync();
       });
-      await tester.tap(find.byKey(const Key('share-button')));
+      // Issue #50: the Share button is gone — Share is a menu item
+      // behind the last-video thumbnail now.
+      await tester.tap(find.byKey(const Key('last-video-thumbnail')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('last-video-menu-share')));
       await tester.pumpAndSettle();
       expect(eventsNamed('share_done'), hasLength(1));
 

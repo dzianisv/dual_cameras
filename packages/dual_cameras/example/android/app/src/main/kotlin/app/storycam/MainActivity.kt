@@ -1,5 +1,6 @@
 package app.storycam
 
+import android.content.Intent
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
@@ -19,5 +20,19 @@ class MainActivity : FlutterActivity() {
         ).setMethodCallHandler { call, result ->
             ShareChannel.handle(this, call, result)
         }
+    }
+
+    // Delete system confirmation (issue #50): ShareChannel.deleteVideo
+    // launches the RecoverableSecurityException confirmation via
+    // startIntentSenderForResult and holds the MethodChannel.Result
+    // until the user answers — forward the result so the channel can
+    // complete the pending delete (or report it cancelled).
+    override fun onActivityResult(
+        requestCode: Int,
+        resultCode: Int,
+        data: Intent?,
+    ) {
+        super.onActivityResult(requestCode, resultCode, data)
+        ShareChannel.onActivityResult(this, requestCode, resultCode)
     }
 }

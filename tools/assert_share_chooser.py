@@ -1,12 +1,15 @@
 #!/usr/bin/env python3
-"""Assert the Android share sheet (chooser) is open on the emulator.
+"""Assert the Android share sheet (chooser) is open on the emulator,
+or that the last-video popup menu shows its items (issue #50).
 
-Usage: python3 tools/assert_share_chooser.py
+Usage:
+  python3 tools/assert_share_chooser.py          # chooser mode
+  python3 tools/assert_share_chooser.py --menu   # menu mode
 
-Run after tapping 'Share' in the screenshots workflow (issue #14).
-Dumps the UI hierarchy (retried: the chooser's first cold start on
-the slow CI emulator can take several seconds) and checks for the
-chooser by any of:
+Chooser mode: run after tapping 'Share' in the screenshots workflow
+(issue #14). Dumps the UI hierarchy (retried: the chooser's first cold
+start on the slow CI emulator can take several seconds) and checks for
+the chooser by any of:
   - any node from the system resolver package
     (com.android.intentresolver) — the chooser window itself;
   - the chooser title passed to Intent.createChooser ("Share video")
@@ -20,12 +23,21 @@ not EXTRA_STREAM, so this check proves the intent fired — it does NOT
 prove the video was attached; only the owner's real-phone test proves
 that).
 
+Menu mode (issue #50): run after tapping 'Last video' in the
+screenshots workflow, while the popup menu is open. Dumps the UI
+hierarchy (retried: the menu animates in) and checks that the menu
+items 'Open', 'Delete' and 'Share' are all present as text or
+content-desc nodes. The menu is the app's own overlay, so unlike the
+chooser checks these nodes ARE expected in the app.storycam package.
+Exits 1 when any item is missing, so the workflow fails loudly.
+
 FALSE-POSITIVE RULE (run 43569645665): the app's own Share button
-carries the semantics label "Share video" (required by the design),
-so a bare title match fires on the app's own camera screen with no
-chooser open at all. The title/empty-state signals therefore only
-count on nodes whose package is NOT app.storycam; the resolver
-package is the primary signal.
+used to carry the semantics label "Share video" (required by the #14
+design), so a bare title match fired on the app's own camera screen
+with no chooser open at all. That button is gone in #50 — the
+false-positive path disappeared with it — but the title/empty-state
+signals still only count on nodes whose package is NOT app.storycam;
+the resolver package is the primary signal.
 
 NOTE: Flutter nodes expose their labels as content-description with
 EMPTY text (see the emulator_tap.py 'Share' candidates), so this
@@ -52,6 +64,8 @@ RESOLVER = "intentresolver"
 APP_PACKAGE = "app.storycam"
 ATTEMPTS = 3
 RETRY_SLEEP_S = 3
+# Issue #50: the last-video popup menu items on Android, in order.
+MENU_ITEMS = ("Open", "Delete", "Share")
 
 
 def dump_ui() -> ET.Element:
@@ -66,6 +80,48 @@ def dump_ui() -> ET.Element:
         capture_output=True,
     )
     return ET.parse("/tmp/ui.xml").getroot()
+
+
+def collect_nodes(root: ET.Element) -> tuple[list[str], list[str], list[tuple[str, str, str]]]:
+    texts: list[str] = []
+    descs: list[str] = []
+    entries: list[tuple[str, str, str]] = []
+    for node in root.iter("node"):
+        text = (node.get("text") or "").strip()
+        desc = (node.get("content-desc") or "").strip()
+        package = node.get("package") or ""
+        if text or desc:
+            entries.append((package, text, desc))
+        if text:
+            texts.append(text)
+        if desc:
+            descs.append(desc)
+    return texts, descs, entries
+
+
+def main_menu() -> int:
+    """Issue #50: assert the last-video popup menu shows Open / Delete /
+    Share (Android). The menu is the app's own overlay, so the items are
+    expected in the app.storycam package."""
+    for attempt in range(1, ATTEMPTS + 1):
+        root = dump_ui()
+        texts, descs, entries = collect_nodes(root)
+        seen = set(texts) | set(descs)
+        missing = [item for item in MENU_ITEMS if item not in seen]
+        if not missing:
+            print("MENU NODES (package | text | content-desc):")
+            for package, text, desc in entries:
+                print(f"  - {package} | {text!r} | {desc!r}")
+            print(f"LAST-VIDEO MENU OPEN: {list(MENU_ITEMS)} all present")
+            return 0
+        print(f"attempt {attempt}/{ATTEMPTS}: menu missing {missing}")
+        if attempt < ATTEMPTS:
+            time.sleep(RETRY_SLEEP_S)
+    print("MENU NODES (package | text | content-desc):")
+    for package, text, desc in entries:
+        print(f"  - {package} | {text!r} | {desc!r}")
+    print(f"MENU NOT FOUND: missing {missing} after {ATTEMPTS} dumps")
+    return 1
 
 
 def main() -> int:
@@ -137,4 +193,6 @@ def main() -> int:
 
 
 if __name__ == "__main__":
+    if len(sys.argv) > 1 and sys.argv[1] == "--menu":
+        raise SystemExit(main_menu())
     raise SystemExit(main())
