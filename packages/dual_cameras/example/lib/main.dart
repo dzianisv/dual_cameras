@@ -1275,10 +1275,36 @@ class _DemoScreenState extends State<DemoScreen> with WidgetsBindingObserver {
     final durationMs =
         start == null ? 0 : DateTime.now().difference(start).inMilliseconds;
     final attempted = _mapSnapAttempted;
-    final captured = _mapSnapCaptured;
     final failed = _mapSnapFailed;
-    final bytes = _mapSnapBytes;
     final capHit = _mapCapHit;
+    // Re-read the frames dir: a snapshot may have written its file but
+    // not yet run its bookkeeping continuation (captured++ + track add)
+    // when stop finalizes — the file on disk is the ground truth, and
+    // the in-memory track can lag it (in tests the flush timeout is
+    // fake-time-driven and fires before the continuation runs; on a
+    // slow device the same lag is possible). Merge any on-disk
+    // map_<tMs>.png missing from the track, tMs parsed from the name;
+    // a snapshot file by definition captured the mounted boundary, so
+    // it shows the map.
+    var bytes = _mapSnapBytes;
+    if (dir != null && dir.existsSync()) {
+      final tracked =
+          track.where((s) => s.file != null).map((s) => s.file!).toSet();
+      for (final e in dir.listSync()) {
+        if (e is! File) continue;
+        final name = e.path.split('/').last;
+        final m = RegExp(r'^map_(\d+)\.png$').firstMatch(name);
+        if (m == null || tracked.contains(name)) continue;
+        track.add((
+          tMs: int.parse(m.group(1)!),
+          mapVisible: true,
+          file: name,
+        ));
+        bytes += e.lengthSync();
+      }
+      track.sort((a, b) => a.tMs.compareTo(b.tMs));
+    }
+    final captured = track.where((s) => s.file != null).length;
     _mapTakeId = null;
     _mapRecStart = null;
     _mapFramesDir = null;
@@ -1295,7 +1321,7 @@ class _DemoScreenState extends State<DemoScreen> with WidgetsBindingObserver {
         'durationMs=$durationMs attempted=$attempted captured=$captured '
         'failed=$failed bytes=$bytes capHit=$capHit '
         'trackSamples=${track.length} dir=${dir.path}');
-    if (!track.any((s) => s.file != null)) return null;
+    if (captured == 0) return null;
     return MapBurnManifest(
       framesDir: dir.path,
       frames: track
