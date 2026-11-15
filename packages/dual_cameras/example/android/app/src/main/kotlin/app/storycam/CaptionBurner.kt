@@ -68,6 +68,7 @@ object CaptionBurner {
         val reader = ImageReader.newInstance(w, h,
             android.graphics.ImageFormat.YUV_420_888, 3)
         val decoder = MediaCodec.createDecoderByType(mime)
+        Log.i(TAG, "decoder=${decoder.codecInfo.name} mime=$mime")
         decoder.configure(srcFormat, reader.surface, null, 0)
         decoder.start()
 
@@ -100,6 +101,11 @@ object CaptionBurner {
         var decoderOutputDone = false
         var encoderOutputDone = false
         var lastHeartbeatMs = android.os.SystemClock.elapsedRealtime()
+        // The decoder must yield an input buffer within seconds of
+        // start; on the emulator it never does (inputDone=false for the
+        // whole 8 min poll) — spinning forever hides that wedge. Fail
+        // fast with a legible error instead of hanging the burn.
+        var noInputBufferSinceMs = -1L
 
         fun drainEncoder(endOfStream: Boolean) {
             while (true) {
@@ -151,6 +157,20 @@ object CaptionBurner {
                 // Feed the decoder.
                 if (!decoderInputDone) {
                     val inIndex = decoder.dequeueInputBuffer(TIMEOUT_US)
+                    if (inIndex < 0) {
+                        // No input buffer yet: track how long the decoder
+                        // has been wedged and fail fast instead of
+                        // spinning forever (see heartbeat).
+                        if (noInputBufferSinceMs < 0) {
+                            noInputBufferSinceMs = nowMs
+                        } else if (nowMs - noInputBufferSinceMs >= 30_000) {
+                            throw IllegalStateException(
+                                "decoder ${decoder.codecInfo.name} yielded " +
+                                "no input buffer in 30 s (mime=$mime ${w}x$h)")
+                        }
+                    } else {
+                        noInputBufferSinceMs = -1L
+                    }
                     if (inIndex >= 0) {
                         val buf = decoder.getInputBuffer(inIndex)!!
                         val n = extractor.readSampleData(buf, 0)

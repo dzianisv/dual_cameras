@@ -2752,25 +2752,32 @@ void main() {
             const MethodChannel('dual_cameras_example/thumbnail'), null));
     await tester.tap(find.byTooltip('Start recording'));
     await tester.pumpAndSettle();
-    var snapshots = 0;
-    for (var i = 0; snapshots == 0 && i < 50; i++) {
+    // Wait for the first snapshot to be fully written, not just
+    // created: writeAsBytes creates the file (0 bytes) before the bytes
+    // land, and the snapshot's bookkeeping (captured++ + track add)
+    // runs only after the write future completes — sighting a 0-byte
+    // file and stopping at once orphans it (STOP FLUSH TIMEOUT, then
+    // SNAPSHOT STALE after-write). Require size > 0 and unchanged
+    // across two checks 200 ms apart, then drain real async once more.
+    var snapshotBytes = 0;
+    var snapshotStable = false;
+    for (var i = 0; !snapshotStable && i < 50; i++) {
       await tester.runAsync(
           () => Future<void>.delayed(const Duration(milliseconds: 100)));
       await tester.pump();
-      snapshots = tempDir
+      final files = tempDir
           .listSync(recursive: true)
           .whereType<File>()
           .where((f) => f.path.contains('map_') && f.path.endsWith('.png'))
-          .length;
+          .toList();
+      final bytes = files.isEmpty ? 0 : files.first.lengthSync();
+      if (bytes > 0 && bytes == snapshotBytes) {
+        snapshotStable = true;
+      }
+      snapshotBytes = bytes;
     }
-    expect(snapshots, greaterThan(0));
-    // The file existing does not mean the snapshot's bookkeeping has
-    // run: the write's continuation (captured++ + track add) is real
-    // async work, and the stop flush's 2 s timeout is fake-time-driven
-    // in tests, so it can fire before the continuation runs — orphaning
-    // the file (STOP FLUSH TIMEOUT, then SNAPSHOT STALE after-write).
-    // Drain real async first so the snapshot is counted, not just
-    // written.
+    expect(snapshotBytes, greaterThan(0));
+    expect(snapshotStable, isTrue);
     await tester.runAsync(
         () => Future<void>.delayed(const Duration(milliseconds: 300)));
     await tester.pump();
