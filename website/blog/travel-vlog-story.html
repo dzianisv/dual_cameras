@@ -1,0 +1,194 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>I went traveling and wanted to vlog for my family — so I built the camera app I needed | StoryCam</title>
+<meta name="description" content="I was traveling and wanted to send my family videos where they could see my face and the place at the same time. No free camera app did front and back recording together, so I built StoryCam — free, on Android, with on-device captions in Russian and English.">
+<meta name="keywords" content="StoryCam, travel vlog app, free vlogging app Android, record front and back camera at once, dual camera vlog, family video app, on-device captions Russian English">
+<meta name="author" content="Den">
+<meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1">
+<meta name="theme-color" content="#027DFD">
+<link rel="canonical" href="https://dzianisv.github.io/dual_cameras/blog/travel-vlog-story.html">
+
+<!-- Open Graph -->
+<meta property="og:type" content="article">
+<meta property="og:site_name" content="StoryCam">
+<meta property="og:url" content="https://dzianisv.github.io/dual_cameras/blog/travel-vlog-story.html">
+<meta property="og:title" content="I went traveling and wanted to vlog for my family — so I built the camera app I needed">
+<meta property="og:description" content="No free camera app recorded the front and back cameras together, so I built StoryCam: one portrait video, my face and the place in the same shot, free on Android.">
+<meta property="og:image" content="https://dzianisv.github.io/dual_cameras/assets/demo-back-primary.jpg">
+<meta property="og:image:width" content="1080">
+<meta property="og:image:height" content="1920">
+<meta property="og:image:alt" content="StoryCam dual-camera capture: back camera full-frame with a circular selfie inset.">
+<meta property="og:locale" content="en_US">
+<meta property="article:published_time" content="2026-11-16">
+<meta property="article:author" content="Den">
+
+<!-- Twitter / X -->
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="I went traveling and wanted to vlog for my family — so I built the camera app I needed">
+<meta name="twitter:description" content="No free camera app recorded front and back together. So I built StoryCam — free on Android, with on-device captions in Russian and English.">
+<meta name="twitter:image" content="https://dzianisv.github.io/dual_cameras/assets/demo-back-primary.jpg">
+<meta name="twitter:image:alt" content="StoryCam dual-camera capture with selfie inset.">
+
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><rect width='24' height='24' rx='6' fill='%23027DFD'/><circle cx='9' cy='12' r='4.5' fill='white'/><circle cx='16' cy='9' r='2.5' fill='white'/></svg>">
+
+<!-- Structured data: BlogPosting, for Google rich results and AI answer engines. -->
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "BlogPosting",
+  "headline": "I went traveling and wanted to vlog for my family — so I built the camera app I needed",
+  "description": "I was traveling and wanted to send my family videos where they could see my face and the place at the same time. No free camera app recorded the front and back cameras together, so I built StoryCam — free on Android, with on-device captions in Russian and English.",
+  "url": "https://dzianisv.github.io/dual_cameras/blog/travel-vlog-story.html",
+  "datePublished": "2026-11-16",
+  "author": { "@type": "Person", "name": "Den" },
+  "publisher": { "@type": "Organization", "name": "StoryCam" },
+  "inLanguage": "en",
+  "isAccessibleForFree": true,
+  "about": {
+    "@type": "MobileApplication",
+    "name": "StoryCam",
+    "applicationCategory": "MultimediaApplication",
+    "operatingSystem": "Android",
+    "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
+    "downloadUrl": "https://dzianisv.github.io/dual_cameras/latest.html"
+  }
+}
+</script>
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+
+<style>
+  :root {
+    --bg: #ffffff; --ink: #0b0b0c; --muted: #5b626b; --faint: #8a909a;
+    --line: #ececef; --surface: #f7f8fa; --blue: #027DFD; --green: #3DDC84;
+    --maxw: 1120px; --radius: 16px;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html { scroll-behavior: smooth; -webkit-text-size-adjust: 100%; overflow-x: hidden; }
+  body {
+    font-family: "Inter", -apple-system, "Segoe UI", Roboto, sans-serif;
+    color: var(--ink); background: var(--bg); line-height: 1.6;
+    overflow-x: hidden; -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility;
+  }
+  a { color: inherit; text-decoration: none; }
+  .wrap { max-width: var(--maxw); margin: 0 auto; padding: 0 24px; }
+
+  header {
+    position: sticky; top: 0; z-index: 50;
+    background: rgba(255,255,255,0.82);
+    backdrop-filter: saturate(180%) blur(12px);
+    border-bottom: 1px solid var(--line);
+  }
+  .nav { display: flex; align-items: center; justify-content: space-between; height: 64px; }
+  .brand { font-weight: 700; font-size: 15px; letter-spacing: -0.2px; display: flex; align-items: center; gap: 10px; }
+  .brand .mark { width: 26px; height: 26px; border-radius: 7px; background: var(--blue); position: relative; flex: none; }
+  .brand .mark::before { content:""; position:absolute; width:13px; height:13px; border-radius:50%; background:#fff; left:4px; top:6px; }
+  .brand .mark::after { content:""; position:absolute; width:8px; height:8px; border-radius:50%; background:#fff; right:4px; top:4px; }
+  .nav nav { display: flex; align-items: center; gap: 30px; }
+  .nav nav a { font-size: 14.5px; color: var(--muted); font-weight: 500; }
+  .nav nav a:hover { color: var(--ink); }
+  .btn {
+    display: inline-flex; align-items: center; gap: 9px; font-weight: 600; font-size: 14.5px;
+    padding: 10px 18px; border-radius: 10px; border: 1px solid var(--ink); background: var(--ink); color: #fff;
+    transition: transform .12s ease, opacity .12s ease;
+  }
+  .btn:hover { opacity: 0.88; }
+  .btn.ghost { background: transparent; color: var(--ink); border-color: var(--line); }
+  .btn.ghost:hover { border-color: var(--ink); opacity: 1; }
+
+  article { max-width: 760px; margin: 0 auto; padding: 72px 24px 96px; }
+  .eyebrow {
+    font-size: 13px; font-weight: 700; letter-spacing: 1.6px; text-transform: uppercase;
+    color: var(--blue); display: inline-flex; align-items: center; gap: 9px;
+  }
+  .eyebrow::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--blue); }
+  article h1 {
+    font-size: clamp(34px, 5vw, 52px); font-weight: 800; letter-spacing: -1.8px; line-height: 1.05;
+    margin: 18px 0 0;
+  }
+  .byline { margin-top: 18px; color: var(--faint); font-size: 14.5px; }
+  .byline b { color: var(--muted); font-weight: 600; }
+  article p { color: #2a2e33; font-size: 18px; margin-top: 26px; line-height: 1.7; }
+  article p.lead { font-size: 21px; color: var(--muted); }
+  article h2 { font-size: 26px; font-weight: 800; letter-spacing: -0.8px; line-height: 1.15; margin: 56px 0 0; }
+  article ul { margin: 22px 0 0 22px; font-size: 18px; line-height: 1.7; color: #2a2e33; }
+  article ul li { margin-top: 10px; }
+  article ul b { color: var(--ink); }
+  article a.inline { color: var(--blue); font-weight: 600; }
+  article a.inline:hover { text-decoration: underline; }
+  .cta-box {
+    margin-top: 56px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius);
+    padding: 30px 32px;
+  }
+  .cta-box h2 { margin-top: 0; }
+  .cta-box p { margin-top: 12px; font-size: 16.5px; }
+  .cta { margin-top: 24px; display: flex; gap: 12px; flex-wrap: wrap; }
+  footer { border-top: 1px solid var(--line); padding: 36px 0 48px; color: var(--faint); font-size: 14px; }
+  footer .wrap { display: flex; justify-content: space-between; gap: 20px; flex-wrap: wrap; }
+  footer a:hover { color: var(--ink); }
+  @media (max-width: 720px) { .nav nav a.hide-sm { display: none; } article { padding-top: 52px; } }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="wrap nav">
+    <a class="brand" href="../storycam.html"><span class="mark"></span>StoryCam</a>
+    <nav>
+      <a class="hide-sm" href="../storycam.html">App</a>
+      <a class="hide-sm" href="https://github.com/dzianisv/dual_cameras">GitHub</a>
+      <a class="btn" href="../latest.html">Get the app — free</a>
+    </nav>
+  </div>
+</header>
+
+<article>
+  <span class="eyebrow">StoryCam — why I built it</span>
+  <h1>I went traveling and wanted to vlog for my family — so I built the camera app I needed</h1>
+  <p class="byline">By <b>Den</b> · November 16, 2026</p>
+
+  <p class="lead">I was traveling, and I wanted to send my family and friends videos that felt like being there with me. Not a photo dump, not a shaky clip of a street — a video where they could see my face and the place at the same time.</p>
+
+  <p>My phone made me choose. Selfie mode showed me talking, but not what I was looking at. The back camera showed the place, but not me in it. I could record one, then the other, then stitch them together — but nobody does that on a trip. By the time you open an editor, the moment is gone, and your family gets the video three weeks later, or never.</p>
+
+  <p>So I looked for a free camera app that records the front and back cameras together, into one video, while I am recording. I could not find one that just did that — free, no account, no watermark, no “upload to our cloud and we will send you a link.” So I built it.</p>
+
+  <h2>What StoryCam does</h2>
+  <p>StoryCam is a free Android app. You open it, you press record, and it records both cameras at the same time into one portrait video: the place fills the screen, and you are in a circle in the corner, reacting to it live. What you see on screen is exactly what gets saved.</p>
+  <ul>
+    <li><b>Two cameras, one video.</b> Front and back record together — no switching, no editing, no second take.</li>
+    <li><b>Filters.</b> A slider with looks from clean to game-style, so a plain walk looks like something you actually want to send.</li>
+    <li><b>Captions in Russian and English.</b> My family speaks both. The app adds captions on the phone itself, with the Whisper speech model — no account, no cloud, your audio never leaves the device.</li>
+    <li><b>A map on screen.</b> A small live map sits in the corner while you record, so the video knows where it was taken. The next update burns the map into the video itself.</li>
+    <li><b>Free.</b> No paywall, no subscription, no paid version. The app is free, and that is the whole model.</li>
+  </ul>
+
+  <h2>Why it matters for a trip</h2>
+  <p>A travel video for family is not a production. It is a message: here I am, this is what I see, I wish you were here. The front camera is you talking to them. The back camera is the thing you want them to see. Put them in the same frame and the video does the job by itself — you press stop, you send it, and your family watches it the same evening.</p>
+
+  <p>That is the whole idea. If you are traveling and you want the people back home to feel like they came with you, try it.</p>
+
+  <div class="cta-box">
+    <h2>Get StoryCam — free</h2>
+    <p>StoryCam is in testing on Google Play now, and the free APK is on GitHub. It needs an ARM64 Android phone with front-and-back camera support (Pixel 6 and newer, Galaxy S22 and newer work; other phones fall back to single-camera recording).</p>
+    <div class="cta">
+      <a class="btn" href="../latest.html">Download the latest APK</a>
+      <a class="btn ghost" href="../storycam.html">About the app</a>
+    </div>
+  </div>
+</article>
+
+<footer>
+  <div class="wrap">
+    <span>StoryCam — a free Android app by Den, built on the open-source <a href="https://github.com/dzianisv/dual_cameras">dual_cameras</a> plugin.</span>
+    <span><a href="../storycam.html">App</a> · <a href="../privacy.html">Privacy</a> · <a href="https://github.com/dzianisv/dual_cameras">GitHub</a></span>
+  </div>
+</footer>
+
+</body>
+</html>
