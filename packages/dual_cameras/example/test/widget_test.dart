@@ -9,14 +9,19 @@ import 'package:dual_cameras_example/captions/model_download_notifier.dart';
 import 'package:dual_cameras_example/captions/model_manager.dart';
 import 'package:dual_cameras_example/captions/caption_models.dart';
 import 'package:dual_cameras_example/captions/review_prompt_gate.dart';
+import 'package:dual_cameras_example/map/camera_settings.dart';
 import 'package:dual_cameras_example/map/map_location.dart';
+import 'package:dual_cameras_example/map/place_name.dart';
 import 'package:dual_cameras_example/review_prompt.dart';
 import 'package:dual_cameras_example/ui/filter_slider.dart';
 import 'package:dual_cameras_example/ui/map_circle.dart';
 import 'package:dual_cameras_platform_interface/dual_cameras_platform_interface.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:http/http.dart' as http;
+import 'package:http/testing.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:plugin_platform_interface/plugin_platform_interface.dart';
 
@@ -279,6 +284,59 @@ class FakeMapLocationService extends MapLocationService {
         );
 }
 
+/// Test harness for MapCircle: holds position + zoom like the camera
+/// screen does, feeding gesture reports back in as the new zoom (the
+/// parent contract from issue #47, D1/D4).
+class MapCircleHarness extends StatefulWidget {
+  const MapCircleHarness({
+    super.key,
+    required this.initialPosition,
+    this.initialZoom = 16.0,
+    this.placeName,
+    this.showTiles = true,
+  });
+
+  final LatLng initialPosition;
+  final double initialZoom;
+  final String? placeName;
+  final bool showTiles;
+
+  @override
+  State<MapCircleHarness> createState() => MapCircleHarnessState();
+}
+
+class MapCircleHarnessState extends State<MapCircleHarness> {
+  late LatLng position = widget.initialPosition;
+  late double zoom = widget.initialZoom;
+
+  /// Every zoom the map reported, in order (one per gesture, D4).
+  final List<double> zoomReports = [];
+
+  void setPosition(LatLng next) => setState(() => position = next);
+
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      home: Scaffold(
+        body: Center(
+          child: MapCircle(
+            position: position,
+            headingDeg: 0,
+            mode: CompassMode.headingUp,
+            zoom: zoom,
+            placeName: widget.placeName,
+            onZoomChanged: (z) {
+              zoomReports.add(z);
+              setState(() => zoom = z);
+            },
+            showTiles: widget.showTiles,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 /// Whether a bottom-menu item reads as ON (bold white, issue #20 v4).
 bool menuItemIsBold(WidgetTester tester, String key) {
   final text = tester.widget<Text>(find.descendant(
@@ -333,10 +391,24 @@ void main() {
     // auto-init would never fire. A null reply makes path_provider
     // throw MissingPlatformDirectoryException, which the store catches
     // and turns into defaults.
+    //
+    // Issue #47: flutter_map's tile provider needs a real cache directory
+    // (getApplicationCacheDirectory) when a FlutterMap is pumped with
+    // tiles — without it the provider throws MissingPlatformDirectoryException
+    // into the test. The documents directory stays unmocked (null) so the
+    // settings stores keep starting from defaults in tests.
+    final tileCacheDir =
+        Directory.systemTemp.createTempSync('storycam-tile-cache-');
+    addTearDown(() => tileCacheDir.deleteSync(recursive: true));
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(
             const MethodChannel('plugins.flutter.io/path_provider'),
-            (call) async => null);
+            (call) async {
+      if (call.method == 'getApplicationCacheDirectory') {
+        return tileCacheDir.path;
+      }
+      return null;
+    });
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(const MethodChannel('gal'), (call) async {
       galleryCalls.add(call.method);
@@ -355,6 +427,8 @@ void main() {
   Future<void> openCamera(WidgetTester tester,
       {CaptionJobNotifier? captions,
       MapLocationService? mapLocationService,
+      CameraSettingsStore? cameraSettingsStore,
+      PlaceNameService? placeNameService,
       ReviewPrompt? reviewPrompt,
       ReviewPromptGate? reviewPromptGate,
       String? appVersion}) async {
@@ -362,7 +436,9 @@ void main() {
         modelManager: model,
         backgroundCaptions: false,
         captionJobNotifier: captions,
+        cameraSettingsStore: cameraSettingsStore,
         mapLocationService: mapLocationService,
+        placeNameService: placeNameService,
         reviewPrompt: reviewPrompt,
         reviewPromptGate: reviewPromptGate,
         appVersion: appVersion));
@@ -1637,5 +1713,538 @@ void main() {
     expect(File('${dir2.path}/review_prompt_version.txt').existsSync(),
         isFalse);
     expect(tester.takeException(), isNull);
+  });
+
+  // ---- Issue #47: map pinch-to-zoom, zoom setting, place name ----
+
+  /// Live zoom / center of the pumped FlutterMap.
+  double mapZoom(WidgetTester tester) => tester
+      .widget<FlutterMap>(find.byType(FlutterMap))
+      .mapController!
+      .camera
+      .zoom;
+  LatLng mapCenter(WidgetTester tester) => tester
+      .widget<FlutterMap>(find.byType(FlutterMap))
+      .mapController!
+      .camera
+      .center;
+
+  /// Two-finger spread on the map circle (pinch zoom in).
+  Future<void> pinchIn(WidgetTester tester) async {
+    final center = tester.getCenter(find.byKey(const Key('map-circle')));
+    final first = await tester.startGesture(center + const Offset(-20, 0));
+    final second = await tester.startGesture(center + const Offset(20, 0));
+    await tester.pump();
+    for (var i = 1; i <= 5; i++) {
+      await first.moveTo(center + Offset(-20.0 - i * 8, 0));
+      await second.moveTo(center + Offset(20.0 + i * 8, 0));
+      await tester.pump(const Duration(milliseconds: 16));
+    }
+    await first.up();
+    await second.up();
+    await tester.pumpAndSettle();
+  }
+
+  /// A PlaceNameService backed by a MockClient (the sanctioned exception
+  /// to the no-mock rule, for this network client only — issue #47, N7)
+  /// that answers the Nominatim switch + reverse endpoints from canned
+  /// responses and records every request.
+  PlaceNameService testPlaceNames({
+    required Directory dir,
+    List<Uri>? reverseRequests,
+    List<DateTime>? reverseTimes,
+    List<Uri>? switchRequests,
+    List<String>? userAgents,
+    String Function(Uri url)? reverseBody,
+    int reverseStatus = 200,
+    Duration reverseDelay = Duration.zero,
+    bool Function()? switchFails,
+    bool switchEnabled = true,
+    Duration minRequestInterval = const Duration(milliseconds: 1100),
+    Duration switchRetryInterval = const Duration(seconds: 60),
+    Duration requestTimeout = const Duration(seconds: 10),
+  }) {
+    final client = MockClient((request) async {
+      if (request.url.host == 'dzianisv.github.io') {
+        switchRequests?.add(request.url);
+        if (switchFails?.call() ?? false) {
+          return http.Response('boom', 500);
+        }
+        return http.Response('{"enabled": $switchEnabled}', 200,
+            headers: {'content-type': 'application/json'});
+      }
+      if (request.url.host == 'nominatim.openstreetmap.org') {
+        reverseRequests?.add(request.url);
+        reverseTimes?.add(DateTime.now());
+        userAgents?.add(request.headers['User-Agent'] ?? '');
+        if (reverseDelay > Duration.zero) {
+          await Future.delayed(reverseDelay);
+        }
+        final body = reverseBody?.call(request.url) ??
+            '{"display_name": "12, Main Street, Springfield, Illinois, United States", '
+                '"address": {"city": "Springfield", "state": "Illinois", "country": "United States"}}';
+        return http.Response(body, reverseStatus,
+            headers: {'content-type': 'application/json'});
+      }
+      return http.Response('not found', 404);
+    });
+    return PlaceNameService(
+      client: client,
+      documentsDirectory: () async => dir,
+      appVersion: '0.5.11',
+      minRequestInterval: minRequestInterval,
+      switchRetryInterval: switchRetryInterval,
+      requestTimeout: requestTimeout,
+    );
+  }
+
+  testWidgets('pinch zooms the map and reports the final zoom once',
+      (tester) async {
+    final harnessKey = GlobalKey<MapCircleHarnessState>();
+    await tester.pumpWidget(MapCircleHarness(
+      key: harnessKey,
+      initialPosition: const LatLng(51.5, -0.12),
+    ));
+    await tester.pump();
+    expect(mapZoom(tester), 16.0);
+
+    await pinchIn(tester);
+
+    final zoomed = mapZoom(tester);
+    expect(zoomed, greaterThan(16.0));
+    expect(harnessKey.currentState!.zoomReports, [zoomed]);
+    // The dot re-centered on the position after the gesture.
+    final center = mapCenter(tester);
+    expect(center.latitude, closeTo(51.5, 1e-6));
+    expect(center.longitude, closeTo(-0.12, 1e-6));
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('double-tap zooms and reports once, re-centering the dot',
+      (tester) async {
+    final harnessKey = GlobalKey<MapCircleHarnessState>();
+    await tester.pumpWidget(MapCircleHarness(
+      key: harnessKey,
+      initialPosition: const LatLng(51.5, -0.12),
+    ));
+    await tester.pump();
+    expect(mapZoom(tester), 16.0);
+
+    // Tap off-center: double-tap zoom moves the center toward the tap
+    // point, so the end-handler re-center is load-bearing here.
+    final tapAt = tester.getCenter(find.byKey(const Key('map-circle'))) +
+        const Offset(30, 0);
+    await tester.tapAt(tapAt);
+    await tester.pump(const Duration(milliseconds: 100));
+    await tester.tapAt(tapAt);
+    await tester.pumpAndSettle();
+
+    final zoomed = mapZoom(tester);
+    expect(zoomed, greaterThan(16.0));
+    expect(harnessKey.currentState!.zoomReports, [zoomed]);
+    final center = mapCenter(tester);
+    expect(center.latitude, closeTo(51.5, 1e-6));
+    expect(center.longitude, closeTo(-0.12, 1e-6));
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('position update after a pinch keeps the pinched zoom',
+      (tester) async {
+    final harnessKey = GlobalKey<MapCircleHarnessState>();
+    await tester.pumpWidget(MapCircleHarness(
+      key: harnessKey,
+      initialPosition: const LatLng(51.5, -0.12),
+    ));
+    await tester.pump();
+    await pinchIn(tester);
+    final zoomed = mapZoom(tester);
+    expect(zoomed, greaterThan(16.0));
+
+    // A new fix: re-centers, keeps the pinched zoom (no reset to 16).
+    harnessKey.currentState!.setPosition(const LatLng(51.501, -0.119));
+    await tester.pump();
+    expect(mapZoom(tester), zoomed);
+    final center = mapCenter(tester);
+    expect(center.latitude, closeTo(51.501, 1e-6));
+    expect(center.longitude, closeTo(-0.119, 1e-6));
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('position update mid-pinch does not jump the map',
+      (tester) async {
+    final harnessKey = GlobalKey<MapCircleHarnessState>();
+    await tester.pumpWidget(MapCircleHarness(
+      key: harnessKey,
+      initialPosition: const LatLng(51.5, -0.12),
+    ));
+    await tester.pump();
+    final center = tester.getCenter(find.byKey(const Key('map-circle')));
+    final first = await tester.startGesture(center + const Offset(-20, 0));
+    final second = await tester.startGesture(center + const Offset(20, 0));
+    await tester.pump();
+    // Three moves: the first is inside the scale slop (no zoom yet), the
+    // second is accepted as the gesture start (scale still 1.0), the
+    // third actually zooms — only then is a pinch in flight.
+    await first.moveTo(center + const Offset(-28, 0));
+    await second.moveTo(center + const Offset(28, 0));
+    await tester.pump(const Duration(milliseconds: 16));
+    await first.moveTo(center + const Offset(-36, 0));
+    await second.moveTo(center + const Offset(36, 0));
+    await tester.pump(const Duration(milliseconds: 16));
+    await first.moveTo(center + const Offset(-44, 0));
+    await second.moveTo(center + const Offset(44, 0));
+    await tester.pump(const Duration(milliseconds: 16));
+    final midZoom = mapZoom(tester);
+    final midCenter = mapCenter(tester);
+    expect(midZoom, greaterThan(16.0));
+
+    // A fix arrives mid-gesture: the re-center is deferred, so the
+    // camera must not jump.
+    harnessKey.currentState!.setPosition(const LatLng(51.501, -0.119));
+    await tester.pump();
+    expect(mapZoom(tester), midZoom);
+    expect(mapCenter(tester).latitude, closeTo(midCenter.latitude, 1e-9));
+    expect(mapCenter(tester).longitude, closeTo(midCenter.longitude, 1e-9));
+
+    // Finish the gesture: exactly one report, re-centered on the latest
+    // fix.
+    await first.moveTo(center + const Offset(-60, 0));
+    await second.moveTo(center + const Offset(60, 0));
+    await tester.pump(const Duration(milliseconds: 16));
+    await first.up();
+    await second.up();
+    await tester.pumpAndSettle();
+    expect(harnessKey.currentState!.zoomReports.length, 1);
+    final endCenter = mapCenter(tester);
+    expect(endCenter.latitude, closeTo(51.501, 1e-6));
+    expect(endCenter.longitude, closeTo(-0.119, 1e-6));
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('stored zoom 18.5 is the first-paint zoom on relaunch',
+      (tester) async {
+    await tester.pumpWidget(const MapCircleHarness(
+      initialPosition: LatLng(51.5, -0.12),
+      initialZoom: 18.5,
+    ));
+    await tester.pump();
+    // First paint, before any position update.
+    expect(mapZoom(tester), 18.5);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('N badge and heading cone render at zoom 19.0',
+      (tester) async {
+    await tester.pumpWidget(const MapCircleHarness(
+      initialPosition: LatLng(51.5, -0.12),
+      initialZoom: 19.0,
+    ));
+    await tester.pump();
+    expect(find.text('N'), findsOneWidget);
+    expect(find.byKey(const Key('map-heading-cone')), findsOneWidget);
+    expect(find.byKey(const Key('map-dot')), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('place pill renders with a name and hides without one',
+      (tester) async {
+    await tester.pumpWidget(const MapCircleHarness(
+      initialPosition: LatLng(51.5, -0.12),
+      placeName: 'San Francisco, California',
+      showTiles: false,
+    ));
+    await tester.pump();
+    expect(find.text('San Francisco, California'), findsOneWidget);
+    expect(find.byKey(const Key('map-place-name')), findsOneWidget);
+
+    await tester.pumpWidget(const MapCircleHarness(
+      initialPosition: LatLng(51.5, -0.12),
+      showTiles: false,
+    ));
+    await tester.pump();
+    expect(find.byKey(const Key('map-place-name')), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('OSM attribution renders when tiles are shown',
+      (tester) async {
+    await tester.pumpWidget(const MapCircleHarness(
+      initialPosition: LatLng(51.5, -0.12),
+    ));
+    await tester.pump();
+    expect(find.text('© OpenStreetMap contributors'), findsOneWidget);
+    expect(find.byKey(const Key('map-attribution')), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('map zoom slider previews live and persists on release',
+      (tester) async {
+    final dir = Directory.systemTemp.createTempSync('storycam-47-settings-');
+    addTearDown(() => dir.deleteSync(recursive: true));
+    final store = CameraSettingsStore(documentsDirectory: () async => dir);
+    final positions = StreamController<LatLng>.broadcast();
+    addTearDown(positions.close);
+    await openCamera(tester,
+        cameraSettingsStore: store,
+        mapLocationService: FakeMapLocationService(
+            positions: positions.stream,
+            headings: const Stream<double>.empty()));
+    positions.add(const LatLng(51.5, -0.12));
+    await tester.pump();
+    await tester.pump();
+    expect(find.byType(MapCircle), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('menu-map')));
+    await tester.pumpAndSettle();
+    final slider = find.byKey(const Key('map-zoom-slider'));
+    expect(slider, findsOneWidget);
+    expect(find.text('Map zoom 16.0'), findsOneWidget);
+
+    // Drag 16.0 -> 18.5: the drag starts at the thumb (value center) and
+    // the value range is 6, so dx is 2.5/6 of the slider width.
+    final rect = tester.getRect(slider);
+    await tester.drag(slider, Offset(rect.width * (2.5 / 6), 0));
+    await tester.pumpAndSettle();
+    expect(find.text('Map zoom 18.5'), findsOneWidget);
+    // Live: the map behind the sheet re-zoomed.
+    expect(tester.widget<MapCircle>(find.byType(MapCircle)).zoom, 18.5);
+
+    // Released (drag end saves): a fresh store load restores 18.5.
+    final restored = await CameraSettingsStore(
+            documentsDirectory: () async => dir)
+        .load();
+    expect(restored.mapZoom, 18.5);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('place pill shows the reverse-geocoded name after a fix',
+      (tester) async {
+    final dir = Directory.systemTemp.createTempSync('storycam-47-places-');
+    addTearDown(() => dir.deleteSync(recursive: true));
+    final positions = StreamController<LatLng>.broadcast();
+    addTearDown(positions.close);
+    final placeNames = testPlaceNames(dir: dir, reverseRequests: []);
+    await openCamera(tester,
+        mapLocationService: FakeMapLocationService(
+            positions: positions.stream,
+            headings: const Stream<double>.empty()),
+        placeNameService: placeNames);
+    positions.add(const LatLng(39.7817, -89.6501));
+    await tester.pump();
+    await tester.pump();
+    await tester.pumpAndSettle();
+    expect(find.text('Springfield, Illinois'), findsOneWidget);
+    expect(find.byKey(const Key('map-place-name')), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  test('CameraSettings.fromJson clamps mapZoom to 13-19', () {
+    expect(CameraSettings.fromJson({'mapZoom': 25}).mapZoom, 19.0);
+    expect(CameraSettings.fromJson({'mapZoom': 2}).mapZoom, 13.0);
+    expect(CameraSettings.fromJson({'mapZoom': 18.5}).mapZoom, 18.5);
+    expect(CameraSettings.fromJson({}).mapZoom, 16.0);
+    expect(CameraSettings.fromJson({'mapZoom': 'high'}).mapZoom, 16.0);
+    expect(const CameraSettings().mapZoom, 16.0);
+    expect(
+        const CameraSettings().copyWith(mapZoom: 17.5).toJson()['mapZoom'],
+        17.5);
+  });
+
+  test('PlaceNameService looks up once per 100 m move, 1.1 s floor',
+      () async {
+    final dir = Directory.systemTemp.createTempSync('storycam-47-places-');
+    addTearDown(() => dir.deleteSync(recursive: true));
+    final reverseRequests = <Uri>[];
+    final reverseTimes = <DateTime>[];
+    final userAgents = <String>[];
+    final service = testPlaceNames(
+      dir: dir,
+      reverseRequests: reverseRequests,
+      reverseTimes: reverseTimes,
+      userAgents: userAgents,
+    );
+    const springfield = LatLng(39.7817, -89.6501);
+    expect(await service.lookup(springfield), 'Springfield, Illinois');
+    expect(reverseRequests, hasLength(1));
+    expect(userAgents, ['StoryCam/0.5.11 (app.storycam)']);
+    // ~44 m away: no request, same label.
+    expect(await service.lookup(const LatLng(39.7821, -89.6501)),
+        'Springfield, Illinois');
+    expect(reverseRequests, hasLength(1));
+    // ~156 m away: a request fires, at least 1.1 s after the first.
+    expect(await service.lookup(const LatLng(39.7831, -89.6501)),
+        'Springfield, Illinois');
+    expect(reverseRequests, hasLength(2));
+    expect(reverseTimes[1].difference(reverseTimes[0]),
+        greaterThanOrEqualTo(const Duration(milliseconds: 1100)));
+  });
+
+  test('PlaceNameService serves cache hits without a request, persistently',
+      () async {
+    final dir = Directory.systemTemp.createTempSync('storycam-47-places-');
+    addTearDown(() => dir.deleteSync(recursive: true));
+    final reverseRequests = <Uri>[];
+    final first = testPlaceNames(dir: dir, reverseRequests: reverseRequests);
+    const springfield = LatLng(39.7817, -89.6501);
+    expect(await first.lookup(springfield), 'Springfield, Illinois');
+    expect(reverseRequests, hasLength(1));
+    // Same rounded cell (4 decimals): cache hit, no request.
+    expect(await first.lookup(const LatLng(39.78171, -89.65011)),
+        'Springfield, Illinois');
+    expect(reverseRequests, hasLength(1));
+    // A fresh service on the same directory: the persistent cache
+    // survives, no reverse request.
+    final secondRequests = <Uri>[];
+    final second =
+        testPlaceNames(dir: dir, reverseRequests: secondRequests);
+    expect(await second.lookup(springfield), 'Springfield, Illinois');
+    expect(secondRequests, isEmpty);
+  });
+
+  test('PlaceNameService returns null on error and on timeout', () async {
+    final dir = Directory.systemTemp.createTempSync('storycam-47-places-');
+    addTearDown(() => dir.deleteSync(recursive: true));
+    final errorService = testPlaceNames(
+        dir: dir, reverseRequests: [], reverseStatus: 500);
+    expect(await errorService.lookup(const LatLng(39.7817, -89.6501)),
+        isNull);
+
+    final dir2 = Directory.systemTemp.createTempSync('storycam-47-places-');
+    addTearDown(() => dir2.deleteSync(recursive: true));
+    final slowService = testPlaceNames(
+      dir: dir2,
+      reverseRequests: [],
+      reverseDelay: const Duration(milliseconds: 500),
+      requestTimeout: const Duration(milliseconds: 100),
+    );
+    expect(await slowService.lookup(const LatLng(39.7817, -89.6501)),
+        isNull);
+  });
+
+  test('PlaceNameService stays off for the session when the switch is off',
+      () async {
+    final dir = Directory.systemTemp.createTempSync('storycam-47-places-');
+    addTearDown(() => dir.deleteSync(recursive: true));
+    final reverseRequests = <Uri>[];
+    final switchRequests = <Uri>[];
+    final service = testPlaceNames(
+      dir: dir,
+      reverseRequests: reverseRequests,
+      switchRequests: switchRequests,
+      switchEnabled: false,
+    );
+    expect(await service.lookup(const LatLng(39.7817, -89.6501)), isNull);
+    expect(reverseRequests, isEmpty);
+    // Second lookup, far away: still off, and the switch is NOT
+    // re-fetched (the fetched-disabled verdict holds for the session).
+    expect(await service.lookup(const LatLng(39.8000, -89.6501)), isNull);
+    expect(reverseRequests, isEmpty);
+    expect(switchRequests, hasLength(1));
+  });
+
+  test('PlaceNameService retries a failed switch fetch on a later attempt',
+      () async {
+    final dir = Directory.systemTemp.createTempSync('storycam-47-places-');
+    addTearDown(() => dir.deleteSync(recursive: true));
+    final reverseRequests = <Uri>[];
+    final switchRequests = <Uri>[];
+    var switchFails = true;
+    final service = testPlaceNames(
+      dir: dir,
+      reverseRequests: reverseRequests,
+      switchRequests: switchRequests,
+      switchFails: () => switchFails,
+      switchRetryInterval: const Duration(milliseconds: 200),
+    );
+    // Fetch failed: no lookup on that attempt.
+    expect(await service.lookup(const LatLng(39.7817, -89.6501)), isNull);
+    expect(switchRequests, hasLength(1));
+    expect(reverseRequests, isEmpty);
+    // Immediate retry: the failed fetch is NOT repeated inside the
+    // retry interval.
+    expect(await service.lookup(const LatLng(39.8000, -89.6501)), isNull);
+    expect(switchRequests, hasLength(1));
+    expect(reverseRequests, isEmpty);
+    // After the interval, the fetch is retried — and now succeeds.
+    await Future.delayed(const Duration(milliseconds: 250));
+    switchFails = false;
+    expect(await service.lookup(const LatLng(39.7817, -89.6501)),
+        'Springfield, Illinois');
+    expect(switchRequests, hasLength(2));
+    expect(reverseRequests, hasLength(1));
+  });
+
+  test('PlaceNameService evicts the oldest cache entry past 50', () async {
+    final dir = Directory.systemTemp.createTempSync('storycam-47-places-');
+    addTearDown(() => dir.deleteSync(recursive: true));
+    final reverseRequests = <Uri>[];
+    final service = testPlaceNames(
+      dir: dir,
+      reverseRequests: reverseRequests,
+      minRequestInterval: Duration.zero,
+    );
+    // 51 distinct positions, each ~222 m from the previous.
+    for (var i = 0; i < 51; i++) {
+      await service.lookup(LatLng(39.7817 + i * 0.002, -89.6501));
+    }
+    expect(reverseRequests, hasLength(51));
+    // The first entry was evicted: looking it up again sends a request.
+    reverseRequests.clear();
+    await service.lookup(const LatLng(39.7817, -89.6501));
+    expect(reverseRequests, hasLength(1));
+    // The last entry is still cached: no request.
+    reverseRequests.clear();
+    await service.lookup(const LatLng(39.7817 + 50 * 0.002, -89.6501));
+    expect(reverseRequests, isEmpty);
+  });
+
+  test('PlaceNameService formats locality fallbacks and display_name',
+      () async {
+    final dir = Directory.systemTemp.createTempSync('storycam-47-places-');
+    addTearDown(() => dir.deleteSync(recursive: true));
+    // Village fallback, country as region.
+    final village = testPlaceNames(
+      dir: dir,
+      reverseRequests: [],
+      reverseBody: (_) =>
+          '{"address": {"village": "Krupki", "country": "Belarus"}}',
+    );
+    expect(await village.lookup(const LatLng(54.3, 29.1)), 'Krupki, Belarus');
+
+    // Suburb fallback in the locality chain.
+    final dir2 = Directory.systemTemp.createTempSync('storycam-47-places-');
+    addTearDown(() => dir2.deleteSync(recursive: true));
+    final suburb = testPlaceNames(
+      dir: dir2,
+      reverseRequests: [],
+      reverseBody: (_) =>
+          '{"address": {"suburb": "Kreuzberg", "state": "Berlin"}}',
+    );
+    expect(
+        await suburb.lookup(const LatLng(52.5, 13.4)), 'Kreuzberg, Berlin');
+
+    // No usable locality: display_name fallback drops the house number
+    // and road segments.
+    final dir3 = Directory.systemTemp.createTempSync('storycam-47-places-');
+    addTearDown(() => dir3.deleteSync(recursive: true));
+    final street = testPlaceNames(
+      dir: dir3,
+      reverseRequests: [],
+      reverseBody: (_) =>
+          '{"display_name": "12, Main Street, Springfield, Illinois, United States", '
+              '"address": {}}',
+    );
+    expect(await street.lookup(const LatLng(39.7817, -89.6501)),
+        'Springfield, Illinois');
+
+    // Nothing usable at all: null, no label.
+    final dir4 = Directory.systemTemp.createTempSync('storycam-47-places-');
+    addTearDown(() => dir4.deleteSync(recursive: true));
+    final empty = testPlaceNames(
+      dir: dir4,
+      reverseRequests: [],
+      reverseBody: (_) => '{"address": {}}',
+    );
+    expect(await empty.lookup(const LatLng(0, 0)), isNull);
   });
 }
