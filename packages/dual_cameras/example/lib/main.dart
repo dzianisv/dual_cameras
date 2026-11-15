@@ -8,6 +8,7 @@ import 'package:gal/gal.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'package:video_player/video_player.dart';
 
 import 'analytics.dart';
 import 'captions/caption_job_notifier.dart';
@@ -29,6 +30,7 @@ import 'map/place_name.dart';
 import 'review_prompt.dart';
 import 'ui/bottom_menu.dart';
 import 'ui/filter_slider.dart';
+import 'ui/last_video_player.dart';
 import 'ui/lens_pills.dart';
 import 'ui/map_circle.dart';
 import 'ui/story_camera.dart';
@@ -65,7 +67,8 @@ class DemoApp extends StatelessWidget {
       this.placeNameService,
       this.reviewPromptGate,
       this.reviewPrompt,
-      this.appVersion});
+      this.appVersion,
+      this.transcriber});
 
   final ModelManager? modelManager;
   final CaptionJobs? captionJobs;
@@ -84,6 +87,10 @@ class DemoApp extends StatelessWidget {
   final ReviewPromptGate? reviewPromptGate;
   final ReviewPrompt? reviewPrompt;
   final String? appVersion;
+  // Issue #50 (F2 fix): the real Transcriber is sherpa-onnx FFI and
+  // cannot run in a widget test, so the twin path is untestable without
+  // this seam — same pattern as modelManager above.
+  final Transcriber? transcriber;
 
   @override
   Widget build(BuildContext context) {
@@ -115,7 +122,8 @@ class DemoApp extends StatelessWidget {
           placeNameService: placeNameService,
           reviewPromptGate: reviewPromptGate,
           reviewPrompt: reviewPrompt,
-          appVersion: appVersion),
+          appVersion: appVersion,
+          transcriber: transcriber),
     );
   }
 }
@@ -135,7 +143,8 @@ class DemoScreen extends StatefulWidget {
       this.placeNameService,
       this.reviewPromptGate,
       this.reviewPrompt,
-      this.appVersion});
+      this.appVersion,
+      this.transcriber});
 
   final ModelManager? modelManager;
   final CaptionJobs? captionJobs;
@@ -150,6 +159,7 @@ class DemoScreen extends StatefulWidget {
   final ReviewPromptGate? reviewPromptGate;
   final ReviewPrompt? reviewPrompt;
   final String? appVersion;
+  final Transcriber? transcriber;
 
   @override
   State<DemoScreen> createState() => _DemoScreenState();
@@ -236,6 +246,17 @@ class _DemoScreenState extends State<DemoScreen> with WidgetsBindingObserver {
   // the captioned file: Share always attaches the original uncaptioned
   // video. In-memory only, gone on app restart, same as _lastFile.
   String? _lastVideo;
+  // In-memory thumbnail bytes for _lastVideo (issue #50): a real frame
+  // at 500 ms, JPEG, max width 128, quality 75, generated in _stop()
+  // after Gal.putVideo succeeds. Null while generating or when
+  // generation failed — the tile falls back to a video icon, and the
+  // menu is never blocked by it. In-memory only, gone on restart.
+  Uint8List? _lastVideoThumb;
+  // Enqueued background caption job for the last video (issue #50):
+  // _stop() retains the id (it was discarded) so Delete can cancel the
+  // job for this video through _jobAction. Null when captions run in
+  // the foreground or no job was enqueued.
+  String? _lastBackgroundJobId;
   bool _circle = true; // Telegram-style: circular selfie inset by default.
 
   // Exposure (EV) slider — the Sony-style dial, applied live to both cameras.
@@ -295,7 +316,10 @@ class _DemoScreenState extends State<DemoScreen> with WidgetsBindingObserver {
   late final ModelManager _modelManager = widget.modelManager ?? ModelManager();
   Future<WhisperModelFiles>? _modelFuture;
   String? _modelError;
-  final Transcriber _transcriber = Transcriber();
+  // Issue #50 (F2 fix): injectable so a widget test can complete a
+  // caption job and produce the twin; defaults to the real FFI one.
+  late final Transcriber _transcriber =
+      widget.transcriber ?? Transcriber();
   // Generation counter for foreground caption jobs (v0.5.3): every stop
   // request bumps it; a job whose captured generation is stale aborts at
   // the next stage boundary, and jobs queued behind it are dropped. A new
@@ -357,6 +381,18 @@ class _DemoScreenState extends State<DemoScreen> with WidgetsBindingObserver {
   // dead `caption_jobs` share path — that channel has no native handler.
   static const MethodChannel _shareChannel =
       MethodChannel('dual_cameras_example/share');
+  // Last-video thumbnail (issue #50): `videoThumbnail {path, maxWidth,
+  // quality, timeMs}` returns one frame as JPEG bytes, extracted
+  // natively (Android MediaMetadataRetriever, iOS AVAssetImageGenerator).
+  // Own channel, not the share channel: the thumbnail is a read-only
+  // frame extraction whose failure is an invisible fallback, while
+  // share/delete failures set status — and the widget tests mock the
+  // two channels independently. No third-party dep: video_thumbnail
+  // 0.5.6 was removed — its android/build.gradle calls jcenter(),
+  // gone under this project's AGP 9+ setup, and 0.5.6 is the latest
+  // version on pub.dev, so no newer release fixes it.
+  static const MethodChannel _thumbnailChannel =
+      MethodChannel('dual_cameras_example/thumbnail');
   int _frontOffset = 90; // matches FRONT_ROTATION_OFFSET default
   int _backOffset = -90; // matches BACK_ROTATION_OFFSET default
   double _frontAspect = 0; // 0 = auto (use camera-reported)
@@ -1114,6 +1150,14 @@ class _DemoScreenState extends State<DemoScreen> with WidgetsBindingObserver {
   /// original uncaptioned mp4 is always kept; the captioned one is a second
   /// file. Any captions failure falls back to the plain video.
   Future<void> _stop() async {
+    // Issue #50, stale-frame guard (N8, first half): clear the previous
+    // thumbnail — and the previous background job id — before the new
+    // recording stops, so the tile never shows the previous video's
+    // frame while the new one generates. The generation's path check
+    // (second half, _generateLastVideoThumb) closes the late-write path
+    // a clear alone leaves open.
+    _update(() => _lastVideoThumb = null);
+    _lastBackgroundJobId = null;
     final captions = _captions;
     late final String file;
     try {
@@ -1121,8 +1165,13 @@ class _DemoScreenState extends State<DemoScreen> with WidgetsBindingObserver {
       _lastFile = file;
       await Gal.putVideo(file);
       // Only after a successful save: on a Gal failure _lastVideo stays
-      // null, so no Share button appears next to a save-failed status.
+      // null, so no thumbnail appears next to a save-failed status.
       _lastVideo = file;
+      // Issue #50: real-frame thumbnail, fire-and-forget after the save
+      // — it never delays the status and never holds _busy. A null
+      // result or throw leaves _lastVideoThumb null and the tile shows
+      // the video-icon placeholder; the menu is never blocked by it.
+      unawaited(_generateLastVideoThumb(file));
       // Analytics: the recording completed and saved. Fire-and-forget —
       // never delays the save flow. (N3: no duration_seconds — no
       // recording timer exists at this hook, and none is added.)
@@ -1143,7 +1192,10 @@ class _DemoScreenState extends State<DemoScreen> with WidgetsBindingObserver {
     if (captions) {
       if (_usesBackgroundJobs) {
         try {
-          await _jobs.enqueue(file, language: _captionLanguage.code);
+          // Issue #50: retain the enqueued id so Delete can cancel the
+          // job for this video through _jobAction (it was discarded).
+          _lastBackgroundJobId =
+              await _jobs.enqueue(file, language: _captionLanguage.code);
           _update(() => _jobError = null);
           await _refreshJobs();
         } catch (_) {
@@ -1212,6 +1264,265 @@ class _DemoScreenState extends State<DemoScreen> with WidgetsBindingObserver {
         _status = 'Could not open share sheet. See settings for details.';
         _error = '$e';
       });
+    }
+  }
+
+  /// Generate the last-video thumbnail bytes (issue #50): a real frame
+  /// at 500 ms, JPEG, max width 128, quality 75 — extracted natively
+  /// through the `dual_cameras_example/thumbnail` channel (Android
+  /// MediaMetadataRetriever, iOS AVAssetImageGenerator). Fire-and-forget
+  /// from _stop(); never throws. Second half of the N8 stale-frame guard:
+  /// only write the bytes when the path is still the last video, so a
+  /// slow generation from a previous recording (or one that completed
+  /// after Delete) can never overwrite the current frame.
+  Future<void> _generateLastVideoThumb(String path) async {
+    try {
+      final bytes = await _thumbnailChannel.invokeMethod<Uint8List>(
+        'videoThumbnail',
+        {'path': path, 'maxWidth': 128, 'quality': 75, 'timeMs': 500},
+      );
+      if (bytes == null || _lastVideo != path) return;
+      _update(() => _lastVideoThumb = bytes);
+    } catch (_) {
+      // Thumbnail failure is invisible by design: the tile falls back
+      // to the video-icon placeholder and the menu still opens.
+    }
+  }
+
+  /// Last-video popup menu (issue #50): Open / Delete / Share on
+  /// Android, Open / Delete on iOS (Share hidden, §6). Anchored at the
+  /// thumbnail: the tile passes its own rect (see _anchorRect in
+  /// story_camera.dart). Dismiss on outside tap or Back changes nothing.
+  void _showLastVideoMenu(RelativeRect anchor) {
+    final path = _lastVideo;
+    if (path == null) return;
+    showMenu<String>(
+      context: context,
+      position: anchor,
+      items: [
+        const PopupMenuItem<String>(
+          key: Key('last-video-menu-open'),
+          value: 'open',
+          child: Text('Open'),
+        ),
+        const PopupMenuItem<String>(
+          key: Key('last-video-menu-delete'),
+          value: 'delete',
+          child: Text('Delete'),
+        ),
+        if (!Platform.isIOS)
+          const PopupMenuItem<String>(
+            key: Key('last-video-menu-share'),
+            value: 'share',
+            child: Text('Share'),
+          ),
+      ],
+    ).then((value) {
+      if (!mounted || value == null) return;
+      switch (value) {
+        case 'open':
+          unawaited(_openLastVideo());
+        case 'delete':
+          unawaited(_deleteLastVideo());
+        case 'share':
+          unawaited(_shareVideo());
+      }
+    });
+  }
+
+  /// Open the last video in the in-app player (issue #50): the original
+  /// uncaptioned file, same as Share attaches. The controller is created
+  /// and initialized here so an initialize() failure surfaces as status
+  /// + _error (same failure pattern as _shareVideo) and no player route
+  /// opens; the initialized controller is handed to the player page,
+  /// which autoplays and owns disposal on pop.
+  Future<void> _openLastVideo() async {
+    final path = _lastVideo;
+    if (path == null) return;
+    if (!File(path).existsSync()) {
+      // File deleted / moved after save: hide the tile, say so plainly.
+      _update(() {
+        _lastVideo = null;
+        _lastVideoThumb = null;
+        _status = 'Video no longer available. Record again.';
+      });
+      return;
+    }
+    final controller = VideoPlayerController.file(File(path));
+    try {
+      await controller.initialize();
+    } catch (e) {
+      // Never await dispose() here: video_player completes its creation
+      // gate only after create() returns, so when initialize() threw at
+      // create the dispose() future never completes — awaiting it would
+      // hang this flow and the status below would never be set. No
+      // native player exists in that case; when initialize() threw
+      // after create, the dropped dispose still runs and cleans up.
+      unawaited(controller.dispose().catchError((_) {}));
+      _update(() {
+        _status = 'Could not play video. See settings for details.';
+        _error = '$e';
+      });
+      return;
+    }
+    if (!mounted) {
+      await controller.dispose();
+      return;
+    }
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => LastVideoPlayerPage(controller: controller),
+      ),
+    );
+  }
+
+  /// Delete the last video (issue #50): the cache file, the gallery copy
+  /// Gal saved, and the captioned twin when it derives from this
+  /// recording. Stops any in-flight caption job for the file FIRST —
+  /// foreground generation bump, background retained-id cancel through
+  /// _jobAction (never a raw _jobs.cancel: the caption_jobs channel has
+  /// no native handler, so a raw cancel would throw MissingPluginException
+  /// and Delete would fail on the cancel instead of deleting).
+  ///
+  /// N11 narrow race (recorded, not fixed — see the PR): if Delete lands
+  /// while the twin's Gal.putVideo(captioned) is in flight, the twin's
+  /// gallery row is created after Delete's DISPLAY_NAME lookup, so one
+  /// orphaned, user-deletable gallery copy can survive Delete even though
+  /// the :1208 check prevents _captionedFile from being set. A sweep
+  /// would need the twin's path, which is native-assigned and unknowable
+  /// to Delete in that window (burnCaptions returns it to the job, not
+  /// to the state); the window is the putVideo await (milliseconds), with
+  /// no crash, no error, no thumbnail resurrection.
+  Future<void> _deleteLastVideo() async {
+    final path = _lastVideo;
+    if (path == null) return;
+    _stopCaptionJob();
+    final jobId = _lastBackgroundJobId;
+    if (jobId != null) {
+      _lastBackgroundJobId = null;
+      await _jobAction(jobId, () => _jobs.cancel(jobId));
+    }
+    final twin = _captionedFile != null && _captionSourceFile == path
+        ? _captionedFile
+        : null;
+    if (Platform.isIOS) {
+      await _deleteLastVideoIos(path, twin);
+      return;
+    }
+    await _deleteLastVideoAndroid(path, twin);
+  }
+
+  /// Android Delete (issue #50): one `deleteVideo` channel call per file
+  /// (original, then the captioned twin when it derives from the same
+  /// recording). The native side deletes the gallery row first and the
+  /// cache file after it — so a user-cancelled system confirmation
+  /// deletes nothing — and reports what each step did; the status names
+  /// what survived on a partial failure. The thumbnail shows the
+  /// original, so it goes away once the original is gone — even when the
+  /// captioned twin survives a cancelled twin delete (the status then
+  /// names the twin that was kept, never 'Video kept.').
+  Future<void> _deleteLastVideoAndroid(String path, String? twin) async {
+    final results = <_DeleteResult>[];
+    for (final target in [path, if (twin != null) twin]) {
+      final result = await _deleteVideoNative(target);
+      if (result == null || result.cancelled) {
+        if (results.isEmpty) {
+          // Nothing was deleted yet (gallery-first order on the first
+          // file): keep the video and the thumbnail. A channel error
+          // already set its own status in _deleteVideoNative.
+          if (result != null) _update(() => _status = 'Video kept.');
+          return;
+        }
+        // The original is already gone and only the captioned twin
+        // survives: never claim the video is kept. Name what survived
+        // and drop the thumbnail — it shows a deleted file.
+        _update(() {
+          _lastVideo = null;
+          _lastVideoThumb = null;
+          _status = 'Video deleted, captioned copy kept.';
+        });
+        return;
+      }
+      results.add(result);
+    }
+    final cacheKept = results.any((r) => !r.cacheDeleted);
+    final galleryKept = results.any((r) => !r.galleryDeleted);
+    if (!cacheKept && !galleryKept) {
+      _update(() {
+        _lastVideo = null;
+        _lastVideoThumb = null;
+        _lastFile = null;
+        _captionedFile = null;
+        _captionSourceFile = null;
+        _status = 'Video deleted.';
+      });
+      return;
+    }
+    if (cacheKept && galleryKept) {
+      _update(() {
+        _status = 'Could not delete video. See settings for details.';
+        _error = 'Delete failed for the file and the gallery copy.';
+      });
+      return;
+    }
+    _update(() {
+      _error = 'Delete incomplete: '
+          '${cacheKept ? 'file kept' : 'gallery copy kept'}.';
+      _status = cacheKept
+          ? 'Gallery copy deleted, file kept.'
+          : 'Video deleted from StoryCam, gallery copy kept.';
+    });
+  }
+
+  /// iOS Delete (issue #50, §6): Dart File.delete on the cache files —
+  /// the original plus the captioned twin's cache file when it derives
+  /// from the same recording. No Swift handler, no channel call. The
+  /// Photos copy is NOT deleted in v1 (PHAssetChangeRequest is possible
+  /// with authorization, but it is not built in v1) — it stays in Photos.
+  Future<void> _deleteLastVideoIos(String path, String? twin) async {
+    var deleted = true;
+    for (final target in [path, if (twin != null) twin]) {
+      try {
+        final file = File(target);
+        if (await file.exists()) await file.delete();
+      } catch (e) {
+        deleted = false;
+        _update(() {
+          _status = 'Could not delete video. See settings for details.';
+          _error = '$e';
+        });
+      }
+    }
+    if (!deleted) return;
+    _update(() {
+      _lastVideo = null;
+      _lastVideoThumb = null;
+      _lastFile = null;
+      _captionedFile = null;
+      _captionSourceFile = null;
+      _status = 'Video deleted from StoryCam.';
+    });
+  }
+
+  /// One native `deleteVideo` call. Returns null on a channel error (the
+  /// status is set here, same failure pattern as _shareVideo); otherwise
+  /// the map reports per-copy results — see ShareChannel.deleteVideo.
+  Future<_DeleteResult?> _deleteVideoNative(String target) async {
+    try {
+      final reply = await _shareChannel.invokeMethod<Map<Object?, Object?>>(
+          'deleteVideo', {'path': target});
+      if (reply == null) throw StateError('deleteVideo returned null');
+      return _DeleteResult(
+        cacheDeleted: reply['cacheDeleted'] == true,
+        galleryDeleted: reply['galleryDeleted'] == true,
+        cancelled: reply['cancelled'] == true,
+      );
+    } catch (e) {
+      _update(() {
+        _status = 'Could not delete video. See settings for details.';
+        _error = '$e';
+      });
+      return null;
     }
   }
 
@@ -1895,15 +2206,35 @@ class _DemoScreenState extends State<DemoScreen> with WidgetsBindingObserver {
                 _settingsSheet(initialSection: SettingsSection.captions),
             onSettings: () => _settingsSheet(),
           ),
-          // Share (issue #14): only once a video is saved and no command
-          // is in flight — hidden before any recording, while recording,
-          // and while _busy (e.g. Gal.putVideo still in flight in _stop).
-          // Appears on the rebuild after _perform's finally clears _busy.
-          onShare: (!_busy && !value.isRecording && _lastVideo != null)
-              ? _shareVideo
+          // Last-video thumbnail (issue #50): only once a video is saved
+          // and no command is in flight — hidden before any recording,
+          // while recording, and while _busy (e.g. Gal.putVideo still in
+          // flight in _stop). Appears on the rebuild after _perform's
+          // finally clears _busy. Tapping it opens the Open / Delete /
+          // Share menu (_showLastVideoMenu); _shareVideo stays — it is
+          // now called from the menu.
+          onLastVideoTap: (!_busy && !value.isRecording && _lastVideo != null)
+              ? _showLastVideoMenu
               : null,
+          lastVideoThumb: _lastVideoThumb,
         );
       },
     );
   }
+}
+
+/// One native `deleteVideo` result (issue #50): what the native side
+/// deleted for one file. `cancelled` means the user declined the system
+/// confirmation — nothing was deleted (the gallery row is deleted before
+/// the cache file, so a cancel lands before any delete).
+class _DeleteResult {
+  const _DeleteResult({
+    required this.cacheDeleted,
+    required this.galleryDeleted,
+    required this.cancelled,
+  });
+
+  final bool cacheDeleted;
+  final bool galleryDeleted;
+  final bool cancelled;
 }

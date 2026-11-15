@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="390" height="844" viewBox="0 0 390 844">
+  <rect x="0" y="0" width="390" height="844" rx="28" fill="#101014"/>
+  <rect x="8" y="8" width="374" height="828" rx="20" fill="#1E1E24"/>
+  <text x="195" y="300" font-family="DejaVu Sans" font-size="15" fill="#3A3A44" text-anchor="middle">CAMERA PREVIEW</text>
+  <rect x="8" y="8" width="374" height="828" rx="20" fill="#000000" opacity="0.55"/>
+  <rect x="45" y="310" width="300" height="210" rx="16" fill="#26262E" stroke="#555555" stroke-width="1"/>
+  <text x="69" y="352" font-family="DejaVu Sans" font-size="17" font-weight="bold" fill="#FFFFFF">Delete video?</text>
+  <text x="69" y="382" font-family="DejaVu Sans" font-size="13" fill="#CCCCCC">This deletes the video from StoryCam</text>
+  <text x="69" y="402" font-family="DejaVu Sans" font-size="13" fill="#CCCCCC">and from your gallery. This can&#8217;t</text>
+  <text x="69" y="422" font-family="DejaVu Sans" font-size="13" fill="#CCCCCC">be undone.</text>
+  <text x="225" y="492" font-family="DejaVu Sans" font-size="15" fill="#7FB3FF" text-anchor="end">Cancel</text>
+  <text x="321" y="492" font-family="DejaVu Sans" font-size="15" font-weight="bold" fill="#FF526D" text-anchor="end">Delete</text>
+  <circle cx="345" cy="308" r="11" fill="#FF526D"/>
+  <text x="345" y="313" font-family="DejaVu Sans" font-size="13" font-weight="bold" fill="#FFFFFF" text-anchor="middle">4</text>
+  <text x="195" y="560" font-family="DejaVu Sans" font-size="12" fill="#888888" text-anchor="middle">Android system dialog &#8212; shown only when</text>
+  <text x="195" y="578" font-family="DejaVu Sans" font-size="12" fill="#888888" text-anchor="middle">the platform requires confirmation</text>
+</svg>

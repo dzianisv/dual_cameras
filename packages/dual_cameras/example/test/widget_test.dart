@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 import 'dart:ui' as ui;
 
@@ -9,6 +10,7 @@ import 'package:dual_cameras_example/captions/model_download_notifier.dart';
 import 'package:dual_cameras_example/captions/model_manager.dart';
 import 'package:dual_cameras_example/captions/caption_models.dart';
 import 'package:dual_cameras_example/captions/review_prompt_gate.dart';
+import 'package:dual_cameras_example/captions/transcriber.dart';
 import 'package:dual_cameras_example/map/camera_settings.dart';
 import 'package:dual_cameras_example/map/map_location.dart';
 import 'package:dual_cameras_example/map/place_name.dart';
@@ -24,6 +26,7 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:plugin_platform_interface/plugin_platform_interface.dart';
+import 'package:video_player_platform_interface/video_player_platform_interface.dart';
 
 class FakeModelManager extends ModelManager {
   int calls = 0;
@@ -132,6 +135,25 @@ class FakeCaptionJobNotifier implements CaptionJobNotifier {
   @override
   Future<void> clear() async {
     clearCalls++;
+  }
+}
+
+/// Fake on-device transcriber (issue #50, F2 fix): returns one word, so
+/// the foreground caption job completes and the captioned twin exists.
+/// The real Transcriber is sherpa-onnx FFI and cannot run in a widget
+/// test; injected through the DemoApp transcriber seam.
+class FakeTranscriber extends Transcriber {
+  @override
+  Future<TranscriptionResult> transcribe({
+    required String wavPath,
+    required WhisperModelFiles model,
+    String language = '',
+  }) async {
+    return const TranscriptionResult(
+      words: [CaptionWord(text: 'hello', start: 0, end: 1)],
+      detectedLanguage: 'en',
+      timingsValid: true,
+    );
   }
 }
 
@@ -257,6 +279,69 @@ class FakeCamera extends DualCamerasPlatform with MockPlatformInterfaceMixin {
   Future<void> dispose() async {
     disposals++;
   }
+}
+
+/// Fake video_player platform (issue #50): answers create with a texture
+/// id and emits a single initialized event, so the in-app player opens
+/// in widget tests without a real video or native player. Play/pause/
+/// seek/volume/looping/speed are counted no-ops; getPosition stays at
+/// zero (so the play-position timer never schedules a frame); the view
+/// is an empty box.
+class FakeVideoPlayerPlatform extends VideoPlayerPlatform
+    with MockPlatformInterfaceMixin {
+  int playCalls = 0;
+  int pauseCalls = 0;
+  int disposeCalls = 0;
+
+  @override
+  Future<void> init() async {}
+
+  @override
+  Future<int?> create(DataSource dataSource) async => 0;
+
+  @override
+  Stream<VideoEvent> videoEventsFor(int playerId) =>
+      Stream<VideoEvent>.value(
+        VideoEvent(
+          eventType: VideoEventType.initialized,
+          duration: const Duration(seconds: 10),
+          size: const Size(640, 360),
+        ),
+      );
+
+  @override
+  Future<void> play(int playerId) async {
+    playCalls++;
+  }
+
+  @override
+  Future<void> pause(int playerId) async {
+    pauseCalls++;
+  }
+
+  @override
+  Future<void> seekTo(int playerId, Duration position) async {}
+
+  @override
+  Future<void> setVolume(int playerId, double volume) async {}
+
+  @override
+  Future<void> setLooping(int playerId, bool looping) async {}
+
+  @override
+  Future<void> setPlaybackSpeed(int playerId, double speed) async {}
+
+  @override
+  Future<Duration> getPosition(int playerId) async => Duration.zero;
+
+  @override
+  Future<void> dispose(int playerId) async {
+    disposeCalls++;
+  }
+
+  @override
+  Widget buildViewWithOptions(VideoViewOptions options) =>
+      const SizedBox.shrink();
 }
 
 /// Fake location service for widget tests: feeds fixed streams, no plugin.
@@ -431,7 +516,8 @@ void main() {
       PlaceNameService? placeNameService,
       ReviewPrompt? reviewPrompt,
       ReviewPromptGate? reviewPromptGate,
-      String? appVersion}) async {
+      String? appVersion,
+      Transcriber? transcriber}) async {
     await tester.pumpWidget(DemoApp(
         modelManager: model,
         backgroundCaptions: false,
@@ -441,7 +527,8 @@ void main() {
         placeNameService: placeNameService,
         reviewPrompt: reviewPrompt,
         reviewPromptGate: reviewPromptGate,
-        appVersion: appVersion));
+        appVersion: appVersion,
+        transcriber: transcriber));
     await tester.pumpAndSettle();
     expect(find.byTooltip('Start recording'), findsOneWidget);
     expect(find.text('Ready to tell your story'), findsOneWidget);
@@ -1681,7 +1768,10 @@ void main() {
         appVersion: '0.5.11');
     await recordAndStop(tester);
     expect(find.text('Video saved to gallery'), findsOneWidget);
-    expect(find.text('Share'), findsOneWidget);
+    // Issue #50: the persistent Share button is gone — the
+    // last-video thumbnail takes its place after a recording.
+    expect(find.byKey(const Key('share-button')), findsNothing);
+    expect(find.byKey(const Key('last-video-thumbnail')), findsOneWidget);
     expect(review.requests, 0);
     expect(File('${dir.path}/review_prompt_version.txt').existsSync(),
         isFalse);
@@ -1709,7 +1799,10 @@ void main() {
     expect(find.text('Ready to tell your story'), findsOneWidget);
     await recordAndStop(tester);
     expect(find.text('Video saved to gallery'), findsOneWidget);
-    expect(find.text('Share'), findsOneWidget);
+    // Issue #50: the persistent Share button is gone — the
+    // last-video thumbnail takes its place after a recording.
+    expect(find.byKey(const Key('share-button')), findsNothing);
+    expect(find.byKey(const Key('last-video-thumbnail')), findsOneWidget);
     expect(File('${dir2.path}/review_prompt_version.txt').existsSync(),
         isFalse);
     expect(tester.takeException(), isNull);
@@ -2246,5 +2339,274 @@ void main() {
       reverseBody: (_) => '{"address": {}}',
     );
     expect(await empty.lookup(const LatLng(0, 0)), isNull);
+  });
+
+  // Issue #50 helpers: one full recording with a real file on disk
+  // (the camera fake returns '/tmp/story.mp4' from stopRecording, and
+  // Open/Share/Delete all check the file exists). The thumbnail channel
+  // (dual_cameras_example/thumbnail, native frame extraction) answers
+  // with a 1x1 PNG, so the tile renders the real-frame path.
+  Future<void> recordVideoWithFile(WidgetTester tester) async {
+    File('/tmp/story.mp4').writeAsStringSync('fake-video');
+    addTearDown(() {
+      final file = File('/tmp/story.mp4');
+      if (file.existsSync()) file.deleteSync();
+    });
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(
+            const MethodChannel('dual_cameras_example/thumbnail'),
+            (call) async => base64Decode(
+                'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=='));
+    addTearDown(() => TestDefaultBinaryMessengerBinding.instance
+        .defaultBinaryMessenger
+        .setMockMethodCallHandler(
+            const MethodChannel('dual_cameras_example/thumbnail'),
+            null));
+    await recordAndStop(tester);
+  }
+
+  /// Issue #50: mock the share channel (dual_cameras_example/share).
+  /// [deleteResult] is the map every deleteVideo call answers with;
+  /// [deleteResults] answers each deleteVideo call in order instead —
+  /// for a twin delete where the original succeeds and the twin is
+  /// cancelled. shareVideo answers null (success). Returns the recorded
+  /// (method, arguments) calls.
+  List<(String, Object?)> mockShareChannel(
+      {Map<String, Object>? deleteResult,
+      List<Map<String, Object>>? deleteResults}) {
+    final calls = <(String, Object?)>[];
+    var deleteCalls = 0;
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(
+            const MethodChannel('dual_cameras_example/share'),
+            (call) async {
+      calls.add((call.method, call.arguments));
+      if (call.method == 'deleteVideo') {
+        final result = deleteResults != null
+            ? deleteResults[deleteCalls]
+            : deleteResult;
+        deleteCalls++;
+        return result;
+      }
+      return null;
+    });
+    addTearDown(() => TestDefaultBinaryMessengerBinding.instance
+        .defaultBinaryMessenger
+        .setMockMethodCallHandler(
+            const MethodChannel('dual_cameras_example/share'), null));
+    return calls;
+  }
+
+  /// Issue #50: record a video, then tap the thumbnail so the popup
+  /// menu opens. Returns after the menu has settled, with all three
+  /// items present.
+  Future<void> openLastVideoMenu(WidgetTester tester) async {
+    await recordVideoWithFile(tester);
+    expect(find.byKey(const Key('share-button')), findsNothing);
+    expect(find.byKey(const Key('last-video-thumbnail')), findsOneWidget);
+    await tester.tap(find.byKey(const Key('last-video-thumbnail')));
+    await tester.pumpAndSettle();
+    expect(find.text('Open'), findsOneWidget);
+    expect(find.text('Delete'), findsOneWidget);
+    expect(find.text('Share'), findsOneWidget);
+    expect(find.byKey(const Key('last-video-menu-open')), findsOneWidget);
+    expect(
+        find.byKey(const Key('last-video-menu-delete')), findsOneWidget);
+    expect(find.byKey(const Key('last-video-menu-share')), findsOneWidget);
+  }
+
+  testWidgets('last-video thumbnail opens the menu and Open plays the video',
+      (tester) async {
+    final player = FakeVideoPlayerPlatform();
+    final previousPlayer = VideoPlayerPlatform.instance;
+    VideoPlayerPlatform.instance = player;
+    addTearDown(() => VideoPlayerPlatform.instance = previousPlayer);
+    final captions = FakeCaptionJobNotifier();
+    await openCamera(tester, captions: captions);
+    await openLastVideoMenu(tester);
+    // Real-frame tile: the mocked thumbnail bytes render as an Image.
+    expect(
+        find.descendant(
+            of: find.byKey(const Key('last-video-thumbnail')),
+            matching: find.byType(Image)),
+        findsOneWidget);
+    await tester.tap(find.byKey(const Key('last-video-menu-open')));
+    await tester.pumpAndSettle();
+    // Player route: autoplayed, close button present, camera tile gone.
+    expect(find.byKey(const Key('player-close')), findsOneWidget);
+    expect(player.playCalls, 1);
+    expect(find.byKey(const Key('last-video-thumbnail')), findsNothing);
+    await tester.tap(find.byKey(const Key('player-close')));
+    await tester.pumpAndSettle();
+    // The page disposes the controller in an unawaited future whose
+    // subscription-cancel step needs a real event-loop turn — flush it
+    // with runAsync before counting.
+    await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 200)));
+    expect(find.byKey(const Key('player-close')), findsNothing);
+    expect(find.byKey(const Key('last-video-thumbnail')), findsOneWidget);
+    expect(player.disposeCalls, 1);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('last-video menu Share opens the share sheet with the file',
+      (tester) async {
+    final shareCalls = mockShareChannel();
+    await openCamera(tester);
+    await openLastVideoMenu(tester);
+    await tester.tap(find.byKey(const Key('last-video-menu-share')));
+    await tester.pumpAndSettle();
+    expect(shareCalls.length, 1);
+    expect(shareCalls.single.$1, 'shareVideo');
+    expect((shareCalls.single.$2 as Map)['path'], '/tmp/story.mp4');
+    expect(find.text('Video saved to gallery'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('last-video menu Delete removes the video and the thumbnail',
+      (tester) async {
+    final shareCalls = mockShareChannel(deleteResult: {
+      'cacheDeleted': true,
+      'galleryDeleted': true,
+      'cancelled': false,
+    });
+    final captions = FakeCaptionJobNotifier();
+    await openCamera(tester, captions: captions);
+    await openLastVideoMenu(tester);
+    // initState already cleared the notifier once (stale-notification
+    // cleanup); Delete's job stop must add exactly one more.
+    final clearsBeforeDelete = captions.clearCalls;
+    await tester.tap(find.byKey(const Key('last-video-menu-delete')));
+    await tester.pumpAndSettle();
+    expect(shareCalls.length, 1);
+    expect(shareCalls.single.$1, 'deleteVideo');
+    expect((shareCalls.single.$2 as Map)['path'], '/tmp/story.mp4');
+    // Delete stops the in-flight caption job first.
+    expect(captions.clearCalls, clearsBeforeDelete + 1);
+    expect(find.text('Video deleted.'), findsOneWidget);
+    expect(find.byKey(const Key('last-video-thumbnail')), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('last-video menu Delete cancelled keeps the video',
+      (tester) async {
+    mockShareChannel(deleteResult: {
+      'cacheDeleted': false,
+      'galleryDeleted': false,
+      'cancelled': true,
+    });
+    final captions = FakeCaptionJobNotifier();
+    await openCamera(tester, captions: captions);
+    await openLastVideoMenu(tester);
+    await tester.tap(find.byKey(const Key('last-video-menu-delete')));
+    await tester.pumpAndSettle();
+    expect(find.text('Video kept.'), findsOneWidget);
+    expect(find.byKey(const Key('last-video-thumbnail')), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets(
+      'last-video menu Delete with the twin cancelled deletes the original only',
+      (tester) async {
+    // F2: the original's delete succeeds and the twin's is cancelled —
+    // the status must not claim the video is kept, and the thumbnail
+    // must go away with the deleted original.
+    final shareCalls = mockShareChannel(deleteResults: [
+      {
+        'cacheDeleted': true,
+        'galleryDeleted': true,
+        'cancelled': false,
+      },
+      {
+        'cacheDeleted': false,
+        'galleryDeleted': false,
+        'cancelled': true,
+      },
+    ]);
+    final captions = FakeCaptionJobNotifier();
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(
+            const MethodChannel('dual_cameras_example/captions'),
+            (call) async {
+      if (call.method == 'extractAudio') return '/tmp/audio.wav';
+      if (call.method == 'burnCaptions') return '/tmp/story-captioned.mp4';
+      throw StateError('unexpected ${call.method}');
+    });
+    addTearDown(() => TestDefaultBinaryMessengerBinding.instance
+        .defaultBinaryMessenger
+        .setMockMethodCallHandler(
+            const MethodChannel('dual_cameras_example/captions'), null));
+    await openCamera(tester,
+        captions: captions, transcriber: FakeTranscriber());
+    // Auto-captions on, as in the caption-job tests.
+    await tester.ensureVisible(find.byKey(const Key('menu-captions')));
+    await tester.tap(find.byKey(const Key('menu-captions')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(SwitchListTile, 'Auto-captions'));
+    await tester.tap(find.byTooltip('Close Camera settings'));
+    await tester.pumpAndSettle();
+    await recordVideoWithFile(tester);
+    // The caption job finishes in the background: the twin exists once
+    // the notifier reports done.
+    for (var i = 0; captions.done.isEmpty && i < 50; i++) {
+      await tester.pump(const Duration(milliseconds: 100));
+    }
+    expect(captions.done, isNotEmpty);
+    expect(find.byKey(const Key('last-video-thumbnail')), findsOneWidget);
+    await tester.tap(find.byKey(const Key('last-video-thumbnail')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('last-video-menu-delete')));
+    await tester.pumpAndSettle();
+    expect(shareCalls.length, 2);
+    expect((shareCalls[0].$2 as Map)['path'], '/tmp/story.mp4');
+    expect(
+        (shareCalls[1].$2 as Map)['path'], '/tmp/story-captioned.mp4');
+    expect(find.text('Video deleted, captioned copy kept.'), findsOneWidget);
+    expect(find.text('Video kept.'), findsNothing);
+    expect(find.byKey(const Key('last-video-thumbnail')), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('record row fits a 320dp screen without overlap (issue #50)',
+      (tester) async {
+    // A-F4: per-edge placement on a 320dp screen — left cluster ends at
+    // 116dp, centred capture spans 120-200dp (4dp clear), swap starts
+    // at 272dp. The binding bound is W >= 312dp, not the 244dp total.
+    tester.view.physicalSize = const Size(320, 600);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    await openCamera(tester);
+    await recordVideoWithFile(tester);
+    final thumb =
+        tester.getRect(find.byKey(const Key('last-video-thumbnail')));
+    final photo = tester.getRect(find.byTooltip('Take photo'));
+    final capture = tester.getRect(find.byKey(const Key('capture-control')));
+    final swap = tester.getRect(find.byTooltip('Swap cameras'));
+    expect(thumb.left, 0);
+    expect(thumb.width, 56);
+    expect(photo.left, 68);
+    expect(photo.right, 116);
+    expect(capture.left, 120);
+    expect(capture.right, 200);
+    expect(swap.left, 272);
+    expect(swap.right, 320);
+    expect(photo.right, lessThanOrEqualTo(capture.left));
+    expect(capture.right, lessThanOrEqualTo(swap.left));
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets(
+      'open with no player reports the failure and keeps the thumbnail',
+      (tester) async {
+    await openCamera(tester);
+    await openLastVideoMenu(tester);
+    await tester.tap(find.byKey(const Key('last-video-menu-open')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('player-close')), findsNothing);
+    expect(find.text('Could not play video. See settings for details.'),
+        findsOneWidget);
+    expect(find.byKey(const Key('last-video-thumbnail')), findsOneWidget);
+    expect(tester.takeException(), isNull);
   });
 }
