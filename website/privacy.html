@@ -42,6 +42,17 @@ advertising ID, and no device ID. Session replay is off. Events are
 sent to PostHog's US servers and are used only to understand how the
 app is used.</p>
 
+<h2>Map</h2>
+<p>The live map in the corner of the screen uses OpenStreetMap. When
+location permission is granted, the app fetches map tiles for the area
+around you from tile.openstreetmap.org and sends your current
+coordinates to nominatim.openstreetmap.org to show the place name.
+That is the only place your location goes: it is sent to
+OpenStreetMap's servers to draw the map, it is never sent to us, and
+the app stores nothing about it. You can deny location permission —
+the app still records, and the map shows a default area instead of
+your position.</p>
+
 <h2>Your videos stay on your phone</h2>
 <p>Videos and photos you record are saved to your device's gallery.
 They are never uploaded anywhere by the app. Captioning — speech
