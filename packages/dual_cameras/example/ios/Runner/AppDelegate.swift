@@ -17,10 +17,19 @@ import UIKit
     // AVAssetImageGenerator. Own channel, not the share channel — see
     // ThumbnailChannel.kt for the reason; the share channel has no iOS
     // handler at all (iOS Delete is Dart File.delete, Share hidden).
+    // FlutterImplicitEngineBridge has no binaryMessenger (Flutter 3.47);
+    // the messenger comes from a plugin registrar instead.
+    guard
+      let messenger = engineBridge.pluginRegistry
+        .registrar(forPlugin: "dual_cameras_example")?.messenger()
+    else {
+      return
+    }
     let thumbnail = FlutterMethodChannel(
       name: "dual_cameras_example/thumbnail",
-      binaryMessenger: engineBridge.binaryMessenger)
-    thumbnail.setMethodCallHandler { [weak self] call, result in
+      binaryMessenger: messenger)
+    thumbnail.setMethodCallHandler {
+      [weak self] (call: FlutterMethodCall, result: @escaping FlutterResult) in
       guard let self else {
         result(FlutterError(
           code: "thumbnail_failed", message: "app delegate gone", details: nil))
