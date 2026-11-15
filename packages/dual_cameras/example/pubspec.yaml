@@ -35,6 +35,8 @@ dependencies:
   # SENTRY_DSN at build time and never committed; with no DSN the
   # integration is fully disabled (see lib/crash_reporting.dart).
   sentry_flutter: ^9.30.1
+  in_app_review: ^2.0.12
+  package_info_plus: ^10.2.2
 
 dev_dependencies:
   integration_test:

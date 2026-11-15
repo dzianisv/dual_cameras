@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:gal/gal.dart';
 import 'package:latlong2/latlong.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import 'package:permission_handler/permission_handler.dart';
 
 import 'captions/caption_job_notifier.dart';
@@ -18,10 +19,12 @@ import 'captions/caption_pipeline.dart';
 import 'captions/model_download_notifier.dart';
 import 'captions/model_manager.dart';
 import 'captions/notification_center.dart';
+import 'captions/review_prompt_gate.dart';
 import 'captions/transcriber.dart';
 import 'crash_reporting.dart';
 import 'map/camera_settings.dart';
 import 'map/map_location.dart';
+import 'review_prompt.dart';
 import 'ui/bottom_menu.dart';
 import 'ui/filter_slider.dart';
 import 'ui/lens_pills.dart';
@@ -50,7 +53,10 @@ class DemoApp extends StatelessWidget {
       this.captionJobNotifier,
       this.cameraCommandTimeout,
       this.cameraSettingsStore,
-      this.mapLocationService});
+      this.mapLocationService,
+      this.reviewPromptGate,
+      this.reviewPrompt,
+      this.appVersion});
 
   final ModelManager? modelManager;
   final CaptionJobs? captionJobs;
@@ -61,6 +67,13 @@ class DemoApp extends StatelessWidget {
   final Duration? cameraCommandTimeout;
   final CameraSettingsStore? cameraSettingsStore;
   final MapLocationService? mapLocationService;
+  // In-app review prompt (issue #37): injectable seams for widget tests.
+  // The gate persists the prompted version; the facade is the Play call;
+  // the version string is injected so tests never touch the
+  // package_info_plus channel. All three default to the real thing.
+  final ReviewPromptGate? reviewPromptGate;
+  final ReviewPrompt? reviewPrompt;
+  final String? appVersion;
 
   @override
   Widget build(BuildContext context) {
@@ -88,7 +101,10 @@ class DemoApp extends StatelessWidget {
           captionJobNotifier: captionJobNotifier,
           cameraCommandTimeout: cameraCommandTimeout,
           cameraSettingsStore: cameraSettingsStore,
-          mapLocationService: mapLocationService),
+          mapLocationService: mapLocationService,
+          reviewPromptGate: reviewPromptGate,
+          reviewPrompt: reviewPrompt,
+          appVersion: appVersion),
     );
   }
 }
@@ -104,7 +120,10 @@ class DemoScreen extends StatefulWidget {
       this.captionJobNotifier,
       this.cameraCommandTimeout,
       this.cameraSettingsStore,
-      this.mapLocationService});
+      this.mapLocationService,
+      this.reviewPromptGate,
+      this.reviewPrompt,
+      this.appVersion});
 
   final ModelManager? modelManager;
   final CaptionJobs? captionJobs;
@@ -115,6 +134,9 @@ class DemoScreen extends StatefulWidget {
   final Duration? cameraCommandTimeout;
   final CameraSettingsStore? cameraSettingsStore;
   final MapLocationService? mapLocationService;
+  final ReviewPromptGate? reviewPromptGate;
+  final ReviewPrompt? reviewPrompt;
+  final String? appVersion;
 
   @override
   State<DemoScreen> createState() => _DemoScreenState();
@@ -287,6 +309,15 @@ class _DemoScreenState extends State<DemoScreen> with WidgetsBindingObserver {
   late final CaptionLanguageStore _languageStore =
       widget.captionLanguageStore ?? CaptionLanguageStore();
   CaptionLanguage _captionLanguage = CaptionLanguage.auto;
+
+  // In-app review prompt (issue #37): at most once per app version, on
+  // the first completed recording of that version. The gate persists the
+  // prompted version; the facade is the Play call behind an injectable
+  // seam so widget tests count requests without Play.
+  late final ReviewPromptGate _reviewGate =
+      widget.reviewPromptGate ?? ReviewPromptGate();
+  late final ReviewPrompt _reviewPrompt =
+      widget.reviewPrompt ?? InAppReviewPrompt();
 
   // Live geometry tuning (debug channel) — to dial in the front/back
   // orientation and fix any stretch directly on the device.
@@ -959,6 +990,33 @@ class _DemoScreenState extends State<DemoScreen> with WidgetsBindingObserver {
       } else if (mounted) {
         _queueCaptions(file);
       }
+    }
+    // In-app review prompt (issue #37): the core loop is complete — the
+    // video is saved. Fire-and-forget: never awaited, never holds _busy,
+    // never changes status text. A failed save returned early above, so
+    // it can never prompt.
+    unawaited(_maybeRequestReview());
+  }
+
+  /// Ask Play for an in-app review, at most once per app version (#37).
+  /// Call order is load-bearing: gate check → availability (false = skip
+  /// WITHOUT marking, so a later Play install can still prompt) →
+  /// request → mark prompted. The whole attempt is a silent no-op on
+  /// sideloaded builds: any throw (no Play services, no method-channel
+  /// handler in tests) is swallowed — no status change, no _error, no
+  /// crash, captions unaffected. The version is read once per attempt
+  /// here, never cached across attempts; only the version string is
+  /// compared, never the build number.
+  Future<void> _maybeRequestReview() async {
+    try {
+      final currentVersion =
+          widget.appVersion ?? (await PackageInfo.fromPlatform()).version;
+      if (!await _reviewGate.shouldPrompt(currentVersion)) return;
+      if (!await _reviewPrompt.isAvailable()) return;
+      await _reviewPrompt.requestReview();
+      await _reviewGate.markPrompted(currentVersion);
+    } catch (_) {
+      // Sideloaded / no-Play: silent no-op (see above).
     }
   }
 
