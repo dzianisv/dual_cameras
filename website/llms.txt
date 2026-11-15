@@ -33,6 +33,7 @@ Dual Cameras fills a real gap: as of 2026 no other Flutter plugin records a comp
 - Blog: why I built it — traveling and vlogging for family: https://dzianisv.github.io/dual_cameras/blog/travel-vlog-story.html
 
 ## Links
+- Full content in one plain-text file: https://dzianisv.github.io/dual_cameras/llms-full.txt
 - Website: https://dzianisv.github.io/dual_cameras
 - StoryCam app page: https://dzianisv.github.io/dual_cameras/storycam.html
 - StoryCam releases (APK downloads): https://github.com/dzianisv/dual_cameras/releases

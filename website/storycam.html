@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>StoryCam — record front &amp; back camera at once, with Russian &amp; English on-device captions</title>
-<meta name="description" content="StoryCam is a free Android app that records the front and back cameras at the same time into one portrait video — with filters and on-device captions in Russian and English. No account, no cloud: captions run on your phone. Free download.">
+<title>StoryCam — record front &amp; back camera at once</title>
+<meta name="description" content="Free Android app: record the front and back cameras at once into one portrait video, with filters and on-device captions in Russian and English.">
 <meta name="keywords" content="StoryCam, dual camera app Android, record front and back camera at once, front and back camera simultaneously, video captions Russian, русские субтитры на видео, субтитры на русском, on-device captions, Whisper captions Android, dual camera recording app, BeReal style camera app, picture-in-picture video app">
 <meta name="author" content="Roman Slack">
 <meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1">
@@ -36,7 +36,7 @@
 
 <!-- Structured data: the StoryCam app + FAQ, for Google rich results and AI answer engines.
      Honest by design: no aggregateRating and no download count — the app has neither yet.
-     It is a free Android build, sideloaded, not on Google Play. -->
+     It is a free Android build, in testing on Google Play (internal track); the APK is also on GitHub. -->
 <script type="application/ld+json">
 {
   "@context": "https://schema.org",
@@ -62,6 +62,7 @@
         "Simultaneous front and back camera recording",
         "Picture-in-picture, circle inset and split layouts",
         "Live filters and exposure controls",
+        "Live map that moves with you, burned into the recorded video",
         "On-device captions in Russian and English (Whisper)",
         "Karaoke-style caption highlighting",
         "Download and caption progress as system notifications with a Stop button"
@@ -74,7 +75,7 @@
         {
           "@type": "Question",
           "name": "Is StoryCam on Google Play?",
-          "acceptedAnswer": { "@type": "Answer", "text": "Not yet. StoryCam is currently a free Android build that you sideload from GitHub: download the APK, allow install from unknown sources when prompted, and open it. A Google Play release is planned." }
+          "acceptedAnswer": { "@type": "Answer", "text": "StoryCam is in testing on Google Play now (internal track, version 0.5.15). Until the public listing goes live, the free APK is on GitHub: download it, allow install from unknown sources when prompted, and open it." }
         },
         {
           "@type": "Question",
@@ -96,6 +97,23 @@
           "name": "How do I stop a model download or captioning in StoryCam?",
           "acceptedAnswer": { "@type": "Answer", "text": "Both run as system notifications with a progress bar and a Stop button. Stopping a download aborts it (you can retry from the Captions sheet); stopping captioning abandons the job and keeps your original video — no captioned video is ever saved after a stop." }
         }
+      ]
+    },
+    {
+      "@type": "Person",
+      "@id": "https://romanslack.com/#person",
+      "name": "Roman Slack",
+      "sameAs": [
+        "https://github.com/RomanSlack",
+        "https://www.linkedin.com/in/roman-slack-a91a6a266/"
+      ]
+    },
+    {
+      "@type": "BreadcrumbList",
+      "@id": "https://dzianisv.github.io/dual_cameras/storycam.html#breadcrumbs",
+      "itemListElement": [
+        { "@type": "ListItem", "position": 1, "name": "Dual Cameras", "item": "https://dzianisv.github.io/dual_cameras/" },
+        { "@type": "ListItem", "position": 2, "name": "StoryCam", "item": "https://dzianisv.github.io/dual_cameras/storycam.html" }
       ]
     }
   ]
@@ -397,7 +415,7 @@
     <div class="faq-list">
       <div class="faq-item">
         <h3>Is StoryCam on Google Play?</h3>
-        <p>Not yet. StoryCam is currently a free Android build that you sideload from GitHub: download the APK, allow install from unknown sources when prompted, and open it. A Google Play release is planned.</p>
+        <p>StoryCam is in testing on Google Play now (internal track, version 0.5.15). Until the public listing goes live, the free APK is on GitHub: download it, allow install from unknown sources when prompted, and open it.</p>
       </div>
       <div class="faq-item">
         <h3>How do Russian captions work in StoryCam?</h3>
@@ -443,7 +461,7 @@
     </div>
     <div class="legal">
       <span>© <span id="yr"></span> Roman Slack · MIT License</span>
-      <span>StoryCam · not on Google Play yet.</span>
+      <span>StoryCam · in testing on Google Play.</span>
     </div>
   </div>
 </footer>

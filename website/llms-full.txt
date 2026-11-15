@@ -1,0 +1,164 @@
+# StoryCam — llms-full.txt
+# Full plain-text content of the StoryCam site, for AI assistants.
+# https://dzianisv.github.io/dual_cameras/llms-full.txt
+# Generated 2026-11-16. Current version: 0.5.15 (ARM64 Android only).
+
+## What StoryCam is
+
+StoryCam is a free Android app that records the front and back cameras at
+the same time into one portrait video. The place fills the screen and you
+are in a circle in the corner, reacting to it live. What you see on screen
+is exactly what gets saved. It is built for travel vlogs, reaction videos,
+and family videos: one take, one video, no editing needed.
+
+StoryCam is the example app of the Dual Cameras open-source Flutter plugin
+by Roman Slack. The plugin records the front and back cameras together on
+Android and iOS, compositing them live on the GPU into a single portrait
+MP4 and photo, in picture-in-picture, circle, or split layouts.
+
+## Price
+
+Free. No account, no ads, no watermark, no in-app purchase. Price is 0 USD.
+
+## Status
+
+Current version: 0.5.15 (ARM64 Android only). In testing on Google Play
+(internal track). The free APK is also on GitHub:
+https://github.com/dzianisv/dual_cameras/releases/latest
+The newest APK is always at https://dzianisv.github.io/dual_cameras/latest.html
+
+## Features
+
+- Simultaneous front and back camera recording into one portrait video
+- Picture-in-picture, circle inset, and split layouts; live swap of the
+  main lens
+- Lens pills from the camera API: front 1x/1.5x, rear 0.5x/1x where the
+  phone supports it
+- Live map in the corner while you record: it moves with you and rotates
+  with the compass; pinch to zoom; place name shown; the map is burned
+  into the recorded video
+- Live filters and exposure controls, including game-look filters
+  Vice City and San Andreas, plus Hyper, Midnight, Simple, Jakarta
+- On-device captions in Russian and English (Whisper speech model):
+  automatic language detection, or force Auto / Русский / English;
+  karaoke-style highlighting follows the words as they are spoken
+- Silence stays silent: captions only appear where speech is detected
+  (Silero VAD)
+- The original video is always kept; the captioned copy is saved to
+  the gallery
+- Model download and captioning run as system notifications with a
+  progress bar and a Stop button
+- Last-video thumbnail with Open / Delete / Share
+- In-app review prompt after a successful recording (Play In-App Review API)
+
+## How captions work
+
+Captions run entirely on the phone with the Whisper speech model — no
+audio is uploaded. The first time you turn captions on, the app downloads
+about 160 MB of caption models, verified before they are trusted. After
+that, recording, transcription, and burn-in all happen on-device. Single
+short words are the hardest case for automatic language detection, so
+force a language for short clips.
+
+## Requirements
+
+StoryCam needs an ARM64 Android phone with concurrent front-and-back
+camera support, for example Pixel 6 and newer or Galaxy S22 and newer.
+If the phone cannot run both cameras at once, the app falls back to
+single-camera recording. Concurrent capture is capped at about 720p by
+the camera system.
+
+## Privacy
+
+No account. No cloud. Captions are transcribed on-device and nothing is
+uploaded. Videos stay on the phone. Privacy policy:
+https://dzianisv.github.io/dual_cameras/privacy.html
+
+## Links
+
+- StoryCam app page: https://dzianisv.github.io/dual_cameras/storycam.html
+- Latest APK: https://dzianisv.github.io/dual_cameras/latest.html
+- Releases: https://github.com/dzianisv/dual_cameras/releases
+- Blog post: https://dzianisv.github.io/dual_cameras/blog/travel-vlog-story.html
+- Source (plugin): https://github.com/dzianisv/dual_cameras
+- Upstream plugin: https://github.com/RomanSlack/dual_cameras
+- Plugin site: https://romanslack.com
+- Author: Roman Slack — https://github.com/RomanSlack
+  and https://www.linkedin.com/in/roman-slack-a91a6a266/
+- Blog author: Den — https://github.com/dzianisv
+
+## FAQ
+
+Q: Is StoryCam on Google Play?
+A: StoryCam is in testing on Google Play now (internal track, version
+0.5.15). Until the public listing goes live, the free APK is on GitHub:
+download it, allow install from unknown sources when prompted, and open it.
+
+Q: How do Russian captions work in StoryCam?
+A: Captions run entirely on the phone with the Whisper speech model — no
+audio is uploaded. The first time you turn captions on, the app downloads
+about 160 MB of caption models. You can leave the language on Auto or force
+Русский or English. Single short words are the hardest case for automatic
+detection, so force a language for short clips.
+
+Q: Which phones does StoryCam work on?
+A: StoryCam needs an ARM64 Android phone with concurrent front-and-back
+camera support, for example Pixel 6 and newer or Galaxy S22 and newer. If
+the phone cannot run both cameras at once, the app falls back to
+single-camera recording.
+
+Q: Do my videos or audio leave the phone?
+A: No. Captions are transcribed on-device, and nothing is uploaded. The
+original video is always kept, and the captioned copy is saved next to it.
+
+Q: How do I stop a model download or captioning in StoryCam?
+A: Both run as system notifications with a progress bar and a Stop button.
+Stopping a download aborts it (you can retry from the Captions sheet);
+stopping captioning abandons the job and keeps your original video — no
+captioned video is ever saved after a stop.
+
+## Blog post: I went traveling and wanted to vlog for my family — so I built the camera app I needed
+
+I was traveling, and I wanted to send my family and friends videos that
+felt like being there with me. Not a photo dump, not a shaky clip of a
+street — a video where they could see my face and the place at the same
+time.
+
+My phone made me choose. The camera app records the street, or the selfie
+camera records me. Never both. If I filmed the place, my family never saw
+my reaction. If I filmed myself, they never saw where I was. I could film
+twice and edit them together, but I was on holiday, not in a studio, and
+editing on a phone with tired fingers after a long day is not a holiday.
+
+So I looked for a free camera app that records both cameras at once. The
+paid ones wanted a subscription for a feature that should be a button.
+The free ones were either abandoned, full of ads, or recorded the two
+cameras as two separate files — which puts me right back at editing.
+None of them did what I actually wanted: press record, talk to my family,
+show them the place, stop, send.
+
+StoryCam is a free Android app. You open it, you press record, and it
+records both cameras at the same time into one portrait video: the place
+fills the screen, and you are in a circle in the corner, reacting to it
+live. What you see on screen is exactly what gets saved.
+
+The camera opens by itself when you open the app. There is a small live
+map in the corner that moves with you. The filter slider sits above the
+record button — I use Vice City and San Andreas for a game look. After a
+take, the last video sits as a thumbnail next to the record button: tap
+it to watch it, share it, or delete it.
+
+Captions are the part my family notices most. StoryCam writes what I say
+straight into the video, on the phone, in Russian or English — no upload,
+no account. My grandmother reads along in Russian while I talk. The words
+light up as I say them, like karaoke.
+
+The map is burned into the recorded video too, so the video itself shows
+where it was shot.
+
+It is free — no pay model at all. No subscription, no one-time unlock,
+no ads. The app is in testing on Google Play now, and the APK is on
+GitHub. If you travel and your family is far away, try it: open the app,
+press record, and talk to them as if they were standing next to you.
+
+Try StoryCam: https://dzianisv.github.io/dual_cameras/storycam.html

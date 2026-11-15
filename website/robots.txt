@@ -5,6 +5,15 @@ User-agent: *
 Allow: /
 
 # Explicitly welcome AI / answer-engine crawlers (AI SEO)
+User-agent: Claude-SearchBot
+Allow: /
+
+User-agent: Perplexity-User
+Allow: /
+
+User-agent: Bingbot
+Allow: /
+
 User-agent: GPTBot
 Allow: /
 
