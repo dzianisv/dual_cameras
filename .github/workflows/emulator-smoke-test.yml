@@ -41,9 +41,10 @@
 # no motion, the assertion cannot see motion on this emulator and the run
 # fails loudly instead of passing or failing on a meaningless comparison.
 # A uiautomator dump asserts the camera screen is still up after resume
-# ('Start recording' present): if the OS killed the app and it relaunched
-# fresh to the 'Open camera' screen, that is a different outcome from a
-# frozen preview and must not be reported as one. The second leg repeats
+# ('Start recording' present). NOTE (issue #46, auto-init): a fresh
+# relaunch now re-opens the camera itself, so 'Start recording' alone no
+# longer distinguishes a resume from a fresh restart — the motion pair
+# below is the real resume signal. The second leg repeats
 # the cycle after a finished recording — Den's exact report (0.5.4).
 # Thresholds calibrated from repro run 43565398115's artifact (unfixed
 # code) plus later live runs: pre-background pairs 8.96% / 3.87% / 0.69% /
@@ -171,7 +172,7 @@ jobs:
             sleep 5
             python3 tools/emulator_tap.py 'Allow' || true
             sleep 2
-            python3 tools/emulator_tap.py 'Open camera'
+            python3 tools/emulator_tap.py 'Open camera' || true
             sleep 20
             adb shell pidof app.storycam || (adb logcat -d | grep -i -E "storycam|flutter|fatal|crash" | tail -30; adb logcat -d -b crash | tail -40 || true; exit 1)
             adb exec-out screencap -p > resume-pre-1.png

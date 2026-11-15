@@ -299,7 +299,10 @@ void main() {
   late FakeCamera fake;
   late FakeModelManager model;
   late DualCamerasPlatform previousPlatform;
-  final permissions = <int, int>{0: 1, 1: 1};
+  // Permission statuses by Permission value (camera=1, microphone=7 —
+  // permission_handler values, not 0/1): the mocks below answer both the
+  // request and the status check from this map.
+  final permissions = <int, int>{1: 1, 7: 1};
   final galleryCalls = <String>[];
 
   setUp(() {
@@ -312,8 +315,28 @@ void main() {
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(
             const MethodChannel('flutter.baseflow.com/permissions/methods'),
-            (call) async =>
-                call.method == 'requestPermissions' ? permissions : null);
+            (call) async {
+      // Issue #46: _start checks status before requesting, so the mock
+      // must answer checkPermissionStatus too — a null reply throws
+      // inside decodePermissionStatus and the camera never opens.
+      // Unknown permissions (e.g. location=3) read as denied, matching
+      // the old mock which never granted anything it was not asked about.
+      if (call.method == 'requestPermissions') return permissions;
+      if (call.method == 'checkPermissionStatus') {
+        return permissions[call.arguments as int] ?? 0;
+      }
+      return null;
+    });
+    // Issue #46: _autoStart awaits the settings load, which reads the
+    // documents directory via path_provider — an unmocked channel never
+    // replies in widget tests, so the load would hang forever and
+    // auto-init would never fire. A null reply makes path_provider
+    // throw MissingPlatformDirectoryException, which the store catches
+    // and turns into defaults.
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(
+            const MethodChannel('plugins.flutter.io/path_provider'),
+            (call) async => null);
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(const MethodChannel('gal'), (call) async {
       galleryCalls.add(call.method);
@@ -325,6 +348,10 @@ void main() {
     await fake.eventController.close();
   });
 
+  /// Issue #46: the camera auto-initializes on open when permissions are
+  /// granted, so pumping + settling is the whole open — no 'Open camera'
+  /// tap. That button is the retry now, used only when init fails or
+  /// permissions are denied.
   Future<void> openCamera(WidgetTester tester,
       {CaptionJobNotifier? captions,
       MapLocationService? mapLocationService,
@@ -340,8 +367,7 @@ void main() {
         reviewPromptGate: reviewPromptGate,
         appVersion: appVersion));
     await tester.pumpAndSettle();
-    await tester.tap(find.byTooltip('Open camera'));
-    await tester.pumpAndSettle();
+    expect(find.byTooltip('Start recording'), findsOneWidget);
     expect(find.text('Ready to tell your story'), findsOneWidget);
   }
 
@@ -383,8 +409,9 @@ void main() {
     expect(downloads.progresses, contains(.42));
     await tester.tap(find.byTooltip('Close Camera settings'));
     await tester.pumpAndSettle();
-    await tester.tap(find.byTooltip('Open camera'));
-    await tester.pumpAndSettle();
+    // Issue #46: the camera auto-initialized on open; 'Open camera' is
+    // gone, the record button is live.
+    expect(find.byTooltip('Start recording'), findsOneWidget);
     await tester.tap(find.byTooltip('Start recording'));
     await tester.pump();
     expect(fake.starts, 1);
@@ -432,9 +459,8 @@ void main() {
     await tester.tap(find.byTooltip('Close Camera settings'));
     await tester.pump();
     await tester.pump(const Duration(seconds: 1));
-    await tester.ensureVisible(find.byTooltip('Open camera'));
-    await tester.tap(find.byTooltip('Open camera'));
-    await tester.pump();
+    // Issue #46: the camera auto-initialized on open; no 'Open camera' tap.
+    expect(find.byTooltip('Start recording'), findsOneWidget);
     await tester.tap(find.byTooltip('Start recording'));
     await tester.pump();
     await tester.tap(find.byTooltip('Stop recording'));
@@ -702,9 +728,8 @@ void main() {
     await tester.tap(find.widgetWithText(SwitchListTile, 'Auto-captions'));
     await tester.tap(find.byTooltip('Close Camera settings'));
     await tester.pumpAndSettle();
-    await tester.ensureVisible(find.byTooltip('Open camera'));
-    await tester.tap(find.byTooltip('Open camera'));
-    await tester.pumpAndSettle();
+    // Issue #46: the camera auto-initialized on open; no 'Open camera' tap.
+    expect(find.byTooltip('Start recording'), findsOneWidget);
     await tester.tap(find.byTooltip('Start recording'));
     await tester.pumpAndSettle();
     await tester.tap(find.byTooltip('Stop recording'));
@@ -831,6 +856,47 @@ void main() {
     expect(find.byType(Texture), findsNothing);
   });
 
+  testWidgets('camera auto-initializes on open with no tap', (tester) async {
+    await tester.pumpWidget(DemoApp(modelManager: model, backgroundCaptions: false));
+    await tester.pumpAndSettle();
+    expect(find.byTooltip('Start recording'), findsOneWidget);
+    expect(find.text('Ready to tell your story'), findsOneWidget);
+    expect(find.byTooltip('Open camera'), findsNothing);
+    expect(find.byType(Texture), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('permanently denied permission is never re-prompted on open',
+      (tester) async {
+    permissions[1] = 4; // camera: PermissionStatus.permanentlyDenied
+    permissions[7] = 4; // microphone: permanentlyDenied
+    var cameraMicRequests = 0;
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(
+            const MethodChannel('flutter.baseflow.com/permissions/methods'),
+            (call) async {
+      if (call.method == 'requestPermissions') {
+        final requested = (call.arguments as List).cast<int>();
+        if (requested.contains(1) || requested.contains(7)) {
+          cameraMicRequests++;
+        }
+        return permissions;
+      }
+      if (call.method == 'checkPermissionStatus') {
+        return permissions[call.arguments as int] ?? 0;
+      }
+      return null;
+    });
+    await tester.pumpWidget(DemoApp(modelManager: model, backgroundCaptions: false));
+    await tester.pumpAndSettle();
+    expect(cameraMicRequests, 0);
+    expect(find.textContaining('Camera and microphone access required'),
+        findsOneWidget);
+    expect(find.byTooltip('Open camera'), findsOneWidget);
+    expect(find.byType(Texture), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('record lock prevents repeat taps and stop saves once',
       (tester) async {
     await openCamera(tester);
@@ -878,8 +944,8 @@ void main() {
         backgroundCaptions: false,
         cameraCommandTimeout: const Duration(milliseconds: 100)));
     await tester.pumpAndSettle();
-    await tester.tap(find.byTooltip('Open camera'));
-    await tester.pumpAndSettle();
+    // Issue #46: the camera auto-initialized on open; no 'Open camera' tap.
+    expect(find.byTooltip('Start recording'), findsOneWidget);
     await tester.tap(find.byTooltip('Start recording'));
     await tester.pump();
     expect(fake.starts, 1);
@@ -1561,7 +1627,8 @@ void main() {
         reviewPromptGate: gate2,
         appVersion: '0.5.11'));
     await tester.pumpAndSettle();
-    await tester.tap(find.byTooltip('Open camera'));
+    // Issue #46: the camera auto-initialized on open; no 'Open camera' tap.
+    expect(find.byTooltip('Start recording'), findsOneWidget);
     await tester.pumpAndSettle();
     expect(find.text('Ready to tell your story'), findsOneWidget);
     await recordAndStop(tester);

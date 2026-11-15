@@ -358,14 +358,14 @@ class _DemoScreenState extends State<DemoScreen> with WidgetsBindingObserver {
   @override
   void initState() {
     super.initState();
-    _bootstrap();
+    final bootstrapFuture = _bootstrap();
     // A caption notification left over from a previous run (the app died
     // mid-captioning) must not linger: no job exists for it anymore.
     unawaited(_captionNotifier.clear());
     _languageStore.load().then((stored) {
       if (mounted) _update(() => _captionLanguage = stored);
     });
-    _settingsStore.load().then((stored) {
+    final settingsFuture = _settingsStore.load().then((stored) {
       if (mounted) {
         // The load is async and unguarded: if the camera was already opened
         // (or the map re-enabled) before it resolved, _ensureMapLocation
@@ -390,6 +390,11 @@ class _DemoScreenState extends State<DemoScreen> with WidgetsBindingObserver {
     // previously it was only registered with background caption jobs, so in
     // Den's build it was not even registered.
     WidgetsBinding.instance.addObserver(this);
+    // Issue #46: auto-initialize the camera on open — the first frame is
+    // the trigger; _autoStart waits for the probe + settings first.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      unawaited(_autoStart(settingsFuture, bootstrapFuture));
+    });
   }
 
   @override
@@ -712,6 +717,23 @@ class _DemoScreenState extends State<DemoScreen> with WidgetsBindingObserver {
     }
   }
 
+  /// Auto-initialize the camera on app open (issue #46): the camera used
+  /// to open only from the 'Open camera' tap, so first open showed an
+  /// empty preview with no lens pills or filter slider. Fires post-frame,
+  /// only after the capability probe resolved and settings loaded — so
+  /// `_start` uses the stored video quality, not the default. Never fires
+  /// while `_busy` is held (`_guard` would drop it silently), on an
+  /// unsupported device, or when the screen is already gone; the
+  /// 'Open camera' button stays as the retry for those cases.
+  Future<void> _autoStart(
+      Future<void> settingsLoaded, Future<void> probed) async {
+    await settingsLoaded;
+    await probed;
+    if (!mounted || _busy || _controller.value.isInitialized) return;
+    if (_caps?.isSupported != true) return;
+    await _start();
+  }
+
   Future<T> _cameraCommand<T>(Future<T> Function() action) {
     // Watchdog: bound every platform call so a hung one surfaces as an
     // error instead of leaving `_busy` true forever. The raw call keeps
@@ -728,10 +750,27 @@ class _DemoScreenState extends State<DemoScreen> with WidgetsBindingObserver {
   }
 
   Future<void> _start() => _guard(() async {
-        final granted =
-            await [Permission.camera, Permission.microphone].request();
+        // Check status first (issue #46): a permanently-denied user must
+        // not be re-prompted on every cold start — point at settings
+        // instead. Otherwise request once; the prompt shows only for a
+        // permission that is not granted yet.
+        var cameraStatus = await Permission.camera.status;
+        var micStatus = await Permission.microphone.status;
         if (!mounted) return;
-        if (granted.values.any((s) => !s.isGranted)) {
+        if (!cameraStatus.isGranted || !micStatus.isGranted) {
+          if (cameraStatus.isPermanentlyDenied ||
+              micStatus.isPermanentlyDenied) {
+            _update(() => _status =
+                'Camera and microphone access required. Allow access in device settings, then try again.');
+            return;
+          }
+          final granted =
+              await [Permission.camera, Permission.microphone].request();
+          if (!mounted) return;
+          cameraStatus = granted[Permission.camera] ?? cameraStatus;
+          micStatus = granted[Permission.microphone] ?? micStatus;
+        }
+        if (!cameraStatus.isGranted || !micStatus.isGranted) {
           _update(() => _status =
               'Camera and microphone access required. Allow access in device settings, then try again.');
           return;
