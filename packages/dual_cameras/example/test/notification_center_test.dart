@@ -223,5 +223,26 @@ void main() {
       expect(plugin.shown, hasLength(4));
       expect(plugin.shown.last.body, contains('Original video kept'));
     });
+
+    test('map-only burn uses its own titles, never the caption label',
+        () async {
+      await notifier.showMapProgress(0);
+      expect(plugin.shown.single.id, 1002);
+      expect(plugin.shown.single.title, contains('Adding map to video'));
+      expect(plugin.shown.single.body, contains('Adding map to video'));
+      final android = plugin.shown.single.details.android!;
+      expect(android.actions, hasLength(1));
+      expect(android.actions!.single.id, 'stop_caption_job');
+      await notifier.showMapDone();
+      expect(plugin.shown, hasLength(2));
+      expect(plugin.shown.last.title, contains('Map added to video'));
+      expect(plugin.shown.last.body, contains('saved to gallery'));
+      expect(plugin.shown.last.body, contains('Map burned in'));
+      await notifier.showMapProgress(0);
+      await notifier.showMapFailed('boom');
+      expect(plugin.shown, hasLength(4));
+      expect(plugin.shown.last.title, contains('Map burn failed'));
+      expect(plugin.shown.last.body, contains('Original video kept'));
+    });
   });
 }

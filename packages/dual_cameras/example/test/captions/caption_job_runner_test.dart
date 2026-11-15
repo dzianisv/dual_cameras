@@ -71,6 +71,7 @@ class FakePipeline extends CaptionPipeline {
   Future<String> burnCaptions({
     required String mp4Path,
     required List<CaptionWord> words,
+    MapBurnManifest? mapManifest,
   }) async =>
       '/tmp/fake-captioned.mp4';
 }

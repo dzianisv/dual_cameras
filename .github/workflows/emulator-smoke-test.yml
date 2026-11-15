@@ -140,9 +140,12 @@ jobs:
           ls -l /dev/kvm || true
 
       # Pillow is needed by tools/preview_diff.py (region-aware preview
-      # liveness check, issue #13). It is not preinstalled on the runner.
-      - name: Install Pillow for the preview-diff check
-        run: python3 -m pip install --quiet pillow
+      # liveness check, issue #13) and tools/mapburn_check.py (issue #49
+      # map-burn pixel check); imageio-ffmpeg provides the static ffmpeg
+      # binary the map-burn check extracts frames with. Neither is
+      # preinstalled on the runner.
+      - name: Install Pillow + imageio-ffmpeg for the image checks
+        run: python3 -m pip install --quiet pillow imageio-ffmpeg
 
       - name: Emulator smoke test
         uses: reactivecircus/android-emulator-runner@v2
@@ -199,6 +202,8 @@ jobs:
             sleep 3
             python3 tools/emulator_tap.py 'Stop recording'
             sleep 8
+            python3 tools/mapburn_check.py || (echo 'MAP BURN FAILED (issue #49): see mapburn.log + the MAPBURN logcat lines below'; adb logcat -d | grep -i -E "MAPBURN|CaptionBurner|MapRenderer" | tail -40 || true; exit 1)
+            echo 'map burn (issue #49): burned video carries the map top-left'
             adb shell input keyevent 3
             sleep 5
             adb shell am start -n app.storycam/.MainActivity
@@ -224,4 +229,9 @@ jobs:
             smoke-launch.png
             resume-pre-*.png
             resume-after-*.png
+            mapburn.log
+            mapburn-original.png
+            mapburn-burned.png
+            mapburn-original.mp4
+            mapburn-burned.mp4
           retention-days: 7

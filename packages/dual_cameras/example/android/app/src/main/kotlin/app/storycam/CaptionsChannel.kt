@@ -13,8 +13,10 @@ import java.io.File
  * example app (kept out of the dual_cameras plugin packages on purpose).
  *
  * - `extractAudio {mp4}` -> absolute path of a 16 kHz mono WAV.
- * - `burnCaptions {mp4, words}` -> absolute path of the captioned .mp4
- *   (`words` = JSON array of {"text","start","end"} in seconds).
+ * - `burnCaptions {mp4, words, mapManifest?}` -> absolute path of the
+ *   burned .mp4 (`words` = JSON array of {"text","start","end"} in
+ *   seconds; `mapManifest` = issue #49 map manifest JSON, or absent/null
+ *   when the map was off — a map-only pass sends `words` = "[]").
  *
  * Heavy work runs on a background thread; results post back on the main
  * thread as the MethodChannel contract requires.
@@ -38,9 +40,10 @@ object CaptionsChannel {
                 val mp4 = call.argument<String>("mp4")
                     ?: throw IllegalArgumentException("mp4 required")
                 val words = call.argument<String>("words") ?: "[]"
+                val mapManifest = call.argument<String>("mapManifest")
                 val out = File(activity.cacheDir,
                     "cap_${System.nanoTime()}_captioned.mp4").absolutePath
-                CaptionBurner.burn(mp4, words, out)
+                CaptionBurner.burn(mp4, words, mapManifest, out)
             }
             else -> result.notImplemented()
         }

@@ -12,7 +12,8 @@ import android.util.Log
 import java.nio.ByteBuffer
 
 /**
- * Burns karaoke word-highlight captions into a copy of [mp4Path].
+ * Burns karaoke word-highlight captions and/or the map circle (issue #49)
+ * into a copy of [mp4Path] — one pass, one output file.
  *
  * Pipeline (all CPU, no GL, no ffmpeg): video track -> MediaCodec decoder ->
  * ImageReader (YUV_420_888) -> ARGB Bitmap -> Canvas karaoke overlay ->
@@ -28,11 +29,27 @@ object CaptionBurner {
 
     /**
      * @param wordsJson JSON array of {"text","start","end"} (seconds).
-     * @return absolute path of the captioned .mp4.
+     * @param mapManifestJson JSON map manifest (issue #49) — the snapshot
+     *   list + per-sample mapVisible flags — or null when the map was off.
+     *   One burn pass draws the map first (top-left), then the karaoke
+     *   captions (lower-middle); chained burns are rejected (each pass is
+     *   a full CPU decode-draw-re-encode to AVC). When [mapManifestJson]
+     *   is null the existing captions-only path runs, unchanged; when
+     *   [wordsJson] is "[]" it is a map-only pass.
+     * @return absolute path of the burned .mp4.
      */
-    fun burn(mp4Path: String, wordsJson: String, outPath: String): String {
+    fun burn(
+        mp4Path: String,
+        wordsJson: String,
+        mapManifestJson: String?,
+        outPath: String,
+    ): String {
         val words = parseWords(wordsJson)
-        Log.i(TAG, "burning ${words.size} words: $mp4Path -> $outPath")
+        val mapFrames = MapRenderer.parseManifest(mapManifestJson)
+        Log.i(TAG, "burning ${words.size} words" +
+            (if (mapFrames == null) "" else " + ${mapFrames.size} map frames") +
+            ": $mp4Path -> $outPath")
+        MapRenderer.reset()
 
         val extractor = MediaExtractor()
         extractor.setDataSource(mp4Path)
@@ -44,13 +61,14 @@ object CaptionBurner {
         val frameRate = if (srcFormat.containsKey(MediaFormat.KEY_FRAME_RATE))
             srcFormat.getInteger(MediaFormat.KEY_FRAME_RATE) else 30
         val mime = srcFormat.getString(MediaFormat.KEY_MIME)!!
-
+        Log.i(TAG, "input mime=$mime ${w}x$h fps=$frameRate")
         // Audio passthrough, extracted up-front (short clips; ~1-2 MB).
         val audioSamples = extractAudioSamples(mp4Path)
 
         val reader = ImageReader.newInstance(w, h,
             android.graphics.ImageFormat.YUV_420_888, 3)
-        val decoder = MediaCodec.createDecoderByType(mime)
+        val decoder = createVideoDecoder(mime)
+        Log.i(TAG, "decoder=${decoder.codecInfo.name} mime=$mime")
         decoder.configure(srcFormat, reader.surface, null, 0)
         decoder.start()
 
@@ -76,11 +94,18 @@ object CaptionBurner {
         val argb = IntArray(w * h)
         val yuv = ByteArray(w * h * 3 / 2)
         val info = MediaCodec.BufferInfo()
+        var framesBurned = 0
 
         extractor.selectTrack(videoTrack)
         var decoderInputDone = false
         var decoderOutputDone = false
         var encoderOutputDone = false
+        var lastHeartbeatMs = android.os.SystemClock.elapsedRealtime()
+        // The decoder must yield an input buffer within seconds of
+        // start; on the emulator it never does (inputDone=false for the
+        // whole 8 min poll) — spinning forever hides that wedge. Fail
+        // fast with a legible error instead of hanging the burn.
+        var noInputBufferSinceMs = -1L
 
         fun drainEncoder(endOfStream: Boolean) {
             while (true) {
@@ -120,9 +145,32 @@ object CaptionBurner {
 
         try {
             while (!encoderOutputDone) {
+                // Heartbeat: the loop is silent until the first frame, so
+                // a stall before frame 1 is indistinguishable from slow
+                // progress without it. Log at most every 10 s.
+                val nowMs = android.os.SystemClock.elapsedRealtime()
+                if (nowMs - lastHeartbeatMs >= 10_000) {
+                    lastHeartbeatMs = nowMs
+                    Log.i(TAG, "loop inputDone=$decoderInputDone " +
+                        "decoderEos=$decoderOutputDone frames=$framesBurned")
+                }
                 // Feed the decoder.
                 if (!decoderInputDone) {
                     val inIndex = decoder.dequeueInputBuffer(TIMEOUT_US)
+                    if (inIndex < 0) {
+                        // No input buffer yet: track how long the decoder
+                        // has been wedged and fail fast instead of
+                        // spinning forever (see heartbeat).
+                        if (noInputBufferSinceMs < 0) {
+                            noInputBufferSinceMs = nowMs
+                        } else if (nowMs - noInputBufferSinceMs >= 30_000) {
+                            throw IllegalStateException(
+                                "decoder ${decoder.codecInfo.name} yielded " +
+                                "no input buffer in 30 s (mime=$mime ${w}x$h)")
+                        }
+                    } else {
+                        noInputBufferSinceMs = -1L
+                    }
                     if (inIndex >= 0) {
                         val buf = decoder.getInputBuffer(inIndex)!!
                         val n = extractor.readSampleData(buf, 0)
@@ -130,6 +178,7 @@ object CaptionBurner {
                             decoder.queueInputBuffer(inIndex, 0, 0, 0,
                                 MediaCodec.BUFFER_FLAG_END_OF_STREAM)
                             decoderInputDone = true
+                            Log.i(TAG, "decoder input done")
                         } else {
                             decoder.queueInputBuffer(inIndex, 0, n,
                                 extractor.sampleTime, 0)
@@ -145,7 +194,21 @@ object CaptionBurner {
                 if (frame != null) {
                     try {
                         val tSec = frame.timestamp / 1_000_000_000.0
+                        framesBurned++
+                        // Progress heartbeat: the burn is two full-frame
+                        // per-pixel Kotlin loops + software encode per
+                        // frame, so a 15 s clip takes minutes on an
+                        // emulator — log every 10th frame so a stall is
+                        // distinguishable from slow progress.
+                        if (framesBurned % 10 == 1) {
+                            Log.i(TAG, "frame $framesBurned t=${"%.2f".format(tSec)}")
+                        }
                         YuvConverter.toBitmap(frame, bitmap, argb)
+                        // Issue #49: map first (top-left), then karaoke
+                        // (lower-middle, 74% height) — one pass, no overlap.
+                        if (mapFrames != null) {
+                            MapRenderer.draw(canvas, mapFrames, tSec, w, h)
+                        }
                         KaraokeRenderer.draw(canvas, words, tSec, w, h)
                         ArgbToYuv.convert(bitmap, argb, yuv, colorFormat)
                         // Retry until the encoder takes the frame (never drop).
@@ -179,6 +242,7 @@ object CaptionBurner {
                         }
                     }
                     if (decoderOutputDone) {
+                        Log.i(TAG, "decoder EOS after $framesBurned frames")
                         val inIndex = encoder.dequeueInputBuffer(TIMEOUT_US)
                         if (inIndex >= 0) {
                             encoder.queueInputBuffer(inIndex, 0, 0, 0,
@@ -198,8 +262,9 @@ object CaptionBurner {
             reader.close()
             extractor.release()
             bitmap.recycle()
+            MapRenderer.reset()
         }
-        Log.i(TAG, "done: $outPath")
+        Log.i(TAG, "done: $outPath ($framesBurned frames)")
         return outPath
     }
 
@@ -242,6 +307,36 @@ object CaptionBurner {
             if (mime != null && mime.startsWith(prefix)) return i
         }
         return null
+    }
+
+    /**
+     * Decoder for [mime]. The emulator's default AVC decoder
+     * (c2.goldfish.h264.decoder) never yields an input buffer with this
+     * pipeline — the burn spun with inputDone=false for 8 min — so on a
+     * Goldfish decoder prefer the software decoder (c2.android.* /
+     * OMX.google.*) instead. On real hardware the default decoder is
+     * never Goldfish, so this changes nothing there.
+     */
+    private fun createVideoDecoder(mime: String): MediaCodec {
+        val decoder = MediaCodec.createDecoderByType(mime)
+        if (!decoder.codecInfo.name.contains("goldfish", ignoreCase = true)) {
+            return decoder
+        }
+        decoder.release()
+        val list = android.media.MediaCodecList(
+            android.media.MediaCodecList.ALL_CODECS)
+        for (info in list.codecInfos) {
+            if (info.isEncoder || !info.supportedTypes.contains(mime)) continue
+            val name = info.name
+            if (name.contains("goldfish", ignoreCase = true)) continue
+            if (name.contains("android", ignoreCase = true) ||
+                name.contains("google", ignoreCase = true)) {
+                Log.i(TAG, "goldfish decoder wedged; using $name instead")
+                return MediaCodec.createByCodecName(name)
+            }
+        }
+        Log.w(TAG, "no software decoder for $mime; using default")
+        return MediaCodec.createDecoderByType(mime)
     }
 
     private fun pickColorFormat(encoder: MediaCodec): Int {
