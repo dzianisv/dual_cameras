@@ -220,9 +220,19 @@ class FakeCamera extends DualCamerasPlatform with MockPlatformInterfaceMixin {
   Future<List<LensOption>> getLenses(bool front) async =>
       front ? lensesFront : lensesRear;
 
+  // Issue #48: fail lens switches (the probe offered a ratio the switch
+  // rejects) or hold them in flight (a tap landing while busy). The
+  // gate is captured per call, so clearing it after the first call lets
+  // a queued second switch through.
+  Exception? setLensError;
+  Completer<void>? setLensGate;
+
   @override
   Future<void> setLens(bool front, double ratio) async {
     lensSelections.add((front, ratio));
+    final gate = setLensGate;
+    if (gate != null) await gate.future;
+    if (setLensError != null) throw setLensError!;
   }
 
   @override
@@ -274,6 +284,15 @@ bool menuItemIsBold(WidgetTester tester, String key) {
   final text = tester.widget<Text>(find.descendant(
       of: find.byKey(Key(key)), matching: find.byType(Text)));
   return text.style?.fontWeight == FontWeight.w800;
+}
+
+/// Whether a lens pill reads as selected (white pill, issue #48): the
+/// selected pill is the stored pick, so this is the stored-pick check.
+bool lensPillIsSelected(WidgetTester tester, String label) {
+  final container = tester.widget<Container>(find.descendant(
+      of: find.byKey(ValueKey('lens-$label')),
+      matching: find.byType(Container)));
+  return (container.decoration as BoxDecoration?)?.color == Colors.white;
 }
 
 void main() {
@@ -1280,6 +1299,50 @@ void main() {
     await tester.tap(find.byKey(const Key('lens-1.5')));
     await tester.pumpAndSettle();
     expect(fake.lensSelections, [(true, 1.5)]);
+  });
+
+  testWidgets('lens switch failure shows an error and keeps the stored pick',
+      (tester) async {
+    await openCamera(tester);
+    // Rear pills from the fake API (0.5 / 1), 1 selected by default.
+    expect(lensPillIsSelected(tester, '1'), isTrue);
+    // Issue #48: the probe offered 0.5 but the switch rejects it (the
+    // Android focal-ratio / zoom-range mismatch). The attempt reaches
+    // the platform, the error surfaces on screen, and the stored pick
+    // stays on 1 — the failed tap never saves, never re-selects.
+    fake.setLensError =
+        Exception('Lens 0.5x is not available right now');
+    await tester.tap(find.byKey(const Key('lens-0.5')));
+    await tester.pumpAndSettle();
+    expect(fake.lensSelections, [(false, 0.5)]);
+    expect(find.textContaining('Lens switch failed'), findsOneWidget);
+    expect(lensPillIsSelected(tester, '1'), isTrue);
+    expect(lensPillIsSelected(tester, '0.5'), isFalse);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('lens tap while busy is queued, not dropped', (tester) async {
+    await openCamera(tester);
+    // Hold the first switch in flight: _busy is true, pills stay enabled.
+    final gate = Completer<void>();
+    fake.setLensGate = gate;
+    await tester.tap(find.byKey(const Key('lens-0.5')));
+    await tester.pump();
+    expect(fake.lensSelections, [(false, 0.5)]);
+    // Second tap while busy: queued at once ('Please wait…'), not fired.
+    await tester.tap(find.byKey(const Key('lens-1')));
+    await tester.pump();
+    expect(find.textContaining('Please wait…'), findsOneWidget);
+    expect(fake.lensSelections, [(false, 0.5)]);
+    // The in-flight switch lands; the queued tap fires after it and the
+    // pre-wait status comes back (no stuck 'Please wait…').
+    fake.setLensGate = null;
+    gate.complete();
+    await tester.pumpAndSettle();
+    expect(fake.lensSelections, [(false, 0.5), (false, 1.0)]);
+    expect(lensPillIsSelected(tester, '1'), isTrue);
+    expect(find.textContaining('Please wait…'), findsNothing);
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('map section switches compass mode and hides the circle',

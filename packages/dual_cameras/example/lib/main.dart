@@ -169,6 +169,15 @@ class _DemoScreenState extends State<DemoScreen> with WidgetsBindingObserver {
   // preview until the user re-taps Open camera). Fired from `_perform`'s
   // finally once the lock frees; mirrors the _pendingRecord shutter queue.
   bool _pendingResume = false;
+  // A lens tap that lands while a camera command is in flight is queued,
+  // not dropped (issue #48, Path B: _guard would drop it silently and
+  // the pills gave no feedback — the same shape as the v0.5.1 shutter
+  // defect _pendingRecord fixed). Only the latest tap is kept; fired
+  // from `_perform`'s finally once the lock frees. [_statusBeforeLensWait]
+  // holds the status text from before the wait, so 'Please wait…' is
+  // restored (not stuck) once the queued switch lands.
+  double? _pendingLens;
+  String? _statusBeforeLensWait;
   // Watchdog (v0.5.2): a camera command that never returns used to leave
   // `_busy` true forever — a dead screen until the app was killed. Every
   // platform call is now bounded; on timeout the error surfaces like any
@@ -822,14 +831,26 @@ class _DemoScreenState extends State<DemoScreen> with WidgetsBindingObserver {
 
   /// Switch to the lens at [ratio] on the primary camera. The switch needs
   /// no rebind (zoom-ratio switch), so the pills stay enabled while
-  /// recording; the _busy lock only covers the in-flight command itself.
-  Future<void> _setLens(double ratio) => _guard(() async {
-        await _cameraCommand(
-            () => _controller.setLens(_primaryFront, ratio));
-        _updateSettings(_primaryFront
-            ? _settings.copyWith(frontLens: ratio)
-            : _settings.copyWith(rearLens: ratio));
-      }, 'Lens switch');
+  /// recording — and while busy, too: a tap that lands mid-command queues
+  /// (issue #48, Path B) instead of vanishing silently, mirroring the
+  /// _pendingRecord shutter queue. The _busy lock only covers the
+  /// in-flight command itself.
+  Future<void> _setLens(double ratio) {
+    if (!mounted) return Future<void>.value();
+    if (_busy) {
+      _pendingLens = ratio;
+      _statusBeforeLensWait ??= _status;
+      _update(() => _status = 'Please wait…');
+      return Future<void>.value();
+    }
+    return _guard(() async {
+      await _cameraCommand(
+          () => _controller.setLens(_primaryFront, ratio));
+      _updateSettings(_primaryFront
+          ? _settings.copyWith(frontLens: ratio)
+          : _settings.copyWith(rearLens: ratio));
+    }, 'Lens switch');
+  }
 
   /// Switch the recording resolution. Resolution is fixed at initialize,
   /// so a live camera re-inits (not while recording — the row is disabled
@@ -953,6 +974,7 @@ class _DemoScreenState extends State<DemoScreen> with WidgetsBindingObserver {
       _flushTuning();
       _firePendingRecord();
       _firePendingResume();
+      _firePendingLens();
     }
   }
 
@@ -979,6 +1001,36 @@ class _DemoScreenState extends State<DemoScreen> with WidgetsBindingObserver {
     if (!_pendingResume || _busy || !mounted) return;
     _pendingResume = false;
     unawaited(_resumeCamera());
+  }
+
+  /// Fire a lens tap that was queued while a command was in flight
+  /// (issue #48, Path B). Runs only once the lock is free (a tuning flush
+  /// in the same `finally` re-locks first; its own `finally` retries
+  /// this). The pending ratio is cleared only when the switch actually
+  /// fires. Dropped when the screen is gone or the camera is not
+  /// initialized — no session left to switch. On success the pre-wait
+  /// status is restored, so 'Please wait…' never sticks; on failure
+  /// _perform already replaced it with the error, so there is nothing to
+  /// restore. A switch while recording is fine (zoom-ratio switch, no
+  /// rebind), so unlike _pendingRecord there is no recording drop.
+  void _firePendingLens() {
+    if (_pendingLens == null || _busy || !mounted) return;
+    final ratio = _pendingLens;
+    _pendingLens = null;
+    final previousStatus = _statusBeforeLensWait;
+    _statusBeforeLensWait = null;
+    if (!_controller.value.isInitialized) {
+      if (previousStatus != null && _status == 'Please wait…') {
+        _update(() => _status = previousStatus);
+      }
+      return;
+    }
+    unawaited(_setLens(ratio!).then((_) {
+      if (!mounted || previousStatus == null) return;
+      if (_status == 'Please wait…') {
+        _update(() => _status = previousStatus);
+      }
+    }));
   }
 
   /// Stop recording, save to gallery, then optionally run the auto-captions
@@ -1708,7 +1760,9 @@ class _DemoScreenState extends State<DemoScreen> with WidgetsBindingObserver {
                 )
               : null,
           // Lens pills (issue #20): only the active camera's probed
-          // lenses; hidden before init (nothing probed yet).
+          // lenses; hidden before init (nothing probed yet). The pills
+          // stay enabled while busy (issue #48): a tap that lands
+          // mid-command queues instead of vanishing silently.
           lensPills: value.isInitialized
               ? LensPills(
                   lenses:
@@ -1718,7 +1772,6 @@ class _DemoScreenState extends State<DemoScreen> with WidgetsBindingObserver {
                           : _settings.rearLens) ??
                       1.0,
                   onSelected: _setLens,
-                  enabled: !_busy,
                 )
               : null,
           // Filter slider (issue #20): over the video, above the record

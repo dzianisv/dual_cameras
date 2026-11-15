@@ -84,7 +84,13 @@ class CameraSource(private val context: Context) {
                 for (camera in cam.cameras) {
                     val info = camera.cameraInfo
                     val isFront = info.lensFacing == CameraSelector.LENS_FACING_FRONT
-                    Log.i(TAG, "${if (isFront) "front" else "back"} sensorRotation=${info.sensorRotationDegrees}")
+                    // Issue #48: log the zoom range the lens switch
+                    // enforces, so the phone run can report it next to the
+                    // probe list (ratios only, no secrets).
+                    val zoom = info.zoomState.value
+                    val zoomRange = zoom?.let { "${it.minZoomRatio}..${it.maxZoomRatio}" }
+                        ?: "unknown"
+                    Log.i(TAG, "${if (isFront) "front" else "back"} sensorRotation=${info.sensorRotationDegrees} zoomRange=$zoomRange")
                     onRotation(isFront, info.sensorRotationDegrees)
                 }
             } catch (t: Throwable) {
@@ -135,6 +141,24 @@ class CameraSource(private val context: Context) {
     }
 
     /**
+     * Zoom range the lens switch enforces for one facing (issue #48):
+     * the bound camera's CameraX [androidx.camera.core.ZoomState] range —
+     * the same range [setLensZoom] checks. Null when nothing is bound for
+     * that facing or the zoom state is not available yet (e.g. the probe
+     * runs before bind completes); the probe then falls back to the
+     * logical camera's Camera2 zoom range.
+     */
+    fun zoomRange(front: Boolean): Pair<Float, Float>? {
+        val camera = cameraFor(front) ?: return null
+        val state = try {
+            camera.cameraInfo.zoomState.value
+        } catch (_: Throwable) {
+            null
+        } ?: return null
+        return state.minZoomRatio to state.maxZoomRatio
+    }
+
+    /**
      * Lens switch (issue #20): apply a zoom ratio to one facing's bound camera.
      * CameraX switches the physical camera internally when the ratio crosses
      * a physical switch point, so no rebind is needed and this is safe while
@@ -143,13 +167,23 @@ class CameraSource(private val context: Context) {
      * instead of silently clamping to a different lens.
      */
     fun setLensZoom(front: Boolean, ratio: Float): Boolean {
-        val camera = cameraFor(front) ?: return false
+        val camera = cameraFor(front)
+        if (camera == null) {
+            Log.i(TAG, "setLensZoom(front=$front ratio=$ratio) rejected: no bound camera")
+            return false
+        }
         return try {
-            val state = camera.cameraInfo.zoomState.value ?: return false
+            val state = camera.cameraInfo.zoomState.value
+            if (state == null) {
+                Log.i(TAG, "setLensZoom(front=$front ratio=$ratio) rejected: no zoom state")
+                return false
+            }
             if (ratio < state.minZoomRatio || ratio > state.maxZoomRatio) {
+                Log.i(TAG, "setLensZoom(front=$front ratio=$ratio) rejected: outside zoomRange=${state.minZoomRatio}..${state.maxZoomRatio}")
                 return false
             }
             camera.cameraControl.setZoomRatio(ratio)
+            Log.i(TAG, "setLensZoom(front=$front ratio=$ratio) ok zoomRange=${state.minZoomRatio}..${state.maxZoomRatio}")
             true
         } catch (t: Throwable) {
             Log.w(TAG, "setLensZoom failed", t)
