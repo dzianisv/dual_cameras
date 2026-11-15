@@ -134,7 +134,7 @@ jobs:
           echo "AAB OK: app.storycam + arm64-v8a, $(du -h "$AAB" | cut -f1)"
 
       # APK asset name is storycam-<version>-arm64.apk (versionName from
-      # pubspec.yaml). The static paths below name 0.5.10 literally — on a
+      # pubspec.yaml). The static paths below name 0.5.11 literally — on a
       # version bump, update them here, in the release files list, and in
       # website/latest.html, exactly as the release checklist already does.
       - name: Prepare APK artifact
@@ -151,9 +151,9 @@ jobs:
       - name: Upload StoryCam APK
         uses: actions/upload-artifact@v4
         with:
-          name: storycam-0.5.10-arm64-${{ github.sha }}
+          name: storycam-0.5.11-arm64-${{ github.sha }}
           path: |
-            packages/dual_cameras/example/storycam-0.5.10-arm64.apk
+            packages/dual_cameras/example/storycam-0.5.11-arm64.apk
             packages/dual_cameras/example/SHA256SUMS
             packages/dual_cameras/example/storycam-play-release.aab
             packages/dual_cameras/example/SHA256SUMS.aab
@@ -172,7 +172,7 @@ jobs:
           prerelease: true
           fail_on_unmatched_files: true
           files: |
-            packages/dual_cameras/example/storycam-0.5.10-arm64.apk
+            packages/dual_cameras/example/storycam-0.5.11-arm64.apk
             packages/dual_cameras/example/SHA256SUMS
             packages/dual_cameras/example/build-info.txt
           body: |
@@ -203,7 +203,7 @@ jobs:
               caption processing.
 
             ### Install
-            1. Download `storycam-0.5.10-arm64.apk` below.
+            1. Download `storycam-0.5.11-arm64.apk` below.
             2. Sideload it (allow "install unknown apps" when prompted).
             3. Open StoryCam, grant Camera and Microphone, then use the shutter
                to open the camera and start or stop recording.
