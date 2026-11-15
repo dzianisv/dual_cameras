@@ -37,9 +37,11 @@ import 'package:posthog_flutter/posthog_flutter.dart';
 /// All captures are fire-and-forget and never throw, so analytics can
 /// never delay or break a flow.
 ///
-/// Only the main isolate is covered. The background caption isolate
-/// (`captionJobMain`) does not initialize analytics, so foreground
-/// `captions_done` is the only captions-completion event for now.
+/// The background caption isolate (`captionJobMain`) initializes analytics
+/// separately in `runCaptionJob` — Dart statics are isolate-local, so the
+/// main isolate's init does not carry over — and emits `captions_done`
+/// with `job: 'background'` on job completion. The background gap is now
+/// closed: foreground and background completions are both covered.
 class Analytics {
   Analytics._();
 
@@ -161,6 +163,24 @@ class Analytics {
     }
   }
 
+  /// Best-effort flush of the queued PostHog events. No-op before [init];
+  /// never throws. The background caption job awaits this before its
+  /// `complete` channel call, so the event is sent before the headless
+  /// engine may tear down. Without a flush the event persists in the SDK
+  /// queue and retries on the next launch, so a flush failure only affects
+  /// delivery timing, never the job. In tests the capture sink replaces
+  /// the SDK, so there is nothing queued to flush — and no plugin to
+  /// flush through — and this returns immediately.
+  static Future<void> flush() async {
+    if (!_initialized) return;
+    if (_captureSink != null) return;
+    try {
+      await Posthog().flush();
+    } catch (_) {
+      // Best effort only — the SDK retries on the next launch.
+    }
+  }
+
   /// `app_open` — once per cold start, from `main()` after [init].
   /// `first_open` is true only on the first-ever initialized launch.
   static Future<void> appOpen() async {
@@ -207,19 +227,23 @@ class Analytics {
     }
   }
 
-  /// `captions_done` — foreground `_captionVideo` success tail only.
-  /// Background-job completion is a known gap (the caption isolate never
-  /// initializes analytics); `job` is always `foreground` here.
+  /// `captions_done` — foreground `_captionVideo` success tail, and the
+  /// background caption job (`runCaptionJob`) on completion. `job` is
+  /// `'foreground'` by default; the background runner passes
+  /// `'background'`. The background gap is now closed: the caption isolate
+  /// initializes analytics in `runCaptionJob` and emits this event on
+  /// success (no event on the noSpeech path, matching the foreground).
   static void captionsDone({
     required int wordCount,
     required String language,
     required String captionLanguage,
+    String job = 'foreground',
   }) {
     capture('captions_done', properties: {
       'word_count': wordCount,
       'language': language,
       'caption_language': _languageCode(captionLanguage),
-      'job': 'foreground',
+      'job': job,
     });
   }
 

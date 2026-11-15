@@ -1,17 +1,33 @@
 import 'package:flutter/widgets.dart';
 
+import '../analytics.dart';
 import 'background_transcriber.dart';
 import 'caption_jobs.dart';
 import 'caption_pipeline.dart';
 import 'model_manager.dart';
 
 /// Invoked by the Android worker's headless Flutter engine, not by a screen.
-Future<void> runCaptionJob() async {
+///
+/// The optional [models], [transcriber] and [pipeline] parameters exist
+/// only for tests: the real transcriber spawns a sherpa-onnx isolate that
+/// can never run under `flutter test`, so tests pass fakes returning a
+/// fixed [TranscriptionResult] and burn output path. Production callers
+/// pass nothing and get the real objects.
+Future<void> runCaptionJob({
+  ModelManager? models,
+  BackgroundTranscriber? transcriber,
+  CaptionPipeline? pipeline,
+}) async {
   WidgetsFlutterBinding.ensureInitialized();
+  // The background isolate has its own Dart statics, so the main
+  // isolate's init does not carry over — init here. With no key this is
+  // a no-op (same contract as the foreground path): no init, no network,
+  // no event. A failing init leaves the job unaffected.
+  await Analytics.init();
   const channel = CaptionJobs.channel;
-  final models = ModelManager();
-  final transcriber = BackgroundTranscriber();
-  final pipeline = CaptionPipeline();
+  final modelManager = models ?? ModelManager();
+  final backgroundTranscriber = transcriber ?? BackgroundTranscriber();
+  final captionPipeline = pipeline ?? CaptionPipeline();
   var cancelled = false;
   var lastProgress = -1;
   void checkCancelled() {
@@ -28,8 +44,8 @@ Future<void> runCaptionJob() async {
   channel.setMethodCallHandler((call) async {
     if (call.method == 'cancel') {
       cancelled = true;
-      models.cancel();
-      transcriber.cancel();
+      modelManager.cancel();
+      backgroundTranscriber.cancel();
     }
   });
   try {
@@ -42,16 +58,16 @@ Future<void> runCaptionJob() async {
     // The native side stores it with the job; a missing key means Auto.
     final language = args['language'] as String? ?? '';
     await progress('Preparing speech model', 0);
-    final model = await models.ensureModel(onProgress: (value) {
+    final model = await modelManager.ensureModel(onProgress: (value) {
       // Native handler persists and throttles these whole-percentage updates.
       progress('Downloading speech model', (value * 25).floor());
     });
     checkCancelled();
     await progress('Extracting audio', 25);
-    final wav = await pipeline.extractAudio(mp4);
+    final wav = await captionPipeline.extractAudio(mp4);
     checkCancelled();
     await progress('Transcribing on device', 35);
-    final result = await transcriber.transcribe(
+    final result = await backgroundTranscriber.transcribe(
         wavPath: wav,
         model: model,
         language: language,
@@ -64,8 +80,25 @@ Future<void> runCaptionJob() async {
           .invokeMethod<void>('complete', {'path': mp4, 'noSpeech': true});
     } else {
       await progress('Adding captions to video', 75);
-      final output = await pipeline.burnCaptions(mp4Path: mp4, words: words);
+      final output =
+          await captionPipeline.burnCaptions(mp4Path: mp4, words: words);
       checkCancelled();
+      // Analytics is belt-and-braces: its own try/catch, so an event
+      // failure can never flip a completed job to 'failed'. No event on
+      // the noSpeech path above (foreground parity).
+      try {
+        Analytics.captionsDone(
+          wordCount: words.length,
+          language: result.detectedLanguage,
+          captionLanguage: language,
+          job: 'background',
+        );
+        // Best effort: flush the queued event before `complete`, the
+        // terminal signal after which the engine may tear down.
+        await Analytics.flush();
+      } catch (e) {
+        debugPrint('StoryCam: background captions analytics failed: $e');
+      }
       await channel
           .invokeMethod<void>('complete', {'path': output, 'noSpeech': false});
     }

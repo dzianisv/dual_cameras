@@ -1160,8 +1160,8 @@ class _DemoScreenState extends State<DemoScreen> with WidgetsBindingObserver {
       });
       await _captionNotifier.showDone(
           words.length, result.detectedLanguage);
-      // Foreground path only — background-job completion is a known gap
-      // (the caption isolate never initializes analytics).
+      // Background jobs emit the same event with job='background' from
+      // runCaptionJob (the caption isolate initializes analytics itself).
       Analytics.captionsDone(
           wordCount: words.length,
           language: result.detectedLanguage,
