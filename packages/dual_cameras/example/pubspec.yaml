@@ -36,6 +36,12 @@ dependencies:
   # integration is fully disabled (see lib/crash_reporting.dart).
   sentry_flutter: ^9.30.1
   in_app_review: ^2.0.12
+  # Analytics (PostHog). The API key is read from --dart-define
+  # POSTHOG_API_KEY at build time and never committed; with no key the
+  # integration is fully disabled (see lib/analytics.dart).
+  posthog_flutter: ^5.61.0
+  # Install-source detection for analytics (installerStore) + the app
+  # version on every event.
   package_info_plus: ^10.2.2
 
 dev_dependencies:
