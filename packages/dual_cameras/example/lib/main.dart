@@ -9,6 +9,7 @@ import 'package:latlong2/latlong.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:permission_handler/permission_handler.dart';
 
+import 'analytics.dart';
 import 'captions/caption_job_notifier.dart';
 import 'captions/caption_jobs.dart';
 import 'captions/caption_job_runner.dart';
@@ -36,6 +37,12 @@ Future<void> main() async {
   // No-op when built without --dart-define SENTRY_DSN: Sentry is never
   // initialized and the app boots exactly as before.
   await CrashReporting.init();
+  // No-op when built without --dart-define POSTHOG_API_KEY: PostHog is
+  // never initialized and the app boots exactly as before.
+  await Analytics.init();
+  // One open per cold start; fire-and-forget — the state read must never
+  // delay startup.
+  unawaited(Analytics.appOpen());
   runApp(const DemoApp());
 }
 
@@ -624,9 +631,14 @@ class _DemoScreenState extends State<DemoScreen> with WidgetsBindingObserver {
     // for repaints. A cached model reports 0 then 1 with nothing between,
     // so no notification ever appears for it.
     double? lastReported;
+    // N1: `model_ready.cached` comes from this progress stream, not from
+    // the ModelManager API — any value strictly between 0 and 1 means
+    // bytes were actually downloaded.
+    bool sawIntermediate = false;
     try {
       final model = await _modelManager.ensureModel(onProgress: (progress) {
         final value = progress.clamp(0.0, 1.0).toDouble();
+        if (value > 0 && value < 1) sawIntermediate = true;
         if (lastReported == null ||
             (value * 100).floor() != (lastReported! * 100).floor()) {
           lastReported = value;
@@ -636,6 +648,7 @@ class _DemoScreenState extends State<DemoScreen> with WidgetsBindingObserver {
         }
       });
       unawaited(_notifier.showReady());
+      Analytics.modelReady(cached: !sawIntermediate);
       return model;
     } catch (e) {
       _modelFuture =
@@ -652,8 +665,25 @@ class _DemoScreenState extends State<DemoScreen> with WidgetsBindingObserver {
             () => _modelError = 'Caption model download failed: $e');
         unawaited(_notifier.showFailed('$e'));
       }
+      Analytics.modelDownloadFailed(reason: _modelFailureReason(e));
       rethrow;
     }
+  }
+
+  /// Map a model failure to a short analytics reason code (N2): the user
+  /// stopping the download, a storage failure, or anything else. Never
+  /// the raw message — it could carry paths or file names. Message
+  /// strings are the consts thrown in `model_manager.dart`.
+  String _modelFailureReason(Object e) {
+    if (_modelManager.isCancelled) return 'stopped';
+    if (e is ModelDownloadException) {
+      if (e.message == 'Caption job stopped') return 'stopped';
+      if (e.message ==
+          'Could not store the speech model. Check free storage and retry.') {
+        return 'storage';
+      }
+    }
+    return 'download';
   }
 
   Future<void> _bootstrap() async {
@@ -965,6 +995,11 @@ class _DemoScreenState extends State<DemoScreen> with WidgetsBindingObserver {
       // Only after a successful save: on a Gal failure _lastVideo stays
       // null, so no Share button appears next to a save-failed status.
       _lastVideo = file;
+      // Analytics: the recording completed and saved. Fire-and-forget —
+      // never delays the save flow. (N3: no duration_seconds — no
+      // recording timer exists at this hook, and none is added.)
+      unawaited(Analytics.coreActionDone(
+          captionsOn: captions, captionLanguage: _captionLanguage.code));
       if (!mounted && !_usesBackgroundJobs) return;
       _update(() {
         _status = 'Video saved to gallery';
@@ -1040,6 +1075,7 @@ class _DemoScreenState extends State<DemoScreen> with WidgetsBindingObserver {
     }
     try {
       await _shareChannel.invokeMethod<void>('shareVideo', {'path': path});
+      Analytics.shareDone(captionsOn: _captions);
     } catch (e) {
       // Platform failure (MissingPluginException, channel error, native
       // error incl. a file vanishing mid-call): same failure pattern as
@@ -1124,6 +1160,12 @@ class _DemoScreenState extends State<DemoScreen> with WidgetsBindingObserver {
       });
       await _captionNotifier.showDone(
           words.length, result.detectedLanguage);
+      // Foreground path only — background-job completion is a known gap
+      // (the caption isolate never initializes analytics).
+      Analytics.captionsDone(
+          wordCount: words.length,
+          language: result.detectedLanguage,
+          captionLanguage: _captionLanguage.code);
     } catch (e) {
       if (!mounted) return;
       if (_captionAborted(generation) ||
@@ -1589,6 +1631,8 @@ class _DemoScreenState extends State<DemoScreen> with WidgetsBindingObserver {
         await _stop();
       } else {
         await _cameraCommand(_controller.startRecording);
+        Analytics.recordStarted(
+            captionsOn: _captions, captionLanguage: _captionLanguage.code);
         _update(() {
           _status = 'Recording your story';
         });

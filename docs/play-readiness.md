@@ -2,7 +2,8 @@
 
 Status: **not ready to submit — preparation done, two Den-only gates
 remain** (production signing keystore; content-rating questionnaire +
-Data Safety form), plus an optional Sentry DSN. The app today is a
+Data Safety form), plus an optional Sentry DSN and an optional PostHog
+API key. The app today is a
 sideload-only build (v0.5.9, debug-signed, package `app.storycam`).
 This page lists exactly what is done, what this PR prepared, and what
 is still missing, with who can supply it.
@@ -42,10 +43,13 @@ Audited 2026-11-15 against main `828f887b` with PR #32 applied
   returns 200 with the correct content. Version line bumped to 0.5.9
   in this PR (it said 0.5.4); the live page picks it up on the next
   site deploy.
-- **No analytics, no ads, no account**: `pubspec.yaml` has no
-  analytics/ads SDK; the only network use is the one-time caption
-  model download from Hugging Face over HTTPS. See
-  `docs/play-data-safety.md` for the form answers this implies.
+- **No ads, no account; analytics key-gated**: `pubspec.yaml` has no
+  ads SDK; the only network use is the one-time caption
+  model download from Hugging Face over HTTPS, plus PostHog analytics
+  only when the build carries `--dart-define POSTHOG_API_KEY`
+  (issue #38 — without the key PostHog is never initialized and sends
+  nothing). See `docs/play-data-safety.md` for the form answers this
+  implies.
 
 ## Prepared in this PR
 
@@ -69,6 +73,15 @@ Audited 2026-11-15 against main `828f887b` with PR #32 applied
   from `--dart-define SENTRY_DSN`, fully disabled without one
   (`packages/dual_cameras/example/lib/crash_reporting.dart`). Needs only
   a Sentry project + DSN (free tier) to go live.
+- Analytics prep (issue #38, this PR): `posthog_flutter` wired in the
+  example app, API key from `--dart-define POSTHOG_API_KEY`, fully
+  disabled without one (`packages/dual_cameras/example/lib/analytics.dart`).
+  Fires the 8 funnel events (`app_open`, `record_started`,
+  `core_action_done`, `core_action_repeat`, `captions_done`,
+  `share_done`, `model_ready`, `model_download_failed`), each carrying
+  `app_version` + `install_source` and no personal data. Needs only a
+  PostHog project + API key (US host) to go live; live-key verification
+  is a Den-owned residual.
 - GitHub issue templates + triage rules: `.github/ISSUE_TEMPLATE/`,
   `CONTRIBUTING.md`.
 - `flutter build appbundle` step in CI: **done** — `build-apk.yml`
@@ -99,10 +112,17 @@ Audited 2026-11-15 against main `828f887b` with PR #32 applied
    without it (crash reporting stays off). Supplying it turns on
    crash reports; the Data Safety answers change with it (see
    `docs/play-data-safety.md`).
-3. **Content rating questionnaire + Data Safety form** — Den answers
+3. **PostHog API key (optional for first submission)** — the app works
+   without it (analytics stays off). Supplying it turns on the 8
+   funnel events; the Data Safety answers change with it (see
+   `docs/play-data-safety.md`). The key lives in Den's custody
+   (Secure Vault only, never in the repo); live-key verification that
+   events arrive in PostHog is also Den-owned.
+4. **Content rating questionnaire + Data Safety form** — Den answers
    them in Play Console. Drafts are in `docs/play-data-safety.md`
    (no ads, no account, no data collection except optional crash
-   reports once Sentry is live).
+   reports once Sentry is live and optional analytics once PostHog
+   is live).
 
 Historical note: the Google Play developer account gate is **closed**
 — the VIBE TECHNOLOGIES account exists and is logged in (confirmed
@@ -136,11 +156,15 @@ by Den 2026-11-14); the $25 fee is paid. It is no longer a gate.
   false, or the platform call throws — swallowed, nothing marked, so a
   later Play install can still prompt). Play throttles display itself,
   so the dialog only shows on a Play-installed build.
-- **No analytics events.** The skill's funnel events
-  (`app_open`, `core_action_done`, …) are not implemented — there is
-  no analytics SDK. Until they exist, growth is measured from Play
-  Console numbers only. File as a follow-up; it does not block the
-  first submission.
+- **Analytics events — done (issue #38).** The skill's funnel events
+  (`app_open`, `record_started`, `core_action_done`,
+  `core_action_repeat`, `captions_done`, `share_done`, `model_ready`,
+  `model_download_failed`) are implemented in
+  `packages/dual_cameras/example/lib/analytics.dart`, key-gated on
+  `--dart-define POSTHOG_API_KEY`. Until a key is supplied, growth is
+  measured from Play Console numbers only. Known gap: background-job
+  caption completion has no event yet (foreground path only) —
+  follow-up issue to file.
 - **Promo video (30–60 s).** Optional for the first submission;
   record it from the first real-phone test.
 - Switch the release signing config from the debug key to the upload

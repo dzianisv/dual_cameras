@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>StoryCam Privacy Policy</title>
-<meta name="description" content="StoryCam privacy policy: the app has no account, no ads, and no analytics. Videos stay on your phone; captions run on-device.">
+<meta name="description" content="StoryCam privacy policy: the app has no account and no ads. Sideload builds collect nothing; builds with analytics enabled send anonymous usage events. Videos stay on your phone; captions run on-device.">
 <link rel="canonical" href="https://dzianisv.github.io/dual_cameras/privacy.html">
 <style>
   body { font-family: system-ui, -apple-system, "Segoe UI", sans-serif; max-width: 680px; margin: 0 auto; padding: 32px 20px 64px; line-height: 1.6; color: #1a1a1a; }
@@ -17,16 +17,30 @@
 </head>
 <body>
 <h1>StoryCam Privacy Policy</h1>
-<p class="meta">Effective: 13 November 2026 · App version 0.5.9</p>
+<p class="meta">Effective: 13 November 2026 · App version 0.5.10</p>
 
 <p>StoryCam records the front and back cameras together and can add
 on-device captions to your videos. This policy explains what the app
-does with your data. Short version: <strong>it doesn't collect any</strong>.</p>
+does with your data. Short version: <strong>sideload builds collect
+nothing</strong>; builds with analytics enabled send only anonymous
+usage events (see below).</p>
 
-<h2>No account, no ads, no analytics</h2>
-<p>StoryCam has no account system, shows no ads, and ships no analytics
-or tracking SDKs. There is nothing to sign into and nothing that reports
-your usage back to us.</p>
+<h2>No account, no ads</h2>
+<p>StoryCam has no account system and shows no ads. Sideload builds
+distributed from GitHub ship with analytics disabled: there is nothing
+to sign into and nothing that reports your usage back to us.</p>
+
+<h2>Analytics (only in builds that enable it)</h2>
+<p>Some builds include usage analytics (PostHog). Sideload builds
+distributed from GitHub do <strong>not</strong> have it enabled. When a
+build does enable it, the app sends anonymous funnel events — app
+opens, recordings started and finished, shares, captions finished,
+and caption-model download state — plus the app version and install
+source. It never sends video, audio, captions, file paths, or
+location, and it never identifies you: there is no account, no
+advertising ID, and no device ID. Session replay is off. Events are
+sent to PostHog's US servers and are used only to understand how the
+app is used.</p>
 
 <h2>Your videos stay on your phone</h2>
 <p>Videos and photos you record are saved to your device's gallery.
@@ -58,7 +72,9 @@ save your videos). Denying notifications only means progress is shown
 in the app instead — recording still works.</p>
 
 <h2>Children</h2>
-<p>The app collects no data from anyone, including children.</p>
+<p>Sideload builds collect no data from anyone, including children.
+Builds with analytics enabled send only the anonymous usage events
+described above — no identity, no personal data.</p>
 
 <h2>Changes</h2>
 <p>If this policy changes, the new version will be published on this
