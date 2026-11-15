@@ -126,12 +126,16 @@ by Den 2026-11-14); the $25 fee is paid. It is no longer a gate.
   Workflow files are pushed via the gh CLI / PR like any other file
   (`ios-build.yml` landed via PR #28; PRs #33/#34 merged the same
   way).
-- **In-app review prompt — not wired.** The app has no rating prompt
-  (no `in_app_review` dependency; the "review" hits in the code are
-  "preview"). The first-1,000-installs plan needs a prompt after
-  activation (Play In-App Review API, never on first open). File as
-  a follow-up issue; it ships as a new version before the growth
-  push, not before the first internal-track submission.
+- **In-app review prompt — wired in #37 (v0.5.11).** The app asks Play
+  for a review at most once per app version, on the first completed
+  recording of that version (`in_app_review` + `package_info_plus`,
+  `ReviewPromptGate` in `lib/captions/review_prompt_gate.dart` with the
+  `ReviewPrompt` facade in `lib/review_prompt.dart`; trigger is
+  the successful gallery save in `_stop()`, never first open, never the
+  Share tap). Sideloaded builds are a silent no-op (`isAvailable()`
+  false, or the platform call throws — swallowed, nothing marked, so a
+  later Play install can still prompt). Play throttles display itself,
+  so the dialog only shows on a Play-installed build.
 - **No analytics events.** The skill's funnel events
   (`app_open`, `core_action_done`, …) are not implemented — there is
   no analytics SDK. Until they exist, growth is measured from Play
@@ -148,9 +152,9 @@ by Den 2026-11-14); the $25 fee is paid. It is no longer a gate.
 
 ## What is NOT blocking
 
-- The app itself is releasable as a sideload build: CI green, 108
+- The app itself is releasable as a sideload build: CI green, 113
   tests across 12 unit/widget test files — the example `flutter test`
-  step reports 103 tests passed (102 passed + 1 skipped by the
+  step reports 108 tests passed (107 passed + 1 skipped by the
   per-test count) and the plugin step 5 passed — plus 1
   `integration_test` file (not run by `flutter test`); host inference
   verified, APK + AAB hash-verified. The blockers above are account,

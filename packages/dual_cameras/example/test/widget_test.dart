@@ -8,7 +8,9 @@ import 'package:dual_cameras_example/captions/caption_language_store.dart';
 import 'package:dual_cameras_example/captions/model_download_notifier.dart';
 import 'package:dual_cameras_example/captions/model_manager.dart';
 import 'package:dual_cameras_example/captions/caption_models.dart';
+import 'package:dual_cameras_example/captions/review_prompt_gate.dart';
 import 'package:dual_cameras_example/map/map_location.dart';
+import 'package:dual_cameras_example/review_prompt.dart';
 import 'package:dual_cameras_example/ui/filter_slider.dart';
 import 'package:dual_cameras_example/ui/map_circle.dart';
 import 'package:dual_cameras_platform_interface/dual_cameras_platform_interface.dart';
@@ -125,6 +127,25 @@ class FakeCaptionJobNotifier implements CaptionJobNotifier {
   @override
   Future<void> clear() async {
     clearCalls++;
+  }
+}
+
+/// Fake Play review prompt (issue #37): records requests and returns a
+/// chosen availability, so tests count prompts without Play.
+class FakeReviewPrompt implements ReviewPrompt {
+  bool available = true;
+  int availabilityChecks = 0;
+  int requests = 0;
+
+  @override
+  Future<bool> isAvailable() async {
+    availabilityChecks++;
+    return available;
+  }
+
+  @override
+  Future<void> requestReview() async {
+    requests++;
   }
 }
 
@@ -287,16 +308,30 @@ void main() {
 
   Future<void> openCamera(WidgetTester tester,
       {CaptionJobNotifier? captions,
-      MapLocationService? mapLocationService}) async {
+      MapLocationService? mapLocationService,
+      ReviewPrompt? reviewPrompt,
+      ReviewPromptGate? reviewPromptGate,
+      String? appVersion}) async {
     await tester.pumpWidget(DemoApp(
         modelManager: model,
         backgroundCaptions: false,
         captionJobNotifier: captions,
-        mapLocationService: mapLocationService));
+        mapLocationService: mapLocationService,
+        reviewPrompt: reviewPrompt,
+        reviewPromptGate: reviewPromptGate,
+        appVersion: appVersion));
     await tester.pumpAndSettle();
     await tester.tap(find.byTooltip('Open camera'));
     await tester.pumpAndSettle();
     expect(find.text('Ready to tell your story'), findsOneWidget);
+  }
+
+  /// One full recording: start, then stop and save to the gallery.
+  Future<void> recordAndStop(WidgetTester tester) async {
+    await tester.tap(find.byTooltip('Start recording'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('Stop recording'));
+    await tester.pumpAndSettle();
   }
 
   testWidgets('model download reports to notification, never a top banner',
@@ -1338,5 +1373,139 @@ void main() {
     expect(pills.bottom, lessThanOrEqualTo(slider.top));
     expect(slider.bottom, lessThanOrEqualTo(shutter.top));
     expect(shutter.bottom, lessThanOrEqualTo(menu.top));
+  });
+
+  // In-app review prompt (issue #37): T1–T5. The prompt is requested at
+  // most once per app version, on the first completed recording of that
+  // version — never on first launch, never on a sideloaded build.
+  testWidgets('T1 review prompt is not requested on first launch',
+      (tester) async {
+    final dir = Directory.systemTemp.createTempSync('review-prompt-');
+    addTearDown(() => dir.deleteSync(recursive: true));
+    final review = FakeReviewPrompt();
+    final gate = ReviewPromptGate(documentsDirectory: () async => dir);
+    await tester.pumpWidget(DemoApp(
+        modelManager: model,
+        backgroundCaptions: false,
+        reviewPrompt: review,
+        reviewPromptGate: gate,
+        appVersion: '0.5.11'));
+    await tester.pumpAndSettle();
+    expect(review.requests, 0);
+    expect(review.availabilityChecks, 0);
+    expect(File('${dir.path}/review_prompt_version.txt').existsSync(),
+        isFalse);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets(
+      'T2 review prompt is requested once on the first save of a version',
+      (tester) async {
+    final dir = Directory.systemTemp.createTempSync('review-prompt-');
+    addTearDown(() => dir.deleteSync(recursive: true));
+    final review = FakeReviewPrompt();
+    final gate = ReviewPromptGate(documentsDirectory: () async => dir);
+    await openCamera(tester,
+        reviewPrompt: review,
+        reviewPromptGate: gate,
+        appVersion: '0.5.11');
+    await recordAndStop(tester);
+    expect(find.text('Video saved to gallery'), findsOneWidget);
+    expect(review.requests, 1);
+    expect(
+        File('${dir.path}/review_prompt_version.txt').readAsStringSync(),
+        '0.5.11');
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets(
+      'T3 review prompt is not requested again on the second save of a version',
+      (tester) async {
+    final dir = Directory.systemTemp.createTempSync('review-prompt-');
+    addTearDown(() => dir.deleteSync(recursive: true));
+    final review = FakeReviewPrompt();
+    final gate = ReviewPromptGate(documentsDirectory: () async => dir);
+    await openCamera(tester,
+        reviewPrompt: review,
+        reviewPromptGate: gate,
+        appVersion: '0.5.11');
+    await recordAndStop(tester);
+    await recordAndStop(tester);
+    expect(fake.stops, 2);
+    expect(find.text('Video saved to gallery'), findsOneWidget);
+    expect(review.requests, 1);
+    expect(
+        File('${dir.path}/review_prompt_version.txt').readAsStringSync(),
+        '0.5.11');
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('T4 review prompt re-arms when the app version changes',
+      (tester) async {
+    final dir = Directory.systemTemp.createTempSync('review-prompt-');
+    addTearDown(() => dir.deleteSync(recursive: true));
+    // Prompted already for 0.5.11 in a previous session.
+    File('${dir.path}/review_prompt_version.txt')
+        .writeAsStringSync('0.5.11');
+    final review = FakeReviewPrompt();
+    final gate = ReviewPromptGate(documentsDirectory: () async => dir);
+    await openCamera(tester,
+        reviewPrompt: review,
+        reviewPromptGate: gate,
+        appVersion: '0.5.12');
+    await recordAndStop(tester);
+    expect(find.text('Video saved to gallery'), findsOneWidget);
+    expect(review.requests, 1);
+    expect(
+        File('${dir.path}/review_prompt_version.txt').readAsStringSync(),
+        '0.5.12');
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('T5 sideloaded shape requests nothing and changes nothing',
+      (tester) async {
+    // Variant A: Play reports unavailable (sideloaded build) — skip
+    // WITHOUT marking, so a later Play install can still prompt.
+    final dir = Directory.systemTemp.createTempSync('review-prompt-');
+    addTearDown(() => dir.deleteSync(recursive: true));
+    final review = FakeReviewPrompt()..available = false;
+    final gate = ReviewPromptGate(documentsDirectory: () async => dir);
+    await openCamera(tester,
+        reviewPrompt: review,
+        reviewPromptGate: gate,
+        appVersion: '0.5.11');
+    await recordAndStop(tester);
+    expect(find.text('Video saved to gallery'), findsOneWidget);
+    expect(find.text('Share'), findsOneWidget);
+    expect(review.requests, 0);
+    expect(File('${dir.path}/review_prompt_version.txt').existsSync(),
+        isFalse);
+    expect(tester.takeException(), isNull);
+
+    // Variant B: no method-channel handler, so the real Play call throws
+    // (MissingPluginException) — swallowed, no crash, nothing marked.
+    // Pump a SizedBox first: pumping a second DemoApp over the first
+    // reuses the old screen state (camera already open), so the fresh
+    // screen only exists after the old one is disposed.
+    final dir2 = Directory.systemTemp.createTempSync('review-prompt-');
+    addTearDown(() => dir2.deleteSync(recursive: true));
+    final gate2 = ReviewPromptGate(documentsDirectory: () async => dir2);
+    await tester.pumpWidget(const SizedBox());
+    await tester.pump();
+    await tester.pumpWidget(DemoApp(
+        modelManager: model,
+        backgroundCaptions: false,
+        reviewPromptGate: gate2,
+        appVersion: '0.5.11'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('Open camera'));
+    await tester.pumpAndSettle();
+    expect(find.text('Ready to tell your story'), findsOneWidget);
+    await recordAndStop(tester);
+    expect(find.text('Video saved to gallery'), findsOneWidget);
+    expect(find.text('Share'), findsOneWidget);
+    expect(File('${dir2.path}/review_prompt_version.txt').existsSync(),
+        isFalse);
+    expect(tester.takeException(), isNull);
   });
 }
