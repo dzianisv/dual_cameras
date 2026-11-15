@@ -1,13 +1,16 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:ui' as ui;
 
 import 'package:dual_cameras/dual_cameras.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:gal/gal.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:package_info_plus/package_info_plus.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:video_player/video_player.dart';
 
@@ -295,6 +298,191 @@ class _DemoScreenState extends State<DemoScreen> with WidgetsBindingObserver {
   bool _locationGranted = false;
   StreamSubscription<LatLng>? _positionSub;
   StreamSubscription<double>? _headingSub;
+
+  // Issue #49 SPIKE ONLY (branch spike/map-capture-49, never merge as-is):
+  // 2 fps RepaintBoundary snapshots of the map circle while recording, to
+  // prove or disprove the design §1 capture mechanism. Capture +
+  // measurement only — no burner, no caller restructure. Results go to
+  // logcat as [MAPSPIKE] lines; the Stage 3 implementer reuses
+  // _mapCaptureSnapshot, the takeId/dir naming, and the track shape.
+  // N-H: the boundary key is a stable State field, created once.
+  final GlobalKey _mapBoundaryKey = GlobalKey();
+  Timer? _mapCaptureTimer;
+  int? _mapTakeId;
+  Directory? _mapFramesDir;
+  DateTime? _mapRecStart;
+  int _mapSnapAttempted = 0;
+  int _mapSnapCaptured = 0;
+  int _mapSnapFailed = 0;
+  int _mapSnapBytes = 0;
+  int _mapSnapMaxBytes = 0;
+  int _mapCapHit = 0;
+  // Track: (take-relative tMs, mapVisible) — one sample per snapshot plus
+  // one on every map toggle (N-D: the tick skips when the boundary is
+  // unmounted, i.e. map toggled off, but still records the off-sample).
+  final List<({int tMs, bool mapVisible})> _mapTrack = [];
+  int _mapMaxDropped = 0;
+  double _mapMinFps = double.infinity;
+  static const int _mapCapBytes = 100 * 1024 * 1024;
+
+  /// Recorded frame width in px (portrait short side), from the resolution
+  /// setting. Burn diameter is 315 px at 1080p (design §4), scaled linearly.
+  int get _mapVideoWidth => switch (_settings.videoQuality) {
+        DualResolution.sd480 => 480,
+        DualResolution.hd720 => 720,
+        DualResolution.hd1080 => 1080,
+        DualResolution.ultraHd2160 => 2160,
+      };
+
+  /// pixelRatio so toImage() renders at burn diameter: MapCircle is 120
+  /// logical px across; 315 px at 1080p, 630 px at 4K.
+  double get _mapPixelRatio => (_mapVideoWidth * 315 / 1080) / 120;
+
+  /// Start the 500 ms snapshot tick. takeId is milliseconds since epoch at
+  /// the _record / startRecording call (N-A correction — _start is
+  /// camera-open, recording starts in _record).
+  Future<void> _mapStartCapture() async {
+    _mapStopCapture(silent: true); // Defensive: never double-run.
+    _mapTakeId = DateTime.now().millisecondsSinceEpoch;
+    _mapRecStart = DateTime.now();
+    _mapSnapAttempted = 0;
+    _mapSnapCaptured = 0;
+    _mapSnapFailed = 0;
+    _mapSnapBytes = 0;
+    _mapSnapMaxBytes = 0;
+    _mapCapHit = 0;
+    _mapTrack.clear();
+    _mapMaxDropped = 0;
+    _mapMinFps = double.infinity;
+    try {
+      final cache = await getTemporaryDirectory();
+      // Drop stale spike dirs from earlier takes (design: deleted on the
+      // next _start; the spike deletes at recording start instead).
+      for (final e in cache.listSync()) {
+        if (e is Directory && e.path.contains('map_frames_')) {
+          try {
+            await e.delete(recursive: true);
+          } catch (_) {}
+        }
+      }
+      _mapFramesDir = Directory('${cache.path}/map_frames_$_mapTakeId');
+      await _mapFramesDir!.create(recursive: true);
+    } catch (e) {
+      debugPrint('[MAPSPIKE] START FAILED takeId=$_mapTakeId error=$e');
+      _mapTakeId = null;
+      _mapRecStart = null;
+      return;
+    }
+    debugPrint('[MAPSPIKE] START takeId=$_mapTakeId '
+        'videoWidth=$_mapVideoWidth '
+        'pixelRatio=${_mapPixelRatio.toStringAsFixed(3)} '
+        'dir=${_mapFramesDir!.path}');
+    // N-C: immediate snapshot at recording start — the first periodic tick
+    // lands at 500 ms, leaving tSec 0–0.5 s with no snapshot otherwise.
+    unawaited(_mapCaptureSnapshot());
+    _mapCaptureTimer =
+        Timer.periodic(const Duration(milliseconds: 500), (_) {
+      unawaited(_mapCaptureSnapshot());
+    });
+  }
+
+  /// One snapshot: boundary → PNG at burn diameter → map_<tMs>.png, plus a
+  /// track sample. tMs is take-relative (N-C). Never throws; a failure is
+  /// counted and logged, never crashes the recording.
+  Future<void> _mapCaptureSnapshot() async {
+    final takeId = _mapTakeId;
+    final dir = _mapFramesDir;
+    final start = _mapRecStart;
+    if (takeId == null || dir == null || start == null) return;
+    final tMs = DateTime.now().difference(start).inMilliseconds;
+    // N-D: tick guard — map toggled off unmounts the boundary; skip the
+    // capture but record the off-sample so the track still gates the burn.
+    final context = _mapBoundaryKey.currentContext;
+    if (context == null) {
+      _mapTrack.add((tMs: tMs, mapVisible: false));
+      return;
+    }
+    final boundary = context.findRenderObject() as RenderRepaintBoundary?;
+    if (boundary == null) {
+      _mapSnapFailed++;
+      return;
+    }
+    _mapSnapAttempted++;
+    try {
+      final image = await boundary.toImage(pixelRatio: _mapPixelRatio);
+      final byteData =
+          await image.toByteData(format: ui.ImageByteFormat.png);
+      image.dispose();
+      if (byteData == null) {
+        _mapSnapFailed++;
+        return;
+      }
+      final bytes = byteData.buffer.asUint8List();
+      await File('${dir.path}/map_$tMs.png')
+          .writeAsBytes(bytes, flush: true);
+      _mapSnapCaptured++;
+      _mapSnapBytes += bytes.length;
+      if (bytes.length > _mapSnapMaxBytes) _mapSnapMaxBytes = bytes.length;
+      _mapTrack.add((tMs: tMs, mapVisible: _settings.mapVisible));
+      if (_mapSnapBytes > _mapCapBytes) {
+        _mapCapHit++;
+        _mapCaptureTimer?.cancel();
+        _mapCaptureTimer = null;
+        debugPrint('[MAPSPIKE] CAP HIT takeId=$takeId bytes=$_mapSnapBytes '
+            'captured=$_mapSnapCaptured — capture stopped, recording continues');
+      }
+    } catch (e) {
+      _mapSnapFailed++;
+      debugPrint('[MAPSPIKE] SNAPSHOT FAILED tMs=$tMs error=$e');
+    }
+    // FrameStats sample: the objective encoder-drop signal (design §1 —
+    // droppedFrames is "frames dropped at the encoder boundary since
+    // recording began", per messages.g.dart).
+    final stats = _controller.value.stats;
+    if (stats != null) {
+      if (stats.droppedFrames > _mapMaxDropped) {
+        _mapMaxDropped = stats.droppedFrames;
+      }
+      if (stats.fps < _mapMinFps) _mapMinFps = stats.fps;
+    }
+  }
+
+  /// Record a track sample on a map toggle during a take (N-D companion).
+  void _mapRecordToggle(bool visible) {
+    final start = _mapRecStart;
+    if (_mapTakeId == null || start == null) return;
+    _mapTrack.add((
+      tMs: DateTime.now().difference(start).inMilliseconds,
+      mapVisible: visible,
+    ));
+  }
+
+  /// Stop the tick and log the summary. The native stopRecordingResult log
+  /// line (RenderThread MAPSPIKE) carries the encoder frame count for the
+  /// duration × fps check; this line carries the capture numbers.
+  void _mapStopCapture({bool silent = false}) {
+    _mapCaptureTimer?.cancel();
+    _mapCaptureTimer = null;
+    if (silent || _mapTakeId == null || _mapRecStart == null) return;
+    final durationMs =
+        DateTime.now().difference(_mapRecStart!).inMilliseconds;
+    // Immediate snapshot at t=0 plus one per 500 ms tick.
+    final expected = durationMs ~/ 500 + 1;
+    final rate = expected == 0 ? 0.0 : _mapSnapCaptured / expected * 100;
+    debugPrint('[MAPSPIKE] SUMMARY takeId=$_mapTakeId '
+        'durationMs=$durationMs expected=$expected '
+        'attempted=$_mapSnapAttempted captured=$_mapSnapCaptured '
+        'failed=$_mapSnapFailed rate=${rate.toStringAsFixed(1)}% '
+        'bytes=$_mapSnapBytes '
+        'avgBytes=${_mapSnapCaptured == 0 ? 0 : _mapSnapBytes ~/ _mapSnapCaptured} '
+        'maxBytes=$_mapSnapMaxBytes capHit=$_mapCapHit '
+        'maxDroppedFrames=$_mapMaxDropped '
+        'minFps=${_mapMinFps == double.infinity ? 'n/a' : _mapMinFps.toStringAsFixed(1)} '
+        'trackSamples=${_mapTrack.length} dir=${_mapFramesDir?.path}');
+    _mapTakeId = null;
+    _mapRecStart = null;
+    _mapFramesDir = null;
+  }
 
   // Place name (issue #47): reverse-geocoded label under the map circle,
   // derived from the live position on every launch — never persisted as a
@@ -1179,6 +1367,8 @@ class _DemoScreenState extends State<DemoScreen> with WidgetsBindingObserver {
     late final String file;
     try {
       file = await _cameraCommand(_controller.stopRecording);
+      // Issue #49 spike: stop the snapshot tick, log the summary.
+      _mapStopCapture();
       _lastFile = file;
       await Gal.putVideo(file);
       // Only after a successful save: on a Gal failure _lastVideo stays
@@ -1199,6 +1389,9 @@ class _DemoScreenState extends State<DemoScreen> with WidgetsBindingObserver {
         _status = 'Video saved to gallery';
       });
     } catch (e) {
+      // Issue #49 spike: stopRecording failed — stop the tick too, so a
+      // failed stop cannot leave snapshots running against a dead take.
+      _mapStopCapture();
       _update(() {
         _lastVideo = null;
         _status = 'Could not save video. See settings for details.';
@@ -1690,6 +1883,7 @@ class _DemoScreenState extends State<DemoScreen> with WidgetsBindingObserver {
   @override
   void dispose() {
     _jobPoll?.cancel();
+    _mapCaptureTimer?.cancel();
     _stopMapLocation();
     if (_ownsMapService) _mapService?.dispose();
     WidgetsBinding.instance.removeObserver(this);
@@ -1907,6 +2101,8 @@ class _DemoScreenState extends State<DemoScreen> with WidgetsBindingObserver {
                 ? null
                 : (v) {
                     _updateSettings(_settings.copyWith(mapVisible: v));
+                    // Issue #49 spike: track sample on every map toggle.
+                    _mapRecordToggle(v);
                     if (v) {
                       unawaited(_ensureMapLocation());
                     } else {
@@ -2131,6 +2327,8 @@ class _DemoScreenState extends State<DemoScreen> with WidgetsBindingObserver {
         await _stop();
       } else {
         await _cameraCommand(_controller.startRecording);
+        // Issue #49 spike: start the 2 fps map snapshot tick.
+        unawaited(_mapStartCapture());
         Analytics.recordStarted(
             captionsOn: _captions, captionLanguage: _captionLanguage.code);
         _update(() {
@@ -2197,18 +2395,23 @@ class _DemoScreenState extends State<DemoScreen> with WidgetsBindingObserver {
           // Map circle (issue #20): only when the circle is on AND the
           // location permission was granted — a denial hides it, no crash,
           // no repeated prompt. No position yet = plain disc + N arrow.
+          // Issue #49 spike: wrapped in a RepaintBoundary (stable State
+          // key, N-H) so the 2 fps snapshot tick can capture it.
           mapCircle: _settings.mapVisible && _locationGranted
-              ? MapCircle(
-                  position: _position,
-                  headingDeg: _heading,
-                  mode: _settings.compassMode,
-                  zoom: _settings.mapZoom,
-                  placeName: _placeName,
-                  onZoomChanged: (z) =>
-                      _updateSettings(_settings.copyWith(mapZoom: z)),
-                  // No tile fetches under `flutter test` (hermetic; the
-                  // disc + dot + N arrow still render).
-                  showTiles: Platform.environment['FLUTTER_TEST'] != 'true',
+              ? RepaintBoundary(
+                  key: _mapBoundaryKey,
+                  child: MapCircle(
+                    position: _position,
+                    headingDeg: _heading,
+                    mode: _settings.compassMode,
+                    zoom: _settings.mapZoom,
+                    placeName: _placeName,
+                    onZoomChanged: (z) =>
+                        _updateSettings(_settings.copyWith(mapZoom: z)),
+                    // No tile fetches under `flutter test` (hermetic; the
+                    // disc + dot + N arrow still render).
+                    showTiles: Platform.environment['FLUTTER_TEST'] != 'true',
+                  ),
                 )
               : null,
           // Lens pills (issue #20): only the active camera's probed

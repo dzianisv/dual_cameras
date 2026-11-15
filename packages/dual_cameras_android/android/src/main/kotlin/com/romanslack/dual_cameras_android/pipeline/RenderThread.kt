@@ -212,6 +212,14 @@ class RenderThread(
             aenc?.stop()
             venc?.signalEndOfStream()
             val path = outputPath
+            // Issue #49 SPIKE ONLY: objective frame-count line for the
+            // duration x fps check — encoder frames actually written vs
+            // the 30 fps expectation, plus coalesced (dropped) draws.
+            val durationMs = (System.nanoTime() - startNanos) / 1_000_000
+            Log.i(TAG, "MAPSPIKE stopRecording durationMs=$durationMs " +
+                "encoderFrames=$encoderFrameCount " +
+                "expectedFrames=${durationMs * 30 / 1000} " +
+                "droppedFrames=$droppedFrames draws=$drawCount path=$path")
             // Give the encoder a moment to flush EOS before tearing down.
             handler.postDelayed({
                 venc?.release()
