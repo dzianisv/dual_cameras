@@ -398,12 +398,10 @@ enum VideoFilter: Int {
   case simple = 4
   /// Jakarta: warm golden-hour grade, amber highlights, soft contrast.
   case jakarta = 5
-  /// GTA: saturated warm game look, high contrast, orange-teal split tone.
-  case gta = 6
+  /// Vice City: saturated warm game look, high contrast, orange-teal split tone.
+  case viceCity = 6
   /// San Andreas: dusty warm haze, lifted blacks, orange highlights.
   case sanAndreas = 7
-  /// GTA 3: cold desaturated grit, heavy vignette, crushed shadows.
-  case gta3 = 8
 }
 
 private class MessagesPigeonCodecReader: FlutterStandardReader {

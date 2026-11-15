@@ -195,10 +195,11 @@ class ExposureCompensationRange {
 /// (142) matches the checked-in generated code; see
 /// lib/src/messages.g.dart.
 ///
-/// The 7 presets after [moody] must each map to a distinct [GradeParams]
+/// The 6 presets after [moody] must each map to a distinct [GradeParams]
 /// tuple on both native sides — two names over identical params would be
-/// two pills for one look. The game-look names (GTA, San Andreas, GTA 3)
-/// are as heard from Den and unconfirmed (issue #20).
+/// two pills for one look. The game-look names (Vice City, San Andreas)
+/// are as confirmed by Den 2026-11-15 (issue #61); the old GTA name was
+/// renamed to Vice City and GTA 3 was removed.
 enum VideoFilter {
   /// No grade (identity).
   none,
@@ -218,14 +219,11 @@ enum VideoFilter {
   /// Jakarta: warm golden-hour grade, amber highlights, soft contrast.
   jakarta,
 
-  /// GTA: saturated warm game look, high contrast, orange-teal split tone.
-  gta,
+  /// Vice City: saturated warm game look, high contrast, orange-teal split tone.
+  viceCity,
 
   /// San Andreas: dusty warm haze, lifted blacks, orange highlights.
   sanAndreas,
-
-  /// GTA 3: cold desaturated grit, heavy vignette, crushed shadows.
-  gta3,
 }
 
 /// One lens the camera API offers for a facing, as a zoom ratio.

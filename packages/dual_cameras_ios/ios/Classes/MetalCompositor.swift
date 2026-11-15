@@ -70,7 +70,7 @@ private struct GradeUniforms {
         enabled: 1, exposure: 1.06, contrast: 1.05, saturation: 1.15,
         splitStrength: 0.9, vignette: 0.12)
 
-    static let gta = GradeUniforms(
+    static let viceCity = GradeUniforms(
         shadowTint: simd_float4(-0.020, 0.020, 0.040, 0),
         highlightTint: simd_float4(0.060, 0.030, -0.020, 0),
         enabled: 1, exposure: 1.04, contrast: 1.22, saturation: 1.35,
@@ -82,12 +82,6 @@ private struct GradeUniforms {
         enabled: 1, exposure: 1.12, contrast: 0.94, saturation: 1.10,
         splitStrength: 0.7, vignette: 0.08)
 
-    static let gta3 = GradeUniforms(
-        shadowTint: simd_float4(-0.010, -0.005, 0.010, 0),
-        highlightTint: simd_float4(0.010, 0.010, 0.020, 0),
-        enabled: 1, exposure: 0.90, contrast: 1.25, saturation: 0.45,
-        splitStrength: 0.8, vignette: 0.45)
-
     /// Map a VideoFilter to its grade. Keep in sync with Android.
     static func forFilter(_ filter: VideoFilter) -> GradeUniforms {
         switch filter {
@@ -97,9 +91,8 @@ private struct GradeUniforms {
         case .midnight: return .midnight
         case .simple: return .simple
         case .jakarta: return .jakarta
-        case .gta: return .gta
+        case .viceCity: return .viceCity
         case .sanAndreas: return .sanAndreas
-        case .gta3: return .gta3
         }
     }
 }

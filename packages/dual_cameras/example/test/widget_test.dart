@@ -1480,8 +1480,8 @@ void main() {
     // Every filter from the PRD is on the slider (scroll to each in turn —
     // the horizontal list only builds what is in view). Visit in slider
     // order: scrollUntilVisible only scrolls forward, so looping back to
-    // 'Original' after 'GTA' would never arrive (issue #20 fix round 2
-    // / T3). Tap GTA when the loop reaches it.
+    // 'Original' after 'Vice City' would never arrive (issue #20 fix round 2
+    // / T3). Tap Vice City when the loop reaches it.
     for (final name in [
       'Original',
       'Moody',
@@ -1489,9 +1489,8 @@ void main() {
       'Midnight',
       'Simple',
       'Jakarta',
-      'GTA',
+      'Vice City',
       'San Andreas',
-      'GTA 3',
     ]) {
       await tester.scrollUntilVisible(find.text(name), 100,
           scrollable: find.descendant(
@@ -1499,10 +1498,10 @@ void main() {
               matching: find.byType(Scrollable)));
       await tester.pumpAndSettle();
       expect(find.text(name), findsOneWidget);
-      if (name == 'GTA') {
-        await tester.tap(find.text('GTA'));
+      if (name == 'Vice City') {
+        await tester.tap(find.text('Vice City'));
         await tester.pumpAndSettle();
-        expect(fake.filter, VideoFilter.gta);
+        expect(fake.filter, VideoFilter.viceCity);
       }
     }
   });

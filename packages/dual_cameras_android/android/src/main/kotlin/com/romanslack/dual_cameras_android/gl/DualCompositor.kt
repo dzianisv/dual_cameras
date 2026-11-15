@@ -106,8 +106,8 @@ data class GradeParams(
             vignette = 0.12f,
         )
 
-        /** GTA — saturated warm game look, high contrast, orange-teal split. */
-        val GTA = GradeParams(
+        /** Vice City — saturated warm game look, high contrast, orange-teal split. */
+        val VICE_CITY = GradeParams(
             enabled = true,
             exposure = 1.04f,
             contrast = 1.22f,
@@ -130,18 +130,6 @@ data class GradeParams(
             vignette = 0.08f,
         )
 
-        /** GTA 3 — cold desaturated grit, heavy vignette, crushed shadows. */
-        val GTA3 = GradeParams(
-            enabled = true,
-            exposure = 0.90f,
-            contrast = 1.25f,
-            saturation = 0.45f,
-            shadowTint = floatArrayOf(-0.010f, -0.005f, 0.010f),
-            highlightTint = floatArrayOf(0.010f, 0.010f, 0.020f),
-            splitStrength = 0.8f,
-            vignette = 0.45f,
-        )
-
         /** Map a [VideoFilter] to its grade. Keep in sync with iOS. */
         fun forFilter(filter: VideoFilter): GradeParams = when (filter) {
             VideoFilter.NONE -> NONE
@@ -150,9 +138,8 @@ data class GradeParams(
             VideoFilter.MIDNIGHT -> MIDNIGHT
             VideoFilter.SIMPLE -> SIMPLE
             VideoFilter.JAKARTA -> JAKARTA
-            VideoFilter.GTA -> GTA
+            VideoFilter.VICE_CITY -> VICE_CITY
             VideoFilter.SAN_ANDREAS -> SAN_ANDREAS
-            VideoFilter.GTA3 -> GTA3
         }
     }
 }
