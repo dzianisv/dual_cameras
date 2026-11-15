@@ -276,16 +276,28 @@ class DualCamerasPlugin : FlutterPlugin, DualCameraHostApi {
 
   override fun setLens(front: Boolean, ratio: Double, callback: (Result<Unit>) -> Unit) {
     try {
-      val ok = cameraSource?.setLensZoom(front, ratio.toFloat()) ?: false
-      // Issue #48: log every switch attempt (ratios only) so the phone
-      // run can report whether setLens was reached and what it decided.
-      Log.i(TAG, "setLens(front=$front ratio=${formatRatio(ratio)}) ok=$ok")
-      if (ok) {
-        callback(Result.success(Unit))
-      } else {
+      val source = cameraSource
+      if (source == null) {
+        // Issue #48: log every switch attempt (ratios only) so the phone
+        // run can report whether setLens was reached and what it decided.
+        Log.i(TAG, "setLens(front=$front ratio=${formatRatio(ratio)}) ok=false")
         callback(Result.failure(IllegalStateException(
           "Lens ${formatRatio(ratio)}x is not available right now " +
             "(camera not ready, or the ratio is outside the zoom range)")))
+        return
+      }
+      // Issue #53: the verdict is async — setLensZoom reports through
+      // onResult when the setZoomRatio future completes, on the main
+      // thread, so the Pigeon callback still fires on the platform thread.
+      source.setLensZoom(front, ratio.toFloat()) { ok ->
+        Log.i(TAG, "setLens(front=$front ratio=${formatRatio(ratio)}) ok=$ok")
+        if (ok) {
+          callback(Result.success(Unit))
+        } else {
+          callback(Result.failure(IllegalStateException(
+            "Lens ${formatRatio(ratio)}x is not available right now " +
+              "(camera not ready, or the ratio is outside the zoom range)")))
+        }
       }
     } catch (t: Throwable) {
       callback(Result.failure(t))

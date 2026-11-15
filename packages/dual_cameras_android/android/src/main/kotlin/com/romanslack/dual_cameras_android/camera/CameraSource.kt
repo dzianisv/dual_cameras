@@ -162,32 +162,50 @@ class CameraSource(private val context: Context) {
      * Lens switch (issue #20): apply a zoom ratio to one facing's bound camera.
      * CameraX switches the physical camera internally when the ratio crosses
      * a physical switch point, so no rebind is needed and this is safe while
-     * recording. Returns false when nothing is bound for that facing or the
-     * ratio is outside the camera's zoom range — the caller reports that
-     * instead of silently clamping to a different lens.
+     * recording. Reports false (via [onResult]) when nothing is bound for
+     * that facing or the ratio is outside the camera's zoom range — the
+     * caller reports that instead of silently clamping to a different lens.
+     *
+     * Issue #53: the verdict is async — CameraControl.setZoomRatio
+     * returns a ListenableFuture whose completion is the real verdict; the
+     * synchronous return only proves the request was accepted. The future
+     * is awaited with a listener on [mainExecutor] (never a platform-thread
+     * block), and the 'ok' log fires only after it completes successfully.
+     * [onResult] is invoked exactly once, on the main thread, on every path.
      */
-    fun setLensZoom(front: Boolean, ratio: Float): Boolean {
+    fun setLensZoom(front: Boolean, ratio: Float, onResult: (Boolean) -> Unit) {
         val camera = cameraFor(front)
         if (camera == null) {
             Log.i(TAG, "setLensZoom(front=$front ratio=$ratio) rejected: no bound camera")
-            return false
+            onResult(false)
+            return
         }
-        return try {
+        try {
             val state = camera.cameraInfo.zoomState.value
             if (state == null) {
                 Log.i(TAG, "setLensZoom(front=$front ratio=$ratio) rejected: no zoom state")
-                return false
+                onResult(false)
+                return
             }
             if (ratio < state.minZoomRatio || ratio > state.maxZoomRatio) {
                 Log.i(TAG, "setLensZoom(front=$front ratio=$ratio) rejected: outside zoomRange=${state.minZoomRatio}..${state.maxZoomRatio}")
-                return false
+                onResult(false)
+                return
             }
-            camera.cameraControl.setZoomRatio(ratio)
-            Log.i(TAG, "setLensZoom(front=$front ratio=$ratio) ok zoomRange=${state.minZoomRatio}..${state.maxZoomRatio}")
-            true
+            val future = camera.cameraControl.setZoomRatio(ratio)
+            future.addListener({
+                try {
+                    future.get()
+                    Log.i(TAG, "setLensZoom(front=$front ratio=$ratio) ok zoomRange=${state.minZoomRatio}..${state.maxZoomRatio}")
+                    onResult(true)
+                } catch (t: Throwable) {
+                    Log.w(TAG, "setLensZoom(front=$front ratio=$ratio) rejected: async zoom failed", t)
+                    onResult(false)
+                }
+            }, mainExecutor)
         } catch (t: Throwable) {
             Log.w(TAG, "setLensZoom failed", t)
-            false
+            onResult(false)
         }
     }
 
