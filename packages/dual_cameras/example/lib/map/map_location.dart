@@ -27,13 +27,25 @@ class MapLocationService {
             requestLocationPermission ?? _defaultRequestPermission,
         _checkLocationPermission =
             checkLocationPermission ?? _defaultCheckPermission,
-        _positionStream = positionStream ?? _defaultPositionStream,
-        _headingStream = headingStream ?? _defaultHeadingStream;
+        _headingStream = headingStream ?? _defaultHeadingStream {
+    // The default position stream is the instance method (it records the
+    // fix accuracy on `this`); an injected stream replaces it wholesale.
+    _positionStream = positionStream ?? _defaultPositionStreamWithAccuracy;
+  }
 
   final Future<bool> Function() _requestLocationPermission;
   final Future<bool> Function() _checkLocationPermission;
-  final Stream<LatLng> Function() _positionStream;
+  late final Stream<LatLng> Function() _positionStream;
   final Stream<double> Function() _headingStream;
+
+  /// Accuracy of the last position fix in meters (Geolocator
+  /// `Position.accuracy`), or null before the first fix / when the
+  /// position source does not report one (issue #47, D6: place lookups
+  /// are skipped while the fix is worse than 50 m, so GPS jitter cannot
+  /// random-walk the app past the 100 m lookup gate). Updated inside the
+  /// default position-stream mapping — the stream type stays LatLng.
+  double? _lastAccuracyMeters;
+  double? get lastAccuracyMeters => _lastAccuracyMeters;
 
   final StreamController<LatLng> _positions =
       StreamController<LatLng>.broadcast();
@@ -66,14 +78,20 @@ class MapLocationService {
     }
   }
 
-  static Stream<LatLng> _defaultPositionStream() {
+  /// Default position stream that also records the fix accuracy. The
+  /// stream type stays `Stream<LatLng>` — accuracy is captured inside
+  /// the mapping, so no caller changes.
+  Stream<LatLng> _defaultPositionStreamWithAccuracy() {
     try {
       return Geolocator.getPositionStream(
         locationSettings: const LocationSettings(
           accuracy: LocationAccuracy.high,
           distanceFilter: 5,
         ),
-      ).map((p) => LatLng(p.latitude, p.longitude));
+      ).map((p) {
+        _lastAccuracyMeters = p.accuracy;
+        return LatLng(p.latitude, p.longitude);
+      });
     } catch (_) {
       return const Stream<LatLng>.empty();
     }
