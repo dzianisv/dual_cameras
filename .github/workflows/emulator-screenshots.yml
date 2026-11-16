@@ -438,11 +438,16 @@ jobs:
             # >= 5 s and a frame that extracts (playable) — never the
             # "Video saved to gallery" status text. A missing gallery
             # row is issue #87 reproducing — the run fails loudly, the
-            # assertion is NOT weakened to go green.
+            # assertion is NOT weakened to go green. The path is passed
+            # via /tmp/rec-path.txt, NOT a shell variable: the runner
+            # executes each workflow line as its own `/usr/bin/sh -c`,
+            # so a variable set on one line is gone on the next (run
+            # 43826211500: `adb pull "$REC_PATH"` got an empty string
+            # even though --gallery-path had printed the path).
             adb shell content query --uri content://media/external/video/media --projection _data:duration:date_added > /tmp/gallery.txt || (echo 'FILE PROOF #1 FAILED: MediaStore query failed'; exit 1)
             python3 tools/preview_diff.py --gallery-proof /tmp/gallery.txt --rec-start /tmp/rec-start.txt || (echo 'FILE PROOF #1 FAILED: no gallery row with duration > 0 for this recording (issue #87)'; exit 1)
-            REC_PATH=$(python3 tools/preview_diff.py --gallery-path /tmp/gallery.txt --rec-start /tmp/rec-start.txt) || (echo 'FILE PROOF #1 FAILED: no gallery path for this recording'; exit 1)
-            adb pull "$REC_PATH" recorded-6s.mp4 || (echo 'FILE PROOF #1 FAILED: could not pull the recording from the gallery'; exit 1)
+            python3 tools/preview_diff.py --gallery-path /tmp/gallery.txt --rec-start /tmp/rec-start.txt > /tmp/rec-path.txt || (echo 'FILE PROOF #1 FAILED: no gallery path for this recording'; exit 1)
+            adb pull "$(cat /tmp/rec-path.txt)" recorded-6s.mp4 || (echo 'FILE PROOF #1 FAILED: could not pull the recording from the gallery'; exit 1)
             ls -la recorded-6s.mp4
             python3 tools/preview_diff.py --file-proof recorded-6s.mp4 --min-duration 5 || (echo 'FILE PROOF #1 FAILED: recorded file missing, empty, too short, or unplayable'; exit 1)
             mv file-proof-frame.png file-proof-6s-frame.png
@@ -526,8 +531,8 @@ jobs:
             # the pidof below is the app-alive-after proof.
             adb shell content query --uri content://media/external/video/media --projection _data:duration:date_added > /tmp/gallery2.txt || (echo 'FILE PROOF #2 FAILED: MediaStore query failed'; exit 1)
             python3 tools/preview_diff.py --gallery-proof /tmp/gallery2.txt --rec-start /tmp/rec-start2.txt || (echo 'FILE PROOF #2 FAILED: no gallery row with duration > 0 for this recording (issue #87)'; exit 1)
-            REC_PATH2=$(python3 tools/preview_diff.py --gallery-path /tmp/gallery2.txt --rec-start /tmp/rec-start2.txt) || (echo 'FILE PROOF #2 FAILED: no gallery path for this recording'; exit 1)
-            adb pull "$REC_PATH2" recorded-30s.mp4 || (echo 'FILE PROOF #2 FAILED: could not pull the recording from the gallery'; exit 1)
+            python3 tools/preview_diff.py --gallery-path /tmp/gallery2.txt --rec-start /tmp/rec-start2.txt > /tmp/rec-path2.txt || (echo 'FILE PROOF #2 FAILED: no gallery path for this recording'; exit 1)
+            adb pull "$(cat /tmp/rec-path2.txt)" recorded-30s.mp4 || (echo 'FILE PROOF #2 FAILED: could not pull the recording from the gallery'; exit 1)
             ls -la recorded-30s.mp4
             python3 tools/preview_diff.py --file-proof recorded-30s.mp4 --min-duration 28 || (echo 'FILE PROOF #2 FAILED: recorded file missing, empty, too short, or unplayable'; exit 1)
             mv file-proof-frame.png file-proof-30s-frame.png
