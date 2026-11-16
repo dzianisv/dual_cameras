@@ -316,6 +316,16 @@ class _DemoScreenState extends State<DemoScreen> with WidgetsBindingObserver {
   int _mapSnapBytes = 0;
   int _mapSnapMaxBytes = 0;
   int _mapCapHit = 0;
+  // Issue #81 instrumentation: the 500 ms tick has no backpressure — it
+  // fires whether or not the previous snapshot finished. When a tick
+  // starts while the previous snapshot is still in flight, the overrun
+  // is logged; per-snapshot durations are tracked and reported on the
+  // STOP summary line only, so a quiet take logs nothing beyond
+  // START/STOP. (Emulator: ~554 snapshots, 0 overruns — a phone repro
+  // is where this pays off.)
+  DateTime? _mapSnapInFlightStart;
+  int _mapSnapMaxMs = 0;
+  int _mapSnapOverruns = 0;
   // Track: (take-relative tMs, mapVisible, file) — one sample per snapshot
   // plus one on every map toggle (N-D: the tick skips capture when the
   // boundary is unmounted, i.e. map toggled off, but still records the
@@ -1125,6 +1135,9 @@ class _DemoScreenState extends State<DemoScreen> with WidgetsBindingObserver {
     _mapSnapBytes = 0;
     _mapSnapMaxBytes = 0;
     _mapCapHit = 0;
+    _mapSnapInFlightStart = null;
+    _mapSnapMaxMs = 0;
+    _mapSnapOverruns = 0;
     _mapTrack.clear();
     try {
       final cache = await getTemporaryDirectory();
@@ -1160,11 +1173,35 @@ class _DemoScreenState extends State<DemoScreen> with WidgetsBindingObserver {
 
   /// One tick: snapshot the boundary, tracking the in-flight future so
   /// [_mapStopCapture] can flush it before finalizing the manifest.
+  /// Issue #81 instrumentation: a tick that fires while the previous
+  /// snapshot is still in flight logs a TICK OVERRUN with how long the
+  /// previous snapshot has been running; every snapshot's duration
+  /// feeds _mapSnapMaxMs, reported on the STOP summary line. No
+  /// behaviour change — the tick still fires every 500 ms regardless.
   void _mapTick() {
+    final now = DateTime.now();
+    if (_mapInFlight != null) {
+      _mapSnapOverruns++;
+      final inFlightMs = _mapSnapInFlightStart == null
+          ? -1
+          : now.difference(_mapSnapInFlightStart!).inMilliseconds;
+      final tMs = _mapRecStart == null
+          ? -1
+          : now.difference(_mapRecStart!).inMilliseconds;
+      debugPrint('[MAPBURN] TICK OVERRUN takeId=$_mapTakeId tMs=$tMs '
+          'inFlightMs=$inFlightMs overruns=$_mapSnapOverruns');
+    }
+    final start = DateTime.now();
     final f = _mapCaptureSnapshot();
     _mapInFlight = f;
+    _mapSnapInFlightStart = start;
     unawaited(f.whenComplete(() {
-      if (identical(_mapInFlight, f)) _mapInFlight = null;
+      if (identical(_mapInFlight, f)) {
+        _mapInFlight = null;
+        _mapSnapInFlightStart = null;
+      }
+      final ms = DateTime.now().difference(start).inMilliseconds;
+      if (ms > _mapSnapMaxMs) _mapSnapMaxMs = ms;
     }));
   }
 
@@ -1277,6 +1314,8 @@ class _DemoScreenState extends State<DemoScreen> with WidgetsBindingObserver {
     final attempted = _mapSnapAttempted;
     final failed = _mapSnapFailed;
     final capHit = _mapCapHit;
+    final snapMaxMs = _mapSnapMaxMs;
+    final overruns = _mapSnapOverruns;
     // Re-read the frames dir: a snapshot may have written its file but
     // not yet run its bookkeeping continuation (captured++ + track add)
     // when stop finalizes — the file on disk is the ground truth, and
@@ -1315,12 +1354,19 @@ class _DemoScreenState extends State<DemoScreen> with WidgetsBindingObserver {
     _mapSnapBytes = 0;
     _mapSnapMaxBytes = 0;
     _mapCapHit = 0;
+    _mapSnapInFlightStart = null;
+    _mapSnapMaxMs = 0;
+    _mapSnapOverruns = 0;
     _mapTrack.clear();
     if (takeId == null || dir == null) return null;
+    // snapMaxMs/snapOverruns go AFTER dir: tools/mapburn_check.py's
+    // STOP_RE expects dir last (no $ anchor, so trailing fields are
+    // fine); tools/longrec_check.py parses the same prefix.
     debugPrint('[MAPBURN] STOP takeId=$takeId '
         'durationMs=$durationMs attempted=$attempted captured=$captured '
         'failed=$failed bytes=$bytes capHit=$capHit '
-        'trackSamples=${track.length} dir=${dir.path}');
+        'trackSamples=${track.length} dir=${dir.path} '
+        'snapMaxMs=$snapMaxMs snapOverruns=$overruns');
     if (captured == 0) return null;
     return MapBurnManifest(
       framesDir: dir.path,
