@@ -336,24 +336,30 @@ jobs:
             # after (|| true: absent when no dialog).
             python3 tools/emulator_tap.py 'Wait' || true
             sleep 1
-            adb shell input keyevent 4
+            # BACK RULE (run 43831064425): a bare Back died with
+            # "Failure calling service input: Broken pipe (32)", exit
+            # 224 — the input service was briefly unreachable on the
+            # loaded emulator. Back/Home are navigation, not proof, so
+            # every keyevent below retries once after 2 s; a second
+            # failure still fails the run loudly.
+            adb shell input keyevent 4 || (sleep 2; adb shell input keyevent 4)
             sleep 2
             python3 tools/emulator_tap.py 'Wait' || true
             sleep 1
             python3 tools/emulator_tap.py 'Front' || echo 'WALKTHROUGH menu-Front: FAIL (tap missed)'
             sleep 3
             adb exec-out screencap -p > 21-section-front.png
-            adb shell input keyevent 4
+            adb shell input keyevent 4 || (sleep 2; adb shell input keyevent 4)
             sleep 2
             python3 tools/emulator_tap.py 'Rear' || echo 'WALKTHROUGH menu-Rear: FAIL (tap missed)'
             sleep 3
             adb exec-out screencap -p > 22-section-rear.png
-            adb shell input keyevent 4
+            adb shell input keyevent 4 || (sleep 2; adb shell input keyevent 4)
             sleep 2
             python3 tools/emulator_tap.py 'Captions' || echo 'WALKTHROUGH menu-Captions: FAIL (tap missed)'
             sleep 3
             adb exec-out screencap -p > 23-section-captions.png
-            adb shell input keyevent 4
+            adb shell input keyevent 4 || (sleep 2; adb shell input keyevent 4)
             sleep 2
             python3 tools/emulator_tap.py 'Settings' || echo 'WALKTHROUGH menu-Settings: FAIL (tap missed)'
             sleep 3
@@ -371,7 +377,7 @@ jobs:
             python3 tools/emulator_tap.py 'Session details' || echo 'WALKTHROUGH session-details-tile: FAIL (tap missed)'
             sleep 2
             adb exec-out screencap -p > 27-session-details.png
-            adb shell input keyevent 4
+            adb shell input keyevent 4 || (sleep 2; adb shell input keyevent 4)
             sleep 2
             date +%s > /tmp/rec-start.txt
             python3 tools/emulator_tap.py 'Start recording'
@@ -420,7 +426,7 @@ jobs:
             adb exec-out screencap -p > 07-share-sheet.png
             python3 tools/assert_share_chooser.py
             adb shell pidof app.storycam || (adb logcat -d | grep -i -E "storycam|flutter|fatal|crash" | tail -30; exit 1)
-            adb shell input keyevent 4
+            adb shell input keyevent 4 || (sleep 2; adb shell input keyevent 4)
             sleep 1
             adb shell pidof app.storycam || (adb logcat -d | grep -i -E "storycam|flutter|fatal|crash" | tail -30; exit 1)
             # FILE PROOF #1 (issues #79 + #87): the core-loop proof for
@@ -486,7 +492,7 @@ jobs:
             adb shell input swipe 275 448 25 448 600
             sleep 2
             adb exec-out screencap -p > 09-zoom-slider-min.png
-            adb shell input keyevent 4
+            adb shell input keyevent 4 || (sleep 2; adb shell input keyevent 4)
             sleep 3
             adb exec-out screencap -p > 10-map-wide-bali.png
             # #82 END
@@ -506,12 +512,12 @@ jobs:
             python3 tools/emulator_tap.py 'Map' || (echo '30S RECORDING FAILED: Map menu tap missed'; exit 1)
             sleep 3
             python3 tools/emulator_tap.py --ensure-switch-on 'Location circle' || (echo '30S RECORDING FAILED: map (Location circle) is not ON'; exit 1)
-            adb shell input keyevent 4
+            adb shell input keyevent 4 || (sleep 2; adb shell input keyevent 4)
             sleep 2
             python3 tools/emulator_tap.py 'Captions' || (echo '30S RECORDING FAILED: Captions menu tap missed'; exit 1)
             sleep 3
             python3 tools/emulator_tap.py --ensure-switch-on 'Auto-captions' || (echo '30S RECORDING FAILED: captions (Auto-captions) are not ON'; exit 1)
-            adb shell input keyevent 4
+            adb shell input keyevent 4 || (sleep 2; adb shell input keyevent 4)
             sleep 2
             date +%s > /tmp/rec-start2.txt
             python3 tools/emulator_tap.py 'Start recording'

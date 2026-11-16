@@ -251,7 +251,13 @@ jobs:
             # so --regions cannot pass on this route; it stays available
             # for the Track B real-device proof.
             python3 tools/preview_diff.py --not-black resume-pre-1.png || (echo 'LAUNCH PROOF FAILED: a feed region looks black - the camera did not open'; exit 1)
-            adb shell input keyevent 3
+            # BACK RULE (screenshots run 43831064425): a bare keyevent
+            # died with "Failure calling service input: Broken pipe
+            # (32)", exit 224 — the input service was briefly
+            # unreachable on the loaded emulator. Back/Home are
+            # navigation, not proof, so every keyevent below retries
+            # once after 2 s; a second failure still fails the run.
+            adb shell input keyevent 3 || (sleep 2; adb shell input keyevent 3)
             sleep 5
             adb shell am start -n app.storycam/.MainActivity
             sleep 10
@@ -287,7 +293,7 @@ jobs:
             echo 'gallery proof (smoke): recording exists in the gallery with duration > 0'
             python3 tools/mapburn_check.py || (echo 'MAP BURN FAILED (issue #49): see mapburn.log + the MAPBURN logcat lines below'; adb logcat -d | grep -i -E "MAPBURN|CaptionBurner|MapRenderer" | tail -40 || true; exit 1)
             echo 'map burn (issue #49): burned video carries the map top-left'
-            adb shell input keyevent 3
+            adb shell input keyevent 3 || (sleep 2; adb shell input keyevent 3)
             sleep 5
             adb shell am start -n app.storycam/.MainActivity
             sleep 10
@@ -378,7 +384,7 @@ jobs:
             adb shell uiautomator dump /data/local/tmp/ui.xml
             adb pull /data/local/tmp/ui.xml /tmp/ui-preset.xml
             cp /tmp/ui-preset.xml ui-preset.xml || true
-            adb shell input keyevent 4
+            adb shell input keyevent 4 || (sleep 2; adb shell input keyevent 4)
             sleep 2
             date -u '+LONGREC START %Y-%m-%dT%H:%M:%SZ'
             python3 tools/emulator_tap.py 'Start recording'
