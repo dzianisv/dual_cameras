@@ -91,11 +91,14 @@ def pull(device_path, local_name):
 def mediastore_newest():
     """Newest video row in MediaStore, or None. Returns a dict with
     display_name, duration_ms, size, date_added (epoch secs)."""
+    # No --sort: adb shell re-splits args on the device, so a
+    # "date_added DESC" value arrives as two words and the content
+    # command rejects the stray DESC ("[ERROR] Unsupported argument:
+    # DESC", run 43818765878). Rows are sorted in Python below.
     r = run([
         "adb", "shell", "content", "query",
         "--uri", "content://media/external/video/media",
         "--projection", "_display_name:duration:size:date_added",
-        "--sort", "date_added DESC",
     ])
     out = (r.stdout or "") + (r.stderr or "")
     rows = []
