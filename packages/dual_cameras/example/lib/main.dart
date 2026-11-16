@@ -245,6 +245,9 @@ class _DemoScreenState extends State<DemoScreen> with WidgetsBindingObserver {
   double? _pendingEv;
   final Map<bool, double> _pendingAspects = {};
   final ValueNotifier<int> _revision = ValueNotifier(0);
+  // PROBE ONLY (issue #86, branch probe/rebuild-measure-86, never merge):
+  // counts _sheet rebuilds so CI can measure the stats-driven rebuild rate.
+  int _sheetRebuilds = 0;
 
   void _update(VoidCallback change) {
     if (!mounted) return;
@@ -2324,7 +2327,11 @@ class _DemoScreenState extends State<DemoScreen> with WidgetsBindingObserver {
             heightFactor: .85,
             child: AnimatedBuilder(
               animation: Listenable.merge([_controller, _revision]),
-              builder: (context, _) => Column(
+              builder: (context, _) {
+                // PROBE ONLY (issue #86): count every sheet rebuild.
+                _sheetRebuilds++;
+                debugPrint('[SHEET86] REBUILD n=$_sheetRebuilds');
+                return Column(
                 children: [
                   Padding(
                     padding: const EdgeInsets.fromLTRB(20, 8, 8, 0),
@@ -2344,7 +2351,8 @@ class _DemoScreenState extends State<DemoScreen> with WidgetsBindingObserver {
                     children: contents(_controller.value),
                   )),
                 ],
-              ),
+                );
+              },
             ),
           ),
         );

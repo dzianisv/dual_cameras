@@ -216,6 +216,10 @@ jobs:
             python3 tools/emulator_tap.py 'Open camera' || true
             sleep 20
             adb shell pidof app.storycam || (adb logcat -d | grep -i -E "storycam|flutter|fatal|crash" | tail -30; adb logcat -d -b crash | tail -40 || true; exit 1)
+            # PROBE ONLY (issue #86, probe/rebuild-measure-86, never merge):
+            # measure _sheet rebuild rate + uiautomator dump latency with
+            # the Settings sheet open; always exits 0, never gates the leg.
+            python3 tools/probe_sheet86.py || echo 'PROBE86: probe script failed (measurement only)'
             adb exec-out screencap -p > resume-pre-1.png
             sleep 3
             adb exec-out screencap -p > resume-pre-2.png
