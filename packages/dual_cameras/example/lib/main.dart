@@ -1286,7 +1286,10 @@ class _DemoScreenState extends State<DemoScreen> with WidgetsBindingObserver {
   /// off the whole take, or capture never started) — the caller then
   /// skips the burn entirely. The frames dir is NOT deleted here: the
   /// queued burn reads it; [_captionVideo] deletes it after a successful
-  /// burn, and the next _start deletes stale dirs.
+  /// burn, and the next _start deletes stale dirs. Never throws
+  /// (issue #87): every filesystem read inside is guarded, so callers —
+  /// including _stop()'s catch path — can call it without risking the
+  /// save.
   Future<MapBurnManifest?> _mapStopCapture() async {
     _mapCaptureTimer?.cancel();
     _mapCaptureTimer = null;
@@ -1326,23 +1329,46 @@ class _DemoScreenState extends State<DemoScreen> with WidgetsBindingObserver {
     // a snapshot file by definition captured the mounted boundary, so
     // it shows the map.
     var bytes = _mapSnapBytes;
-    if (dir != null && dir.existsSync()) {
-      final tracked =
-          track.where((s) => s.file != null).map((s) => s.file!).toSet();
-      for (final e in dir.listSync()) {
-        if (e is! File) continue;
-        final name = e.path.split('/').last;
-        final m = RegExp(r'^map_(\d+)\.png$').firstMatch(name);
-        if (m == null || tracked.contains(name)) continue;
-        track.add((
-          tMs: int.parse(m.group(1)!),
-          mapVisible: true,
-          file: name,
-        ));
-        bytes += e.lengthSync();
+    // Issue #87: the frames-dir re-read must never throw out of
+    // _mapStopCapture() — it used to run between stopRecording and
+    // Gal.putVideo in _stop(), and any throw there skipped the save
+    // entirely ('Could not save video', no file). A filesystem failure
+    // here means "manifest from the in-memory track only" (or none,
+    // when the track is empty), never "recording lost". A single bad
+    // entry is skipped, never fatal to the whole manifest.
+    try {
+      if (dir != null && dir.existsSync()) {
+        final tracked =
+            track.where((s) => s.file != null).map((s) => s.file!).toSet();
+        for (final e in dir.listSync()) {
+          if (e is! File) continue;
+          final name = e.path.split('/').last;
+          final m = RegExp(r'^map_(\d+)\.png$').firstMatch(name);
+          if (m == null || tracked.contains(name)) continue;
+          try {
+            final tMs = int.parse(m.group(1)!);
+            final size = e.lengthSync();
+            track.add((
+              tMs: tMs,
+              mapVisible: true,
+              file: name,
+            ));
+            bytes += size;
+          } catch (_) {
+            // One unreadable / unparsable frame file: skip it, keep the
+            // rest of the manifest (issue #87).
+            debugPrint('[MAPBURN] STOP REREAD SKIP takeId=$takeId '
+                'file=$name');
+          }
+        }
       }
-      track.sort((a, b) => a.tMs.compareTo(b.tMs));
+    } catch (e) {
+      // Frames dir unreadable (existsSync/listSync threw): fall through
+      // with the in-memory track only — the STOP line below still prints
+      // and the manifest is built from the track, or null when empty.
+      debugPrint('[MAPBURN] STOP REREAD FAILED takeId=$takeId error=$e');
     }
+    track.sort((a, b) => a.tMs.compareTo(b.tMs));
     final captured = track.where((s) => s.file != null).length;
     _mapTakeId = null;
     _mapRecStart = null;
@@ -1494,13 +1520,18 @@ class _DemoScreenState extends State<DemoScreen> with WidgetsBindingObserver {
     final captions = _captions;
     late final String file;
     // Issue #49: the map-burn manifest for this take (null when the map
-    // was off the whole take). Finalized after stopRecording, consumed by
-    // the burn gate below.
+    // was off the whole take). Finalized AFTER the save (issue #87),
+    // consumed by the burn gate below.
     MapBurnManifest? mapManifest;
     try {
+      // Issue #87, save-first: NOTHING throwable sits between
+      // stopRecording and Gal.putVideo any more. _mapStopCapture() used
+      // to be awaited here, and its unguarded frames-dir re-read could
+      // throw into this catch — 'Could not save video', save never run
+      // (0.5.15, issue #87). The manifest is only consumed by the burn
+      // gate below, after the save, so finalizing it after the save
+      // changes no behaviour when nothing throws.
       file = await _cameraCommand(_controller.stopRecording);
-      // Issue #49: stop the snapshot tick and finalize the manifest.
-      mapManifest = await _mapStopCapture();
       _lastFile = file;
       await Gal.putVideo(file);
       // Only after a successful save: on a Gal failure _lastVideo stays
@@ -1516,15 +1547,15 @@ class _DemoScreenState extends State<DemoScreen> with WidgetsBindingObserver {
       // recording timer exists at this hook, and none is added.)
       unawaited(Analytics.coreActionDone(
           captionsOn: captions, captionLanguage: _captionLanguage.code));
-      if (!mounted && !_usesBackgroundJobs) return;
-      _update(() {
-        _status = 'Video saved to gallery';
-      });
     } catch (e) {
       // Issue #49: stopRecording failed — stop the tick too, so a failed
       // stop cannot leave snapshots running against a dead take. No burn
       // is queued: the catch returns below, and the manifest (if any) is
       // discarded — its dir is stale and the next take cleans it up.
+      // Issue #87: _mapStopCapture() never throws (its re-read is
+      // guarded internally), so this call cannot re-throw unawaited —
+      // the double STOP line at one timestamp in the #87 repro log
+      // (run 43818436568) cannot recur.
       unawaited(_mapStopCapture());
       _update(() {
         _lastVideo = null;
@@ -1533,6 +1564,20 @@ class _DemoScreenState extends State<DemoScreen> with WidgetsBindingObserver {
       });
       return;
     }
+    // Issue #87: finalize the map manifest AFTER the save, in its own
+    // guarded block. A manifest failure degrades to "no map burn", never
+    // "no recording" — the original is already in the gallery.
+    try {
+      mapManifest = await _mapStopCapture();
+    } catch (_) {
+      // Belt-and-braces: _mapStopCapture() is itself guarded and never
+      // throws; if that contract ever breaks, the save still stands.
+      mapManifest = null;
+    }
+    if (!mounted && !_usesBackgroundJobs) return;
+    _update(() {
+      _status = 'Video saved to gallery';
+    });
     // Issue #49 (C2): the gate widens from `if (captions)` to
     // captions-or-map-on, so the burn path is entered when the map was on
     // even with captions off. N-F: foreground-conditioned — in a
