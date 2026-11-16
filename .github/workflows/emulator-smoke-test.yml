@@ -494,7 +494,7 @@ jobs:
             adb shell pm grant app.storycam android.permission.POST_NOTIFICATIONS || true
             adb shell pm grant app.storycam android.permission.ACCESS_FINE_LOCATION || true
             adb shell pm grant app.storycam android.permission.ACCESS_COARSE_LOCATION || true
-            cd packages/dual_cameras/example && STORYCAM_ABI=x86_64 flutter test integration_test/camera_flow_test.dart
+            cd packages/dual_cameras/example && STORYCAM_ABI=x86_64 flutter test --no-uninstall integration_test/camera_flow_test.dart
             adb pull /sdcard/Download/storycam-feeds-diff.png storycam-feeds-diff.png || echo 'CAMFLOW: no feeds-diff screenshot to pull (the test saves it mid-recording)'
             adb logcat -d | grep -c 'MAPBURN' || echo 'DIAG camflow: no MAPBURN lines in logcat (flutter-test launch path - see longrec_check --skip-stop-line)'
             python3 tools/longrec_check.py --min-duration-secs 28 --min-captured 1 --label camflow --pull --skip-stop-line || (echo 'CAMFLOW CROSS-CHECK FAILED (issue #87): see longrec-check-camflow.log'; exit 1)
