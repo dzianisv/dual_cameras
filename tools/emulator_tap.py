@@ -315,17 +315,13 @@ def lens_pills():
     return 0
 
 
-def ensure_switch_on(label):
-    """Ensure a Settings SwitchListTile is ON (issue #79 + #87: the
-    30 s recording runs with map ON + captions ON). Finds the label
-    node, then the android.widget.Switch on the same row, reads its
-    checked state, taps the switch only when off, re-dumps and fails
-    loudly if it did not turn on. Already-on is a PASS, not a tap."""
-    root = dump_ui()
+def _switch_on_row(root, label):
+    """(label_node, switch) for a Settings SwitchListTile, or
+    (None, None) / (label_node, None) when the label or its Switch
+    is not in this tree."""
     label_node = find_node(root, label)
     if label_node is None:
-        print(f'NOT FOUND: switch label "{label}"')
-        return 1
+        return None, None
     lx1, ly1, lx2, ly2 = node_bounds(label_node)
     ly = (ly1 + ly2) // 2
     switch = None
@@ -338,37 +334,47 @@ def ensure_switch_on(label):
         if best_gap is None or gap < best_gap:
             switch, best_gap = node, gap
     if switch is None or best_gap > (ly2 - ly1) // 2 + 20:
-        print(f'NOT FOUND: no Switch on the "{label}" row')
-        return 1
-    if switch.get("checked") == "true":
-        print(f'switch "{label}": already ON')
-        return 0
-    x1, y1, x2, y2 = node_bounds(switch)
-    subprocess.run(["adb", "shell", "input", "tap",
-                    str((x1 + x2) // 2), str((y1 + y2) // 2)], check=True)
-    time.sleep(1)
-    root = dump_ui()
-    label_node = find_node(root, label)
-    if label_node is None:
-        print(f'NOT FOUND after tap: switch label "{label}"')
-        return 1
-    lx1, ly1, lx2, ly2 = node_bounds(label_node)
-    ly = (ly1 + ly2) // 2
-    switch = None
-    best_gap = None
-    for node in root.iter("node"):
-        if node.get("class") != "android.widget.Switch":
+        return label_node, None
+    return label_node, switch
+
+
+def ensure_switch_on(label):
+    """Ensure a Settings SwitchListTile is ON (issue #79 + #87: the
+    30 s recording runs with map ON + captions ON). Reads the
+    Switch state and taps it only when off, then re-reads and fails
+    loudly if it did not turn on. Already-on is a PASS, not a tap.
+    Up to 3 attempts: the Settings sheet rebuilds continuously
+    (issue #86), so a single dump can miss the label entirely — run
+    43828702544 failed the first attempt with 'switch label
+    "Location circle" not found' 12 s after the Map tap, on a dump
+    that returned a tree without it. Mirrors the retry in
+    tools/enable_captions.py on main."""
+    for attempt in range(1, 4):
+        root = dump_ui()
+        _, switch = _switch_on_row(root, label)
+        if switch is None:
+            print(f'attempt {attempt}/3: switch "{label}" not in tree '
+                  f'— retrying')
+            time.sleep(2)
             continue
-        _, sy1, _, sy2 = node_bounds(node)
-        gap = abs((sy1 + sy2) // 2 - ly)
-        if best_gap is None or gap < best_gap:
-            switch, best_gap = node, gap
-    if (switch is None or best_gap > (ly2 - ly1) // 2 + 20
-            or switch.get("checked") != "true"):
-        print(f'SWITCH FAILED: "{label}" did not turn on')
-        return 1
-    print(f'switch "{label}": OFF -> ON')
-    return 0
+        if switch.get("checked") == "true":
+            print(f'switch "{label}": already ON')
+            return 0
+        x1, y1, x2, y2 = node_bounds(switch)
+        subprocess.run(["adb", "shell", "input", "tap",
+                        str((x1 + x2) // 2), str((y1 + y2) // 2)],
+                       check=True)
+        time.sleep(1)
+        root = dump_ui()
+        _, switch = _switch_on_row(root, label)
+        if switch is not None and switch.get("checked") == "true":
+            print(f'switch "{label}": OFF -> ON')
+            return 0
+        print(f'attempt {attempt}/3: "{label}" did not turn on — '
+              f'retrying')
+        time.sleep(2)
+    print(f'SWITCH FAILED: "{label}" not ON after 3 attempts')
+    return 1
 
 
 def tap(needle):
