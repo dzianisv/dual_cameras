@@ -120,6 +120,20 @@ dependencies {
     androidTestImplementation("androidx.test.ext:junit:1.2.1")
     androidTestImplementation("androidx.test:runner:1.6.2")
     androidTestImplementation("androidx.test:rules:1.6.1")
+
+    // Issue #79 Track B: the integration_test plugin declares
+    // api("androidx.test:runner:1.2+") / api("androidx.test:rules:1.2+"),
+    // which land on the main debugRuntimeClasspath and resolve there to
+    // 1.3.0 / 1.2.0; Gradle's consistent resolution then strictly pins
+    // the androidTest classpath to those versions, conflicting with the
+    // 1.6.2 / 1.6.1 pins above (assembleAndroidTest fails to resolve,
+    // run 43869786495). These constraints pin the same 1.6.x versions on
+    // the main classpath, so both configurations agree. Constraints only
+    // select versions — they add no artifact to the app.
+    constraints {
+        implementation("androidx.test:runner:1.6.2")
+        implementation("androidx.test:rules:1.6.1")
+    }
 }
 
 kotlin {

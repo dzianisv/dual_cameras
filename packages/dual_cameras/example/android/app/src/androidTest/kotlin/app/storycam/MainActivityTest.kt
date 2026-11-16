@@ -20,7 +20,15 @@ import org.junit.runner.RunWith
  */
 @RunWith(FlutterTestRunner::class)
 class MainActivityTest {
+    // REQUIRED field (Flutter `integration_test` README): FlutterTestRunner
+    // scans for one @Rule-annotated ActivityTestRule and throws
+    // RuntimeException("Unable to run tests due to missing activity rule")
+    // without it. Positional args, NOT the README's named args
+    // (initialTouchMode = true, launchActivity = false): kotlinc rejects
+    // named arguments for this Java constructor ("Named arguments are
+    // prohibited for non-Kotlin functions", run 43869786495). Same
+    // semantics: initialTouchMode = true, launchActivity = false.
     @Rule
     @JvmField
-    val rule: ActivityTestRule<MainActivity> = ActivityTestRule(MainActivity::class.java, initialTouchMode = true, launchActivity = false)
+    val rule: ActivityTestRule<MainActivity> = ActivityTestRule(MainActivity::class.java, true, false)
 }

@@ -220,9 +220,19 @@ Future<void> _waitWithPump(WidgetTester tester, Duration duration) async {
 /// Reads the Switch behind the SwitchListTile titled [title] and taps
 /// it only when OFF, then verifies it reads ON. Same
 /// --ensure-switch-on rule as the screenshots workflow.
+///
+/// The Switch is the tile's `trailing` — a SIBLING of the title Text,
+/// not an ancestor of it — so the finder goes through the
+/// SwitchListTile ancestor first, then down to its Switch descendant.
+/// (An ancestor-Switch finder matches nothing: run 43869786495.)
 Future<void> _ensureSwitchOn(WidgetTester tester, String title) async {
-  final Finder switchFinder = find.ancestor(
+  final Finder tileFinder = find.ancestor(
     of: find.text(title),
+    matching: find.byType(SwitchListTile),
+  );
+  expect(tileFinder, findsOneWidget, reason: 'no SwitchListTile for $title');
+  final Finder switchFinder = find.descendant(
+    of: tileFinder,
     matching: find.byType(Switch),
   );
   expect(switchFinder, findsOneWidget, reason: 'no Switch for $title');
