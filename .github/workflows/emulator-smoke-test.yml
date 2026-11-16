@@ -258,6 +258,41 @@ jobs:
             adb exec-out screencap -p > resume-after-rec-2.png
             python3 tools/preview_diff.py resume-after-rec-1.png resume-after-rec-2.png --min-diff 0.1 || (echo 'RESUME FAILED (after recording): no motion in the preview region after background/foreground - camera frozen (issue #13)'; adb logcat -d | grep -i -E "storycam|flutter|fatal|crash" | tail -30; adb logcat -d -b crash | tail -40 || true; exit 1)
             echo 'resume (after recording): preview region shows motion after background/foreground (live preview restored)'
+            # Issue #86: the Settings sheet must not rebuild on camera
+            # stats ticks (~2/s before the fix) — uiautomator cannot
+            # drive a sheet whose hierarchy changes every 500 ms. Open
+            # the sheet at the Map section, measure the rebuild rate
+            # over a 30 s idle window from the [SHEET86] log lines
+            # (gate: at most 3 rebuilds — the pre-fix rate was ~58 in
+            # 30 s), then toggle the Location circle switch OFF and
+            # back ON, exactly one tap each with no retries, verifying
+            # the switch state after each tap. Map ends ON again, so
+            # the 6 s take below still burns the map (issue #49).
+            python3 tools/emulator_tap.py 'Map'
+            sleep 3
+            adb shell uiautomator dump /data/local/tmp/ui.xml
+            adb pull /data/local/tmp/ui.xml /tmp/ui-sheet86.xml
+            grep -q 'Camera settings' /tmp/ui-sheet86.xml || (echo 'SHEET86 FAILED: Settings sheet did not open (no Camera settings in dump)'; exit 1)
+            echo 'SHEET86: sheet open at Map section'
+            N0=$(adb logcat -d | grep -c 'SHEET86. REBUILD' || true); sleep 30; N1=$(adb logcat -d | grep -c 'SHEET86. REBUILD' || true); echo "SHEET86 REBUILDS before=$N0 after=$N1 idle30s=$((N1-N0))"; test $((N1-N0)) -le 3 || (echo 'SHEET86 FAILED: sheet rebuilt more than 3 times in 30 s idle — stats ticks are still rebuilding it'; exit 1)
+            echo 'SHEET86: rebuild rate OK (at most 3 rebuilds in 30 s idle)'
+            python3 tools/emulator_tap.py 'Location circle'
+            sleep 2
+            adb shell uiautomator dump /data/local/tmp/ui.xml
+            adb pull /data/local/tmp/ui.xml /tmp/ui-sheet86-off.xml
+            cp /tmp/ui-sheet86-off.xml ui-sheet86-off.xml || true
+            python3 -c "import sys,xml.etree.ElementTree as ET; root=ET.parse('/tmp/ui-sheet86-off.xml').getroot(); states=[n.get('checked') for n in root.iter('node') if ((n.get('text') or '').startswith('Location circle') or (n.get('content-desc') or '').startswith('Location circle')) and n.get('checked') is not None]; print('SHEET86 Location circle checked states after OFF tap:', states); sys.exit(0 if states and all(s=='false' for s in states) else 1)" || (echo 'SHEET86 FAILED: Location circle switch did not read OFF after the first-try tap'; exit 1)
+            echo 'SHEET86: map toggle OFF took effect first-try (switch reads OFF)'
+            adb exec-out screencap -p > sheet86-map-off.png
+            python3 tools/emulator_tap.py 'Location circle'
+            sleep 2
+            adb shell uiautomator dump /data/local/tmp/ui.xml
+            adb pull /data/local/tmp/ui.xml /tmp/ui-sheet86-on.xml
+            cp /tmp/ui-sheet86-on.xml ui-sheet86-on.xml || true
+            python3 -c "import sys,xml.etree.ElementTree as ET; root=ET.parse('/tmp/ui-sheet86-on.xml').getroot(); states=[n.get('checked') for n in root.iter('node') if ((n.get('text') or '').startswith('Location circle') or (n.get('content-desc') or '').startswith('Location circle')) and n.get('checked') is not None]; print('SHEET86 Location circle checked states after ON tap:', states); sys.exit(0 if states and all(s=='true' for s in states) else 1)" || (echo 'SHEET86 FAILED: Location circle switch did not read ON after the first-try tap'; exit 1)
+            echo 'SHEET86: map toggle ON took effect first-try (switch reads ON — map restored for the 6 s take)'
+            adb shell input keyevent 4
+            sleep 2
             adb shell dumpsys activity activities | grep -i -A2 -B2 storycam || true
             adb logcat -d | grep -i -E "storycam|flutter|fatal|crash" | tail -50 || true
             
@@ -388,4 +423,7 @@ jobs:
             ui-35s.xml
             ui-preset.xml
             ui-after-stop.xml
+            sheet86-map-off.png
+            ui-sheet86-off.xml
+            ui-sheet86-on.xml
           retention-days: 7
