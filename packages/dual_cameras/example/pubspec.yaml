@@ -51,6 +51,10 @@ dev_dependencies:
   flutter_test:
     sdk: flutter
   flutter_lints: ^6.0.0
+  # PNG decode for the on-device front-vs-rear pixel diff in
+  # integration_test/camera_flow_test.dart (issue #79, Track B step 2).
+  # Dev-only: no product code imports it.
+  image: ^4.3.0
   dual_cameras_platform_interface:
     path: ../../dual_cameras_platform_interface
   plugin_platform_interface: ^2.1.8

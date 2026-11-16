@@ -444,6 +444,61 @@ jobs:
             python3 tools/longrec_check.py --min-duration-secs 30 --min-captured 60 --label long --pull || (echo 'LONGREC CHECK FAILED (issues #81/#87): see longrec-check-long.log'; exit 1)
             echo 'LONGREC LEG DONE — 40 s take with map+captions on, app alive past 30 s, video in MediaStore and ffprobe-valid'
 
+      # CAMERA-FLOW INSTRUMENTATION LEG (issue #79, Track B step 2):
+      # runs integration_test/camera_flow_test.dart — one 30 s take with
+      # map + captions ON, asserting from inside the test (via the native
+      # GalleryProbeChannel) that the video EXISTS in MediaStore with
+      # duration > 0. The feeds-differ assertion SKIPS on this emulator
+      # leg (STORYCAM_REAL_DEVICE defaults false — same test pattern on
+      # both feeds); it RUNS on the Test Lab real-device run instead.
+      # A separate runner step (not inside the smoke script): `flutter
+      # test integration_test` builds its own debug + test APKs and
+      # installs them itself — it does NOT reuse the sideloaded release
+      # APK, and cannot share an emulator session with the
+      # uiautomator-driven release-APK script.
+      - name: 'Emulator camera-flow instrumentation leg (#79 Track B)'
+        uses: reactivecircus/android-emulator-runner@v2
+        env:
+          STORYCAM_ABI: x86_64
+        with:
+          api-level: 34
+          cores: 4
+          ram-size: 4096
+          heap-size: 1024
+          arch: x86_64
+          target: google_apis
+          emulator-options: -no-snapshot-save -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back emulated -camera-front emulated
+          disable-animations: true
+          disable-linux-hw-accel: false
+          emulator-boot-timeout: 900
+          # V1 (pre-step check, build-before-boot): the builds run HERE,
+          # before the emulator boots — the step's script: runs only
+          # after boot, so the pre-boot builds cannot live there. Both
+          # APKs are built explicitly, then verified to contain x86_64
+          # libflutter.so; fail fast if the debug APK lacks it (the run
+          # 43528021798 launch-crash/ANR shape: build.gradle.kts L25
+          # default arm64-v8a + packaging block stripping all build
+          # types incl. debug). N12: the test APK may carry no engine
+          # .so at all — in that case V1 gates on the debug APK only
+          # (logged, not failed); if it DOES carry a libflutter.so it
+          # must be the x86_64 one.
+          pre-emulator-launch-script: |
+            cd packages/dual_cameras/example && STORYCAM_ABI=x86_64 flutter build apk --debug
+            cd packages/dual_cameras/example/android && ./gradlew app:assembleAndroidTest -Ptarget=integration_test/camera_flow_test.dart
+            unzip -l packages/dual_cameras/example/build/app/outputs/flutter-apk/app-debug.apk | grep -q 'lib/x86_64/libflutter.so' || { echo 'V1 FAILED: debug APK has no x86_64 libflutter.so'; exit 1; }
+            if unzip -l packages/dual_cameras/example/build/app/outputs/apk/androidTest/debug/app-debug-androidTest.apk | grep -q 'libflutter.so'; then unzip -l packages/dual_cameras/example/build/app/outputs/apk/androidTest/debug/app-debug-androidTest.apk | grep -q 'lib/x86_64/libflutter.so' || { echo 'V1 FAILED: test APK libflutter.so is not x86_64'; exit 1; }; else echo 'V1 N12: test APK carries no libflutter.so - V1 gates on the debug APK only'; fi
+          script: |
+            adb install -r packages/dual_cameras/example/build/app/outputs/flutter-apk/app-debug.apk
+            adb shell pm grant app.storycam android.permission.CAMERA || true
+            adb shell pm grant app.storycam android.permission.RECORD_AUDIO || true
+            adb shell pm grant app.storycam android.permission.POST_NOTIFICATIONS || true
+            adb shell pm grant app.storycam android.permission.ACCESS_FINE_LOCATION || true
+            adb shell pm grant app.storycam android.permission.ACCESS_COARSE_LOCATION || true
+            cd packages/dual_cameras/example && STORYCAM_ABI=x86_64 flutter test integration_test/camera_flow_test.dart
+            adb pull /sdcard/Download/storycam-feeds-diff.png storycam-feeds-diff.png || echo 'CAMFLOW: no feeds-diff screenshot to pull (the test saves it mid-recording)'
+            python3 tools/longrec_check.py --min-duration-secs 28 --min-captured 1 --label camflow --pull || (echo 'CAMFLOW CROSS-CHECK FAILED (issue #87): see longrec-check-camflow.log'; exit 1)
+            python3 tools/preview_diff.py --video-proof longrec-take-camflow.mp4 --times 1,5 --min-diff 0.1 --min-mean-diff 5.0 || echo 'VIDEO-PROOF (diagnostic only, expected fail on emulator - identical test pattern on both feeds)'
+
       - name: Upload launch screenshot
         uses: actions/upload-artifact@v4
         if: always()
@@ -476,4 +531,8 @@ jobs:
             sheet86-map-off.png
             ui-sheet86-off.xml
             ui-sheet86-on.xml
+            storycam-feeds-diff.png
+            longrec-take-camflow.mp4
+            longrec-check-camflow.log
+            video-proof-t*.png
           retention-days: 7
