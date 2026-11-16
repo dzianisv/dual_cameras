@@ -95,10 +95,12 @@ def mediastore_newest():
     # "date_added DESC" value arrives as two words and the content
     # command rejects the stray DESC ("[ERROR] Unsupported argument:
     # DESC", run 43818765878). Rows are sorted in Python below.
+    # Column names are the MediaStore constants: _size, NOT size
+    # ("Invalid column size", run 43820264460).
     r = run([
         "adb", "shell", "content", "query",
         "--uri", "content://media/external/video/media",
-        "--projection", "_display_name:duration:size:date_added",
+        "--projection", "_display_name:duration:_size:date_added",
     ])
     out = (r.stdout or "") + (r.stderr or "")
     rows = []
@@ -107,7 +109,7 @@ def mediastore_newest():
         if not line.startswith("Row:"):
             continue
         dur = re.search(r"duration=(\d+)", line)
-        size = re.search(r"size=(\d+)", line)
+        size = re.search(r"_size=(\d+)", line)
         added = re.search(r"date_added=(\d+)", line)
         name = re.search(r"_display_name=(.*?),", line)
         if dur is None or size is None or added is None:
@@ -176,6 +178,11 @@ def main() -> int:
     if row is None:
         note("MediaStore query returned no video rows. Raw output:\n"
              + (raw.strip()[-2000:] or "(empty)"))
+        if ("Error while accessing provider" in raw
+                or "IllegalArgumentException" in raw):
+            return fail("MediaStore query ERRORED — the check itself "
+                        "is broken (projection/columns), the save is "
+                        "unproven, not disproven")
         return fail("no video in MediaStore — the take was not saved "
                     "(issue #87: status text is not proof)")
     now = int(time.time())
