@@ -70,7 +70,7 @@ on:
         type: boolean
         default: false
       longrec_preset:
-        description: 'Issue #81 scratch: settings preset for the long take — defaults | captions-on | map-off (temporary, revert before merge)'
+        description: 'Issue #81 scratch: settings preset for the long take — defaults | captions-on | map-off | map-off-file (temporary, revert before merge)'
         type: string
         default: 'defaults'
 
@@ -253,6 +253,8 @@ jobs:
             adb shell pm grant app.storycam android.permission.POST_NOTIFICATIONS || true
             adb shell pm grant app.storycam android.permission.ACCESS_FINE_LOCATION || true
             adb shell pm grant app.storycam android.permission.ACCESS_COARSE_LOCATION || true
+            printf '%s' '{"compassMode":"heading-up","mapVisible":false,"mirrorFront":true,"videoQuality":"hd1080","filter":"none","frontLens":null,"rearLens":null,"locationPermissionRequested":false,"mapZoom":16.0}' > mapoff-settings.json
+            if [ "$LONGREC_PRESET" = map-off-file ]; then adb shell mkdir -p /data/data/app.storycam/app_flutter; adb push mapoff-settings.json /data/data/app.storycam/app_flutter/camera_settings.json && echo 'PRESET map-off-file: settings file written' || echo 'PRESET map-off-file: WRITE FAILED (map will stay on — see MAPBURN line)'; adb shell cat /data/data/app.storycam/app_flutter/camera_settings.json || echo 'PRESET map-off-file: READBACK FAILED'; fi
             adb shell am start -n app.storycam/.MainActivity
             sleep 20
             adb shell pidof app.storycam || (adb logcat -d | grep -i -E "storycam|flutter|fatal|crash" | tail -30; adb logcat -d -b crash | tail -40 || true; exit 1)
@@ -268,6 +270,7 @@ jobs:
             if [ "$LONGREC_PRESET" = captions-on ]; then python3 tools/emulator_tap.py 'Captions'; sleep 10; python3 tools/emulator_tap.py 'Auto-captions' || python3 tools/emulator_tap.py 'Auto-captions'; sleep 2; python3 tools/check_switch.py 'Auto-captions'; adb shell uiautomator dump /data/local/tmp/ui.xml; adb pull /data/local/tmp/ui.xml /tmp/ui-preset.xml; cp /tmp/ui-preset.xml ui-preset.xml || true; grep -q '4K is not available' /tmp/ui-preset.xml && echo 'PRESET captions-on: 4K NOT offered on this emulator' || echo 'PRESET captions-on: 4K note absent from dump (inconclusive — check the 4K chip enabled state in ui-preset.xml)'; adb shell input keyevent 4; sleep 2; echo 'PRESET captions-on: done'; fi
             if [ "$LONGREC_PRESET" = map-off ]; then python3 tools/emulator_tap.py 'Map'; sleep 10; python3 tools/emulator_tap.py 'Location circle' || python3 tools/emulator_tap.py 'Location circle'; sleep 2; python3 tools/check_switch.py 'Location circle'; adb shell uiautomator dump /data/local/tmp/ui.xml; adb pull /data/local/tmp/ui.xml /tmp/ui-preset.xml; cp /tmp/ui-preset.xml ui-preset.xml || true; grep -q '4K is not available' /tmp/ui-preset.xml && echo 'PRESET map-off: 4K NOT offered on this emulator' || echo 'PRESET map-off: 4K note absent from dump (inconclusive — check the 4K chip enabled state in ui-preset.xml)'; adb shell input keyevent 4; sleep 2; echo 'PRESET map-off: done — verify map is really off from the SWITCH line above and the [MAPBURN] STOP line after the take'; fi
             if [ "$LONGREC_PRESET" = defaults ]; then echo 'PRESET defaults: no settings change (map on, 1080p, captions off)'; fi
+            if [ "$LONGREC_PRESET" = map-off-file ]; then adb shell uiautomator dump /data/local/tmp/ui.xml; adb pull /data/local/tmp/ui.xml /tmp/ui-preset.xml; cp /tmp/ui-preset.xml ui-preset.xml || true; grep -q 'Map, current location' /tmp/ui-preset.xml && echo 'PRESET map-off-file: MAP STILL VISIBLE in UI (settings file did not take — take will run map-on)' || echo 'PRESET map-off-file: MAP ABSENT from UI (map off confirmed)'; fi
             date -u '+RECORDING START %Y-%m-%dT%H:%M:%SZ'
             python3 tools/emulator_tap.py 'Start recording'
             sleep 10
@@ -316,7 +319,7 @@ jobs:
             adb logcat -d -b crash > logcat-crash.txt || true
             adb shell dumpsys meminfo app.storycam > meminfo.txt || true
             adb shell dumpsys activity activities > dumpsys-activities.txt || true
-            python3 tools/mapburn_check.py || echo 'MAPBURN CHECK: non-zero exit (see mapburn.log — expected if the take stopped early and no burn ran)'
+            python3 tools/mapburn_check.py --timeout-secs 180 || echo 'MAPBURN CHECK: non-zero exit (see mapburn.log — expected if the take stopped early and no burn ran, or if the map was off and no burn was queued)'
             python3 tools/longrec_probe.py
             ls -l *.mp4 *.png *.txt *.log 2>/dev/null || true
             echo 'LONGREC RUN 1 DONE — verdict from the checkpoint lines + longrec_probe output above'
