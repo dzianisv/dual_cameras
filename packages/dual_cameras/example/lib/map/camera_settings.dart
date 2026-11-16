@@ -11,7 +11,7 @@ enum CompassMode {
   /// Map rotates with the heading; you stay pointing up.
   headingUp('heading-up', 'Heading-up'),
 
-  /// Map fixed north-up; the needle (heading cone) turns.
+  /// Map fixed north-up; the map stays still while the heading changes.
   northUp('north-up', 'North-up');
 
   const CompassMode(this.code, this.label);
