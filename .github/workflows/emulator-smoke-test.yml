@@ -254,7 +254,7 @@ jobs:
             adb shell pm grant app.storycam android.permission.ACCESS_FINE_LOCATION || true
             adb shell pm grant app.storycam android.permission.ACCESS_COARSE_LOCATION || true
             printf '%s' '{"compassMode":"heading-up","mapVisible":false,"mirrorFront":true,"videoQuality":"hd1080","filter":"none","frontLens":null,"rearLens":null,"locationPermissionRequested":false,"mapZoom":16.0}' > mapoff-settings.json
-            if [ "$LONGREC_PRESET" = map-off-file ]; then adb shell mkdir -p /data/data/app.storycam/app_flutter; adb push mapoff-settings.json /data/data/app.storycam/app_flutter/camera_settings.json && echo 'PRESET map-off-file: settings file written' || echo 'PRESET map-off-file: WRITE FAILED (map will stay on — see MAPBURN line)'; adb shell cat /data/data/app.storycam/app_flutter/camera_settings.json || echo 'PRESET map-off-file: READBACK FAILED'; fi
+            if [ "$LONGREC_PRESET" = map-off-file ]; then adb root && echo 'PRESET map-off-file: adb root ok' || echo 'PRESET map-off-file: ADB ROOT FAILED'; adb wait-for-device; sleep 3; adb shell mkdir -p /data/data/app.storycam/app_flutter; adb push mapoff-settings.json /data/data/app.storycam/app_flutter/camera_settings.json && echo 'PRESET map-off-file: settings file written' || echo 'PRESET map-off-file: WRITE FAILED (map will stay on — see MAPBURN line)'; adb shell cat /data/data/app.storycam/app_flutter/camera_settings.json || echo 'PRESET map-off-file: READBACK FAILED'; fi
             adb shell am start -n app.storycam/.MainActivity
             sleep 20
             adb shell pidof app.storycam || (adb logcat -d | grep -i -E "storycam|flutter|fatal|crash" | tail -30; adb logcat -d -b crash | tail -40 || true; exit 1)
