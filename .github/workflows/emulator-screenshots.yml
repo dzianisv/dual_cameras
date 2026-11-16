@@ -243,10 +243,14 @@ jobs:
             python3 tools/emulator_tap.py 'Open camera' || true
             sleep 20
             adb exec-out screencap -p > 01-launch.png
-            adb shell uiautomator dump /data/local/tmp/ui.xml
-            adb pull /data/local/tmp/ui.xml /tmp/ui-launch.xml
+            # DIAGNOSTIC-DUMP RULE (run 43836629307): a raw dump was
+            # SIGKILLed (exit 137 — host OOM) and killed the whole run
+            # although it feeds only soft checks. Dump/pull fail soft;
+            # the greps below already fail soft (|| echo / || true).
+            adb shell uiautomator dump /data/local/tmp/ui.xml || true
+            adb pull /data/local/tmp/ui.xml /tmp/ui-launch.xml || true
             grep -o 'Mendocino[^"]*' /tmp/ui-launch.xml | head -1 || echo 'WALKTHROUGH place-name: no Mendocino text in tree (check the pill in 01-launch.png)'
-            grep -o 'text="[^"]*"' /tmp/ui-launch.xml | head -60
+            grep -o 'text="[^"]*"' /tmp/ui-launch.xml | head -60 || true
             # LAUNCH PROOF (Track A): the preview must be LIVE on the
             # emulated test-pattern feed — not black (the camera opened)
             # and moving in at least one interval of three shots 4 s
@@ -310,8 +314,14 @@ jobs:
             python3 tools/emulator_tap.py 'Map' || echo 'WALKTHROUGH menu-Map: FAIL (tap missed)'
             sleep 3
             adb exec-out screencap -p > 20-section-map.png
-            adb shell uiautomator dump /data/local/tmp/ui.xml
-            adb pull /data/local/tmp/ui.xml /tmp/ui-map.xml
+            # DIAGNOSTIC-DUMP RULE (run 43836629307): the raw dump below
+            # was SIGKILLed (exit 137 — host OOM, not the app) and killed
+            # the whole run, even though it feeds only soft checks. All
+            # three raw dump+pull pairs in this step are diagnostic-only,
+            # so they fail soft (|| true); the downstream greps already
+            # fail soft on a missing file.
+            adb shell uiautomator dump /data/local/tmp/ui.xml || true
+            adb pull /data/local/tmp/ui.xml /tmp/ui-map.xml || true
             # FALSE-PASS RULE (run 43817680362): the old check printed
             # PASS whenever 16.0 was absent — including when the dump
             # held no Map zoom line at all (ANR dialog tree). Require
@@ -325,8 +335,8 @@ jobs:
             grep -o 'Map zoom [0-9.]*' /tmp/ui-map.xml | head -1 > /tmp/mapzoom.txt; cat /tmp/mapzoom.txt
             test -s /tmp/mapzoom.txt && (grep -q 'Map zoom 16.0' /tmp/mapzoom.txt && echo 'WALKTHROUGH map-zoom-doubletap: FAIL (still 16.0 after double-tap on the map circle)' || echo 'WALKTHROUGH map-zoom-doubletap: PASS (zoom value changed, see Map zoom line above)') || echo 'WALKTHROUGH map-zoom-doubletap: FAIL (no Map zoom text in tree)'
             python3 tools/emulator_tap.py --drag-slider 'Map zoom' 0.8 || echo 'WALKTHROUGH map-zoom-slider: FAIL (value did not change)'
-            adb shell uiautomator dump /data/local/tmp/ui.xml
-            adb pull /data/local/tmp/ui.xml /tmp/ui-map2.xml
+            adb shell uiautomator dump /data/local/tmp/ui.xml || true
+            adb pull /data/local/tmp/ui.xml /tmp/ui-map2.xml || true
             grep -o 'Map zoom [0-9.]*' /tmp/ui-map2.xml | head -1 || echo 'WALKTHROUGH map-zoom-slider: FAIL (no Map zoom text after drag)'
             # ANR GUARD (run 43817680362): a "Process system isn't
             # responding" dialog appeared over the sheet during the map
