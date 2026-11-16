@@ -26,6 +26,15 @@ class MainActivity : FlutterActivity() {
         ).setMethodCallHandler { call, result ->
             ThumbnailChannel.handle(call, result)
         }
+        // Test-only probe for the camera-flow instrumentation test
+        // (issue #79, Track B step 2): MediaStore query + screenshot
+        // save. No product code calls this channel.
+        MethodChannel(
+            flutterEngine.dartExecutor.binaryMessenger,
+            GalleryProbeChannel.NAME,
+        ).setMethodCallHandler { call, result ->
+            GalleryProbeChannel.handle(this, call, result)
+        }
     }
 
     // Delete system confirmation (issue #50): ShareChannel.deleteVideo

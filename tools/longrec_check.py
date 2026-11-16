@@ -133,6 +133,15 @@ def main() -> int:
     ap.add_argument("--label", default="long")
     ap.add_argument("--pull", action="store_true",
                     help="also pull the newest dcr_*.mp4 and ffprobe it")
+    ap.add_argument("--skip-stop-line", action="store_true",
+                    help="skip the [MAPBURN] STOP-line gate (check 1). "
+                    "Only for legs where the app is launched by "
+                    "`flutter test`: its [MAPBURN] prints go to the "
+                    "flutter tool's output, not logcat, so no STOP "
+                    "line is findable there (issue #79 Track B, "
+                    "camflow leg, run 43875116667). The in-test "
+                    "assertion + the MediaStore/pull gates below are "
+                    "the proof there.")
     args = ap.parse_args()
     log_lines = []
 
@@ -149,29 +158,41 @@ def main() -> int:
          f"(min-duration {args.min_duration_secs}s, "
          f"min-captured {args.min_captured}, pull={args.pull}) ===")
 
-    # 1. [MAPBURN] STOP line: the take ran long enough, map tick ran.
+    # Logcat dump, shared by the STOP-line gate (check 1) and the ANR
+    # gate (check 3). Fetched once up front so --skip-stop-line (which
+    # skips check 1) still leaves check 3 with its input — fetching it
+    # inside check 1 crashed check 3 with UnboundLocalError when
+    # skipped (run 43882036897).
     text = run(["adb", "logcat", "-d"]).stdout
-    stops = list(STOP_RE.finditer(text))
-    if not stops:
-        return fail("no [MAPBURN] STOP line in logcat (capture never ran?)")
-    stop = stops[-1].groupdict()
-    stop_line = stops[-1].group(0)
-    snap_max = SNAP_MAX_RE.search(text[stops[-1].start():stops[-1].end() + 200])
-    overruns = OVERRUNS_RE.search(text[stops[-1].start():stops[-1].end() + 200])
-    note(f"MAPBURN STOP takeId={stop['take']} "
-         f"durationMs={stop['dur']} attempted={stop['att']} "
-         f"captured={stop['cap']} failed={stop['fail']} "
-         f"bytes={stop['bytes']} capHit={stop['cap_hit']}"
-         + (f" snapMaxMs={snap_max.group(1)}" if snap_max else "")
-         + (f" snapOverruns={overruns.group(1)}" if overruns else ""))
-    if int(stop["dur"]) < args.min_duration_secs * 1000:
-        return fail(f"take lasted {stop['dur']} ms "
-                    f"(< {args.min_duration_secs * 1000} ms — stopped early?)")
-    if int(stop["cap"]) < args.min_captured:
-        return fail(f"only {stop['cap']} snapshots captured "
-                    f"(< {args.min_captured} — map tick stalled?)")
-    note(f"STOP gate: take {int(stop['dur']) / 1000:.1f}s, "
-         f"{stop['cap']} snapshots captured")
+
+    # 1. [MAPBURN] STOP line: the take ran long enough, map tick ran.
+    # Skipped with --skip-stop-line (camflow leg only): see the flag's
+    # help. When skipped, the take length is proven by the in-test
+    # duration assertion + the MediaStore/pull gates below.
+    if args.skip_stop_line:
+        note("STOP gate: SKIPPED (--skip-stop-line, flutter-test launch)")
+    else:
+        stops = list(STOP_RE.finditer(text))
+        if not stops:
+            return fail("no [MAPBURN] STOP line in logcat (capture never ran?)")
+        stop = stops[-1].groupdict()
+        stop_line = stops[-1].group(0)
+        snap_max = SNAP_MAX_RE.search(text[stops[-1].start():stops[-1].end() + 200])
+        overruns = OVERRUNS_RE.search(text[stops[-1].start():stops[-1].end() + 200])
+        note(f"MAPBURN STOP takeId={stop['take']} "
+             f"durationMs={stop['dur']} attempted={stop['att']} "
+             f"captured={stop['cap']} failed={stop['fail']} "
+             f"bytes={stop['bytes']} capHit={stop['cap_hit']}"
+             + (f" snapMaxMs={snap_max.group(1)}" if snap_max else "")
+             + (f" snapOverruns={overruns.group(1)}" if overruns else ""))
+        if int(stop["dur"]) < args.min_duration_secs * 1000:
+            return fail(f"take lasted {stop['dur']} ms "
+                        f"(< {args.min_duration_secs * 1000} ms — stopped early?)")
+        if int(stop["cap"]) < args.min_captured:
+            return fail(f"only {stop['cap']} snapshots captured "
+                        f"(< {args.min_captured} — map tick stalled?)")
+        note(f"STOP gate: take {int(stop['dur']) / 1000:.1f}s, "
+             f"{stop['cap']} snapshots captured")
 
     # 2. MediaStore: the video file EXISTS in the gallery with duration.
     row, raw = mediastore_newest()
