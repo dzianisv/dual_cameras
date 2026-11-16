@@ -214,11 +214,16 @@ jobs:
       # resulting durations for the log.
       - name: Prepare emulator camera feeds (issue #79)
         run: |
+          pwd
           ls -la tools/emulator-feeds/
+          stat tools/emulator-feeds/sintel-trailer-720p.mp4 tools/emulator-feeds/bbb-trailer-720p.mov
+          df -h .
           command -v ffmpeg >/dev/null || (sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg)
           command -v ffprobe >/dev/null || (sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg)
-          ffmpeg -y -v error -stream_loop 19 -i tools/emulator-feeds/sintel-trailer.mp4 -c copy -t 600 tools/emulator-feeds/front-feed.mp4
-          ffmpeg -y -v error -stream_loop 19 -i tools/emulator-feeds/bbb-trailer.mov -c copy -t 600 tools/emulator-feeds/rear-feed.mp4
+          ls -la tools/emulator-feeds/
+          stat tools/emulator-feeds/sintel-trailer-720p.mp4 tools/emulator-feeds/bbb-trailer-720p.mov
+          ffmpeg -y -v error -stream_loop 19 -i "$GITHUB_WORKSPACE/tools/emulator-feeds/sintel-trailer-720p.mp4" -c copy -t 600 "$GITHUB_WORKSPACE/tools/emulator-feeds/front-feed.mp4"
+          ffmpeg -y -v error -stream_loop 19 -i "$GITHUB_WORKSPACE/tools/emulator-feeds/bbb-trailer-720p.mov" -c copy -t 600 "$GITHUB_WORKSPACE/tools/emulator-feeds/rear-feed.mp4"
           ffprobe -v error -show_entries format=duration -of csv=p=0 tools/emulator-feeds/front-feed.mp4
           ffprobe -v error -show_entries format=duration -of csv=p=0 tools/emulator-feeds/rear-feed.mp4
           ls -la tools/emulator-feeds/
