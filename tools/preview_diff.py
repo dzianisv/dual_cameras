@@ -293,6 +293,14 @@ def gallery_proof(query_file, expect_name, rec_start_file):
     if not rows:
         print("GALLERY PROOF FAIL: no rows in the MediaStore video table")
         return 1
+    # Newest first by date_added (the query itself is unsorted: `adb
+    # shell content query --sort "date_added DESC"` fails on the
+    # emulator — the device-side parser splits the value and rejects
+    # the bare DESC token — so ordering happens here).
+    def added_of(row):
+        m = re.search(r"date_added=(\d+)", row)
+        return int(m.group(1)) if m else -1
+    rows = sorted(rows, key=added_of, reverse=True)
     start = None
     if rec_start_file:
         start = int(open(rec_start_file).read().strip())

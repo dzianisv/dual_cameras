@@ -273,7 +273,7 @@ jobs:
             # map-burn check below proves the cache files; this proves
             # the gallery copy. A missing row is issue #87 reproducing
             # — the run fails loudly, never weakened to go green.
-            adb shell content query --uri content://media/external/video/media --projection _data:duration:date_added --sort "date_added DESC" > /tmp/gallery-smoke.txt || (echo 'GALLERY PROOF FAILED (smoke): MediaStore query failed'; exit 1)
+            adb shell content query --uri content://media/external/video/media --projection _data:duration:date_added > /tmp/gallery-smoke.txt || (echo 'GALLERY PROOF FAILED (smoke): MediaStore query failed'; exit 1)
             python3 tools/preview_diff.py --gallery-proof /tmp/gallery-smoke.txt --rec-start /tmp/smoke-rec-start.txt || (echo 'GALLERY PROOF FAILED (smoke): no gallery row with duration > 0 from this recording (issue #87)'; exit 1)
             echo 'gallery proof (smoke): recording exists in the gallery with duration > 0'
             python3 tools/mapburn_check.py || (echo 'MAP BURN FAILED (issue #49): see mapburn.log + the MAPBURN logcat lines below'; adb logcat -d | grep -i -E "MAPBURN|CaptionBurner|MapRenderer" | tail -40 || true; exit 1)

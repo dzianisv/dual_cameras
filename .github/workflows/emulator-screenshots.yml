@@ -431,7 +431,7 @@ jobs:
             ls -la recorded-6s.mp4
             python3 tools/preview_diff.py --file-proof recorded-6s.mp4 --min-duration 5 || (echo 'FILE PROOF #1 FAILED: recorded file missing, empty, too short, or unplayable'; exit 1)
             mv file-proof-frame.png file-proof-6s-frame.png
-            adb shell content query --uri content://media/external/video/media --projection _data:duration:date_added --sort "date_added DESC" > /tmp/gallery.txt || (echo 'FILE PROOF #1 FAILED: MediaStore query failed'; exit 1)
+            adb shell content query --uri content://media/external/video/media --projection _data:duration:date_added > /tmp/gallery.txt || (echo 'FILE PROOF #1 FAILED: MediaStore query failed'; exit 1)
             python3 tools/preview_diff.py --gallery-proof /tmp/gallery.txt --expect-name "$(cat /tmp/orig-base.txt)" || (echo 'FILE PROOF #1 FAILED: no gallery row with duration > 0 for this recording (issue #87)'; exit 1)
             echo 'FILE PROOF #1: 6 s recording exists in the gallery with duration > 0 and plays'
             adb shell input keyevent 4
@@ -526,7 +526,7 @@ jobs:
             ls -la recorded-30s.mp4
             python3 tools/preview_diff.py --file-proof recorded-30s.mp4 --min-duration 28 || (echo 'FILE PROOF #2 FAILED: recorded file missing, empty, too short, or unplayable'; exit 1)
             mv file-proof-frame.png file-proof-30s-frame.png
-            adb shell content query --uri content://media/external/video/media --projection _data:duration:date_added --sort "date_added DESC" > /tmp/gallery2.txt || (echo 'FILE PROOF #2 FAILED: MediaStore query failed'; exit 1)
+            adb shell content query --uri content://media/external/video/media --projection _data:duration:date_added > /tmp/gallery2.txt || (echo 'FILE PROOF #2 FAILED: MediaStore query failed'; exit 1)
             python3 tools/preview_diff.py --gallery-proof /tmp/gallery2.txt --expect-name "$(cat /tmp/orig-base2.txt)" || (echo 'FILE PROOF #2 FAILED: no gallery row with duration > 0 for this recording (issue #87)'; exit 1)
             echo 'FILE PROOF #2: 30 s recording (map ON + captions ON) exists in the gallery with duration > 0 and plays'
             adb shell input keyevent 4
