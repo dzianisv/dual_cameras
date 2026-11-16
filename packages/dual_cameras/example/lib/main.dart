@@ -56,6 +56,17 @@ Future<void> main() async {
 @pragma('vm:entry-point')
 Future<void> captionJobMain() => runCaptionJob();
 
+/// The only camera-controller fields the Settings sheet reads (issue
+/// #86): isRecording / isInitialized / errorMessage. The sheet's
+/// contents closure receives this instead of the full
+/// [DualCameraValue], so stats ticks (which change none of these)
+/// cannot rebuild it.
+typedef _SheetControllerState = ({
+  bool isRecording,
+  bool isInitialized,
+  String? errorMessage,
+});
+
 class DemoApp extends StatelessWidget {
   const DemoApp(
       {super.key,
@@ -245,6 +256,38 @@ class _DemoScreenState extends State<DemoScreen> with WidgetsBindingObserver {
   double? _pendingEv;
   final Map<bool, double> _pendingAspects = {};
   final ValueNotifier<int> _revision = ValueNotifier(0);
+
+  // Issue #86: the only camera-controller fields the Settings sheet
+  // reads (isRecording / isInitialized / errorMessage) — never stats.
+  // The controller notifies ~2x/s on stats ticks, so wiring the sheet
+  // to it rebuilt the whole sheet continuously and uiautomator could
+  // not drive anything inside it. This notifier fires only when one of
+  // the three fields changes; the sheet listens to it plus _revision
+  // instead of the controller. The stats overlay keeps its own
+  // ValueListenableBuilder on the controller, so it still updates live.
+  final ValueNotifier<_SheetControllerState> _sheetController =
+      ValueNotifier((
+    isRecording: false,
+    isInitialized: false,
+    errorMessage: null,
+  ));
+
+  // Issue #86 probe counter: counts Settings-sheet content rebuilds so
+  // CI can measure the rebuild rate with the sheet open. debugPrint
+  // only; no behaviour change.
+  int _sheetRebuilds = 0;
+
+  void _onControllerForSheet() {
+    final value = _controller.value;
+    final next = (
+      isRecording: value.isRecording,
+      isInitialized: value.isInitialized,
+      errorMessage: value.errorMessage,
+    );
+    // Records compare by value, and ValueNotifier skips equal values,
+    // so stats-only notifications (same three fields) never fire this.
+    if (_sheetController.value != next) _sheetController.value = next;
+  }
 
   void _update(VoidCallback change) {
     if (!mounted) return;
@@ -473,6 +516,12 @@ class _DemoScreenState extends State<DemoScreen> with WidgetsBindingObserver {
   @override
   void initState() {
     super.initState();
+    // Issue #86: keep the sheet's filtered controller state in sync.
+    // _onControllerForSheet fires _sheetController only when
+    // isRecording / isInitialized / errorMessage changes — stats ticks
+    // are swallowed here, so the sheet never rebuilds on them.
+    _controller.addListener(_onControllerForSheet);
+    _onControllerForSheet();
     final bootstrapFuture = _bootstrap();
     // A caption notification left over from a previous run (the app died
     // mid-captioning) must not linger: no job exists for it anymore.
@@ -2187,12 +2236,14 @@ class _DemoScreenState extends State<DemoScreen> with WidgetsBindingObserver {
     // gallery writes, model downloads and queued captions must not retain the
     // camera session after the screen is removed.
     final pending = _cameraOperation;
+    _controller.removeListener(_onControllerForSheet);
     if (pending == null) {
       _controller.dispose();
     } else {
       pending.whenComplete(_controller.dispose);
     }
     _revision.dispose();
+    _sheetController.dispose();
     super.dispose();
   }
 
@@ -2296,7 +2347,7 @@ class _DemoScreenState extends State<DemoScreen> with WidgetsBindingObserver {
     for (final section in SettingsSection.values) section: GlobalKey(),
   };
 
-  void _sheet(String title, List<Widget> Function(DualCameraValue) contents,
+  void _sheet(String title, List<Widget> Function(_SheetControllerState) contents,
       {SettingsSection? initialSection}) {
     // Scroll to the requested section once, when the sheet opens.
     var scrolled = false;
@@ -2323,7 +2374,14 @@ class _DemoScreenState extends State<DemoScreen> with WidgetsBindingObserver {
           child: FractionallySizedBox(
             heightFactor: .85,
             child: AnimatedBuilder(
-              animation: Listenable.merge([_controller, _revision]),
+              // Issue #86: _revision only. The camera controller used
+              // to be merged in here, and it notifies ~2x/s on stats
+              // ticks — rebuilding this whole sheet continuously and
+              // blocking uiautomator idle. The rows that need
+              // controller state listen to _sheetController below,
+              // which fires only when isRecording / isInitialized /
+              // errorMessage changes.
+              animation: _revision,
               builder: (context, _) => Column(
                 children: [
                   Padding(
@@ -2339,9 +2397,18 @@ class _DemoScreenState extends State<DemoScreen> with WidgetsBindingObserver {
                     ]),
                   ),
                   Expanded(
-                      child: ListView(
-                    padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
-                    children: contents(_controller.value),
+                      child: ValueListenableBuilder<_SheetControllerState>(
+                    valueListenable: _sheetController,
+                    builder: (context, value, _) {
+                      // Issue #86 probe counter: counts sheet-content
+                      // rebuilds so CI can measure the rebuild rate.
+                      _sheetRebuilds++;
+                      debugPrint('[SHEET86] REBUILD n=$_sheetRebuilds');
+                      return ListView(
+                        padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
+                        children: contents(value),
+                      );
+                    },
                   )),
                 ],
               ),
