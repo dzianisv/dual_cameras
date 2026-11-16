@@ -10,25 +10,24 @@
 #
 # ISSUE #79 ADDENDUM (2026-11-16) — distinct REAL video feeds + full
 # walkthrough: the emulator no longer plays the synthetic test pattern.
-# The 'Download emulator camera feeds' step below fetches two Blender
-# open-movie trailers (CC-BY 3.0, Blender Foundation — attribution in
-# this comment and on issue #79; reuse in CI test feeds only, no
-# redistribution) and loop-extends each to 600 s with ffmpeg, then the
-# emulator plays them per camera: rear = Big Buck Bunny trailer (bright
+# The 'Prepare emulator camera feeds' step below loop-extends two
+# committed Blender open-movie trailers (CC-BY 3.0, Blender Foundation
+# — attribution in tools/emulator-feeds/README.md and on issue #79;
+# reuse in CI test feeds only) to 600 s with ffmpeg, then the emulator
+# plays them per camera: rear = Big Buck Bunny trailer (bright
 # forest/bunny, unmistakable), front = Sintel trailer (snowy mountains /
-# girl + dragon, unmistakable). Download-in-workflow, NOT committed
-# fixtures: the clips are 7.6 MB + 17.8 MB downloads and the looped
-# files are 45 MB + 161 MB — committing them would bloat the repo for
-# every clone, while download.blender.org is a stable official source
-# and the step fails loudly (curl -f) if a URL moves. No ffmpeg test
-# patterns, no emulated feed, no other product's assets.
-#   rear: https://download.blender.org/peach/trailer/trailer_720p.mov
-#         (Big Buck Bunny, CC-BY 3.0, 1280x720 h264+aac, 33 s, 17.8 MB)
-#   front: https://download.blender.org/durian/trailer/sintel_trailer-720p.mp4
-#         (Sintel, CC-BY 3.0, 1280x720 h264+aac, 52 s, 7.6 MB)
-# The 600 s loop covers the whole walkthrough even if the emulator
-# plays the file once through instead of looping it (unknown until a
-# run — the launch motion pair + video proof below are the check).
+# girl + dragon, unmistakable). COMMITTED FIXTURES, not downloaded:
+# the first attempt downloaded in-workflow, and run 43804082643 failed
+# on `curl: (22) 403` from download.blender.org to the GitHub runner's
+# egress IP (same URL is 200 from a dev machine; Google's
+# gtv-videos-bucket samples 403 from cloud IPs too) — two media hosts
+# blocking cloud egress makes a third host a gamble, so the 25.4 MB of
+# trailers live in tools/emulator-feeds/ with SHA-256 provenance in
+# its README.md. No ffmpeg test patterns, no emulated feed, no other
+# product's assets. The 600 s loop covers the whole walkthrough even
+# if the emulator plays the file once through instead of looping it
+# (unknown until a run — the launch motion pair + video proof below
+# are the check).
 # Paths are absolute via ${{ github.workspace }}: the emulator resolves
 # videofile: paths on the HOST, and the runner's checkout dir is the
 # only path that is the same in the download step and the emulator step.
@@ -204,21 +203,20 @@ jobs:
           sudo chmod 666 /dev/kvm 2>/dev/null || echo "chmod /dev/kvm skipped"
           ls -l /dev/kvm || true
 
-      # ISSUE #79: fetch the two real camera feeds (Blender open-movie
-      # trailers, CC-BY 3.0 — see the header addendum) and loop-extend
-      # each to 600 s so the feed outlasts the walkthrough even if the
-      # emulator plays the file once through instead of looping it.
-      # ffmpeg is preinstalled on ubuntu-latest; the apt fallback only
-      # runs if it is missing. curl -f fails the step if a URL moves.
-      # ffprobe prints the resulting durations for the log.
-      - name: Download emulator camera feeds (issue #79)
+      # ISSUE #79: loop-extend the two committed real camera feeds
+      # (Blender open-movie trailers, CC-BY 3.0 — sources, licenses,
+      # hashes, and the fixtures-vs-download reasoning live in
+      # tools/emulator-feeds/README.md) to 600 s each, so the feed
+      # outlasts the walkthrough even if the emulator plays the file
+      # once through instead of looping it. ffmpeg is NOT preinstalled
+      # on the current ubuntu-latest image (run 43804082643 installed
+      # it via apt) — the apt fallback stays. ffprobe prints the
+      # resulting durations for the log.
+      - name: Prepare emulator camera feeds (issue #79)
         run: |
-          mkdir -p tools/emulator-feeds
+          ls -la tools/emulator-feeds/
           command -v ffmpeg >/dev/null || (sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg)
           command -v ffprobe >/dev/null || (sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg)
-          curl -fSL --max-time 300 -o tools/emulator-feeds/sintel-trailer.mp4 https://download.blender.org/durian/trailer/sintel_trailer-720p.mp4
-          curl -fSL --max-time 300 -o tools/emulator-feeds/bbb-trailer.mov https://download.blender.org/peach/trailer/trailer_720p.mov
-          ls -la tools/emulator-feeds/
           ffmpeg -y -v error -stream_loop 19 -i tools/emulator-feeds/sintel-trailer.mp4 -c copy -t 600 tools/emulator-feeds/front-feed.mp4
           ffmpeg -y -v error -stream_loop 19 -i tools/emulator-feeds/bbb-trailer.mov -c copy -t 600 tools/emulator-feeds/rear-feed.mp4
           ffprobe -v error -show_entries format=duration -of csv=p=0 tools/emulator-feeds/front-feed.mp4

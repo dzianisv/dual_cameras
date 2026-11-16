@@ -6,8 +6,8 @@
 # (issue #13) — but since issue #79 the emulator IS the gate for
 # test work wherever it can exercise it: it now plays two distinct
 # real videos (Big Buck Bunny trailer rear, Sintel trailer front —
-# Blender open movies, CC-BY 3.0; see emulator-screenshots.yml header
-# for sources, licenses, and the download-vs-fixtures reasoning) via
+# Blender open movies, CC-BY 3.0; sources, licenses, hashes, and the
+# fixtures-vs-download reasoning live in tools/emulator-feeds/README.md) via
 # -camera-back/-camera-front videofile:, so the motion pairs below run
 # against real moving feeds instead of the synthetic test pattern, and
 # a --regions check proves the two feeds differ on the live preview.
@@ -185,18 +185,16 @@ jobs:
           sudo chmod 666 /dev/kvm 2>/dev/null || echo "chmod /dev/kvm skipped"
           ls -l /dev/kvm || true
 
-      # ISSUE #79: fetch the two real camera feeds (Blender open-movie
-      # trailers, CC-BY 3.0) and loop-extend each to 600 s — same step as
-      # emulator-screenshots.yml (sources, licenses, and the
-      # download-vs-fixtures reasoning live in that file's header).
-      - name: Download emulator camera feeds (issue #79)
+      # ISSUE #79: loop-extend the two committed real camera feeds
+      # (Blender open-movie trailers, CC-BY 3.0 — sources, licenses,
+      # hashes, and the fixtures-vs-download reasoning live in
+      # tools/emulator-feeds/README.md) to 600 s — same step as
+      # emulator-screenshots.yml.
+      - name: Prepare emulator camera feeds (issue #79)
         run: |
-          mkdir -p tools/emulator-feeds
+          ls -la tools/emulator-feeds/
           command -v ffmpeg >/dev/null || (sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg)
           command -v ffprobe >/dev/null || (sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg)
-          curl -fSL --max-time 300 -o tools/emulator-feeds/sintel-trailer.mp4 https://download.blender.org/durian/trailer/sintel_trailer-720p.mp4
-          curl -fSL --max-time 300 -o tools/emulator-feeds/bbb-trailer.mov https://download.blender.org/peach/trailer/trailer_720p.mov
-          ls -la tools/emulator-feeds/
           ffmpeg -y -v error -stream_loop 19 -i tools/emulator-feeds/sintel-trailer.mp4 -c copy -t 600 tools/emulator-feeds/front-feed.mp4
           ffmpeg -y -v error -stream_loop 19 -i tools/emulator-feeds/bbb-trailer.mov -c copy -t 600 tools/emulator-feeds/rear-feed.mp4
           ffprobe -v error -show_entries format=duration -of csv=p=0 tools/emulator-feeds/front-feed.mp4
