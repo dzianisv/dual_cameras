@@ -83,14 +83,16 @@ class CameraSettings {
 
   /// Map circle zoom (issue #47): the single source of truth — the
   /// persisted setting IS the live zoom (pinch and the Settings slider
-  /// write the same value). Range 13–19, default 16.0 = the old fixed
+  /// write the same value). Range 2–19, default 16.0 = the old fixed
   /// zoom, so the map looks exactly as before until Den touches it.
   final double mapZoom;
 
-  /// Allowed map zoom range (issue #47, D2): max 19 is the tile layer's
-  /// maxNativeZoom; below 13 the dot is a city-level pin and the place
-  /// label does the locating better than the map does.
-  static const double minMapZoom = 13.0;
+  /// Allowed map zoom range (issue #47, D2; floor widened to 2.0 by
+  /// issue #82 so a whole region / Bali island fits in the map circle):
+  /// max 19 is the tile layer's maxNativeZoom; zoom 2 shows a whole
+  /// region (~4,643 km across in the circle), zoom 1 would show a
+  /// quarter of the world and stays out of range deliberately.
+  static const double minMapZoom = 2.0;
   static const double maxMapZoom = 19.0;
   static const double defaultMapZoom = 16.0;
 

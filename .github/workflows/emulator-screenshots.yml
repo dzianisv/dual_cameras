@@ -183,6 +183,11 @@ jobs:
             adb shell pm grant app.storycam android.permission.POST_NOTIFICATIONS || true
             adb shell pm grant app.storycam android.permission.ACCESS_FINE_LOCATION || true
             adb shell pm grant app.storycam android.permission.ACCESS_COARSE_LOCATION || true
+            # #82 BEGIN — Bali mock location FIRST, before launch, so the
+            # app's first location fix (and place label) is Bali, not the
+            # emulator default. `adb emu geo fix` takes longitude first.
+            adb emu geo fix 115.3088 -8.4264
+            # #82 END
             adb shell am start -n app.storycam/.MainActivity
             sleep 30
             adb shell pidof app.storycam || (adb logcat -d | grep -i -E "storycam|flutter|fatal|crash" | tail -30; exit 1)
@@ -250,6 +255,24 @@ jobs:
             adb shell input keyevent 4
             sleep 1
             adb shell pidof app.storycam || (adb logcat -d | grep -i -E "storycam|flutter|fatal|crash" | tail -30; exit 1)
+            # #82 BEGIN — wide-zoom proof (issue #82): Bali mock location,
+            # Settings Map-section slider dragged to its minimum (2.0),
+            # then the map circle at the wide zoom. Uses only main-branch
+            # helpers (tools/emulator_tap.py text taps + adb); the slider
+            # drag reads the slider track from a uiautomator dump and
+            # swipes it end to end — each script: line is a separate
+            # `sh -c`, so the python below is one self-contained line.
+            adb emu geo fix 115.3088 -8.4264
+            sleep 5
+            python3 tools/emulator_tap.py 'Map'
+            sleep 3
+            python3 -c "import subprocess, xml.etree.ElementTree as ET; subprocess.run(['adb', 'shell', 'uiautomator', 'dump', '/data/local/tmp/ui82.xml'], check=True, capture_output=True); subprocess.run(['adb', 'pull', '/data/local/tmp/ui82.xml', '/tmp/ui82.xml'], check=True, capture_output=True); root = ET.parse('/tmp/ui82.xml').getroot(); print('zoom-nodes:', [(n.get('class'), n.get('bounds'), n.get('text'), n.get('content-desc')) for n in root.iter('node') if 'Map zoom' in ((n.get('text') or '') + (n.get('content-desc') or ''))]); bars = [n for n in root.iter('node') if 'SeekBar' in (n.get('class') or '')]; print('seekbars:', [(n.get('bounds'), n.get('text'), n.get('content-desc')) for n in bars]); assert bars, 'no SeekBar in dump'; b = bars[0].get('bounds').replace('][', ',').strip('[]').split(','); x1, y1, x2, y2 = map(int, b); cy = (y1 + y2) // 2; print('slider bounds:', b, 'cy:', cy); subprocess.run(['adb', 'shell', 'input', 'swipe', str(x2 - 8), str(cy), str(x1 + 8), str(cy), '600'], check=True); print('swiped slider to min'); subprocess.run(['adb', 'shell', 'uiautomator', 'dump', '/data/local/tmp/ui82.xml'], check=True, capture_output=True); subprocess.run(['adb', 'pull', '/data/local/tmp/ui82.xml', '/tmp/ui82.xml'], check=True, capture_output=True); root2 = ET.parse('/tmp/ui82.xml').getroot(); print('labels:', [n.get('text') for n in root2.iter('node') if (n.get('text') or '').startswith('Map zoom')])"
+            sleep 2
+            adb exec-out screencap -p > 08-zoom-slider-min.png
+            adb shell input keyevent 4
+            sleep 3
+            adb exec-out screencap -p > 09-map-wide-bali.png
+            # #82 END
             adb logcat -d | grep -i -E "storycam|flutter|fatal|crash" | tail -50 || true
             ls -la *.png
 

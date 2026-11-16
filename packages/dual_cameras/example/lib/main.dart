@@ -2338,7 +2338,7 @@ class _DemoScreenState extends State<DemoScreen> with WidgetsBindingObserver {
             key: const Key('map-zoom-slider'),
             min: CameraSettings.minMapZoom,
             max: CameraSettings.maxMapZoom,
-            divisions: 12,
+            divisions: 34,
             label: _settings.mapZoom.toStringAsFixed(1),
             value: _settings.mapZoom,
             onChanged: (v) =>
