@@ -64,6 +64,11 @@ name: StoryCam emulator smoke test
 
 on:
   workflow_dispatch:
+    inputs:
+      longrec81:
+        description: 'Issue #81 scratch: 40 s long-recording repro instead of the normal smoke legs (temporary, revert before merge)'
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -148,6 +153,7 @@ jobs:
         run: python3 -m pip install --quiet pillow imageio-ffmpeg
 
       - name: Emulator smoke test
+        if: ${{ !inputs.longrec81 }}
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: 34
@@ -220,6 +226,88 @@ jobs:
             adb shell dumpsys activity activities | grep -i -A2 -B2 storycam || true
             adb logcat -d | grep -i -E "storycam|flutter|fatal|crash" | tail -50 || true
             
+      - name: Emulator long recording repro (#81, scratch)
+        if: ${{ inputs.longrec81 }}
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          cores: 4
+          ram-size: 4096
+          heap-size: 1024
+          arch: x86_64
+          target: google_apis
+          emulator-options: -no-snapshot-save -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back emulated -camera-front emulated
+          disable-animations: true
+          disable-linux-hw-accel: false
+          emulator-boot-timeout: 900
+          script: |
+            adb install -r packages/dual_cameras/example/build/app/outputs/flutter-apk/app-release.apk
+            adb shell pm grant app.storycam android.permission.CAMERA || true
+            adb shell pm grant app.storycam android.permission.RECORD_AUDIO || true
+            adb shell pm grant app.storycam android.permission.POST_NOTIFICATIONS || true
+            adb shell pm grant app.storycam android.permission.ACCESS_FINE_LOCATION || true
+            adb shell pm grant app.storycam android.permission.ACCESS_COARSE_LOCATION || true
+            adb shell am start -n app.storycam/.MainActivity
+            sleep 20
+            adb shell pidof app.storycam || (adb logcat -d | grep -i -E "storycam|flutter|fatal|crash" | tail -30; adb logcat -d -b crash | tail -40 || true; exit 1)
+            adb exec-out screencap -p > longrec-launch.png
+            python3 tools/emulator_tap.py 'Wait' || true
+            sleep 5
+            python3 tools/emulator_tap.py 'Allow' || true
+            sleep 2
+            python3 tools/emulator_tap.py 'Open camera' || true
+            sleep 20
+            adb shell pidof app.storycam || (adb logcat -d | grep -i -E "storycam|flutter|fatal|crash" | tail -30; adb logcat -d -b crash | tail -40 || true; exit 1)
+            adb exec-out screencap -p > longrec-ready.png
+            date -u '+RECORDING START %Y-%m-%dT%H:%M:%SZ'
+            python3 tools/emulator_tap.py 'Start recording'
+            sleep 10
+            date -u '+CHECKPOINT T+10s %Y-%m-%dT%H:%M:%SZ'
+            adb shell pidof app.storycam && echo 'T+10: APP ALIVE' || echo 'T+10: APP DEAD (pidof empty)'
+            adb exec-out screencap -p > longrec-t10.png
+            python3 tools/emulator_tap.py 'Wait' || true
+            sleep 10
+            date -u '+CHECKPOINT T+20s %Y-%m-%dT%H:%M:%SZ'
+            adb shell pidof app.storycam && echo 'T+20: APP ALIVE' || echo 'T+20: APP DEAD (pidof empty)'
+            adb exec-out screencap -p > longrec-t20.png
+            sleep 10
+            date -u '+CHECKPOINT T+30s %Y-%m-%dT%H:%M:%SZ'
+            adb shell pidof app.storycam && echo 'T+30: APP ALIVE' || echo 'T+30: APP DEAD (pidof empty)'
+            adb exec-out screencap -p > longrec-t30.png
+            adb shell uiautomator dump /data/local/tmp/ui.xml
+            adb pull /data/local/tmp/ui.xml /tmp/ui-30s.xml
+            cp /tmp/ui-30s.xml ui-30s.xml || true
+            grep -q 'Stop recording' /tmp/ui-30s.xml && echo 'T+30: STILL RECORDING (Stop button present)' || echo 'T+30: NOT RECORDING (no Stop button — take stopped early or UI frozen)'
+            grep -q -i 'responding' /tmp/ui-30s.xml && echo 'T+30: ANR DIALOG PRESENT' || echo 'T+30: no ANR dialog in UI dump'
+            sleep 5
+            date -u '+CHECKPOINT T+35s %Y-%m-%dT%H:%M:%SZ'
+            adb shell pidof app.storycam && echo 'T+35: APP ALIVE' || echo 'T+35: APP DEAD (pidof empty)'
+            adb exec-out screencap -p > longrec-t35.png
+            adb shell uiautomator dump /data/local/tmp/ui.xml
+            adb pull /data/local/tmp/ui.xml /tmp/ui-35s.xml
+            cp /tmp/ui-35s.xml ui-35s.xml || true
+            grep -q 'Stop recording' /tmp/ui-35s.xml && echo 'T+35: STILL RECORDING (Stop button present)' || echo 'T+35: NOT RECORDING (no Stop button — take stopped early or UI frozen)'
+            sleep 5
+            date -u '+STOP TAP ~T+40s %Y-%m-%dT%H:%M:%SZ'
+            timeout 120 python3 tools/emulator_tap.py 'Stop recording' && echo 'STOP TAP: tapped' || echo 'STOP TAP: FAILED (button absent or tap helper failed — UI may be frozen)'
+            sleep 15
+            adb shell pidof app.storycam && echo 'AFTER-STOP: APP ALIVE' || echo 'AFTER-STOP: APP DEAD (pidof empty)'
+            adb exec-out screencap -p > longrec-after-stop.png
+            python3 tools/preview_diff.py longrec-t10.png longrec-t20.png --min-diff 0.1 || echo 'MOTION T10-T20: 0.00% or below threshold (preview frozen in that window — see diff output above)'
+            python3 tools/preview_diff.py longrec-t20.png longrec-t30.png --min-diff 0.1 || echo 'MOTION T20-T30: 0.00% or below threshold (preview frozen in that window — see diff output above)'
+            python3 tools/preview_diff.py longrec-t30.png longrec-t35.png --min-diff 0.1 || echo 'MOTION T30-T35: 0.00% or below threshold (preview frozen in that window — see diff output above)'
+            adb logcat -d > logcat-full.txt
+            adb logcat -d | grep -i -E "storycam|flutter|fatal|crash" | tail -100 > logcat-storycam.txt || true
+            adb logcat -d | grep -i -E "MAPBURN|CaptionBurner|MapRenderer" | tail -60 > logcat-mapburn.txt || true
+            adb logcat -d | grep -i -E "ANR|not responding|OutOfMemory|thermal|MediaCodec|MediaMuxer" | tail -60 > logcat-anr.txt || true
+            adb logcat -d -b crash > logcat-crash.txt || true
+            adb shell dumpsys meminfo app.storycam > meminfo.txt || true
+            adb shell dumpsys activity activities > dumpsys-activities.txt || true
+            python3 tools/mapburn_check.py || echo 'MAPBURN CHECK: non-zero exit (see mapburn.log — expected if the take stopped early and no burn ran)'
+            python3 tools/longrec_probe.py
+            ls -l *.mp4 *.png *.txt *.log 2>/dev/null || true
+            echo 'LONGREC RUN 1 DONE — verdict from the checkpoint lines + longrec_probe output above'
+
       - name: Upload launch screenshot
         uses: actions/upload-artifact@v4
         if: always()
@@ -234,4 +322,15 @@ jobs:
             mapburn-burned.png
             mapburn-original.mp4
             mapburn-burned.mp4
+            longrec-*.png
+            logcat-full.txt
+            logcat-storycam.txt
+            logcat-mapburn.txt
+            logcat-anr.txt
+            logcat-crash.txt
+            meminfo.txt
+            dumpsys-activities.txt
+            device-*.mp4
+            ui-30s.xml
+            ui-35s.xml
           retention-days: 7
