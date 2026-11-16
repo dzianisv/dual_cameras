@@ -12,6 +12,9 @@ Usage:
     python3 tools/preview_diff.py <before.png> <after.png> --min-diff <pct> --box front|rear
     python3 tools/preview_diff.py --regions <shot.png> --min-mean-diff <diff>
     python3 tools/preview_diff.py --video-proof <recording.mp4> --times 1,5 --min-diff 0.1 --min-mean-diff 5.0
+    python3 tools/preview_diff.py --not-black <shot.png>
+    python3 tools/preview_diff.py --file-proof <recording.mp4> --min-duration <secs>
+    python3 tools/preview_diff.py --gallery-proof <content-query.txt> [--expect-name <file>] [--rec-start <epoch-file>]
 
 Exits 0 when the differing-pixel fraction is at or above --min-diff
 (motion seen: the preview is live), 1 otherwise (frozen or blind), and
@@ -42,11 +45,39 @@ pass — acceptable for a regression guard. This test guards "no worse",
 not "fixed": it already passes on unfixed code, and Den's phone is the
 proof gate for the fix.
 
-ISSUE #79 EXTENSION — front-vs-rear feed proof (2026-11-16): the CI
-emulator now plays two DIFFERENT real videos (Big Buck Bunny trailer
-as the rear feed, Sintel trailer as the front feed) via
-`-camera-back/-camera-front videofile:`. Two new modes prove the feeds
-are live and different at the same moment:
+ISSUE #79 EXTENSION — front-vs-rear feed proof (2026-11-16): the
+videofile attempt wired two DIFFERENT real videos (Big Buck Bunny
+trailer as the rear feed, Sintel trailer as the front feed) via
+`-camera-back/-camera-front videofile:`, but Stage 4 FAILED it — the
+CI emulator's camera HAL reports no front+back concurrent combo for
+any non-emulated feed, so the camera never opened. The Track A
+rework (2026-11-16) runs the emulator on its emulated test-pattern
+feed instead: screenshots show the test pattern, honestly stated,
+and the real-feeds proof moves to a real device (Track B). The
+--regions / --video-proof modes below are KEPT, uninvoked on this
+route, for that Track B real-device proof — do not invoke a
+distinctness check on the emulated feed (front and rear show the
+SAME test pattern, so it cannot pass). What the emulated route
+asserts instead:
+
+* --not-black <shot.png>: the black-guard as a standalone sanity
+  check — each feed region's mean brightness must be >= 8.0, i.e.
+  a video feed is actually on screen (run 43806479078: a black
+  preview still scored a 7.97 mean diff and would have PASSED
+  --regions).
+* --file-proof <recording.mp4> --min-duration <s>: the core-loop
+  proof (issues #79 + #87) — the pulled recording exists, is
+  non-empty, has ffprobe/ffmpeg duration >= the floor, and a frame
+  extracts at t=1s (playable). Never trust the "Video saved to
+  gallery" status text.
+* --gallery-proof <content-query.txt> [--expect-name <base>]
+  [--rec-start <epoch-file>]: the MediaStore side of the same
+  proof — the gallery row for the recording exists with
+  duration > 0 (optionally tied to this recording by file name
+  and/or by date_added recency).
+
+Two new modes prove the feeds are live and different at the same
+moment (TRACK B ONLY — see above):
 
 * --regions <shot.png>: compares the front (selfie) circle region
   against a rear full-frame region WITHIN one screenshot, as the mean
@@ -189,13 +220,118 @@ def regions_check(img_path, min_mean_diff):
     return diff >= min_mean_diff
 
 
-def extract_frame(mp4, out_png, t_sec):
-    import imageio_ffmpeg
+def not_black_check(img_path):
+    """Black-guard as a standalone sanity check (Track A): each feed
+    region's mean brightness must clear MIN_MEAN_BRIGHTNESS. Proves a
+    video feed is on screen; says nothing about distinctness."""
+    img = Image.open(img_path).convert("RGB")
+    ok = True
+    for name, frac in (("front", FRONT_BOX_FRAC), ("rear", REAR_BOX_FRAC)):
+        bright = mean_brightness(img, frac)
+        print(f"black-guard {img_path} {name} box: mean brightness "
+              f"{bright:.2f} (needs >= {MIN_MEAN_BRIGHTNESS})")
+        if bright < MIN_MEAN_BRIGHTNESS:
+            print(f"BLACK GUARD FAIL: {name} box looks black in "
+                  f"{img_path} — no video feed")
+            ok = False
+    return ok
 
+
+def file_proof(mp4, min_duration):
+    """Core-loop proof (issues #79 + #87): the recording exists, is
+    non-empty, lasts >= min_duration seconds, and a frame extracts
+    (playable). The status text is never consulted."""
+    import os
+    import re
+    import subprocess
+
+    if not os.path.exists(mp4):
+        print(f"FILE PROOF FAIL: {mp4} does not exist")
+        return 1
+    size = os.path.getsize(mp4)
+    if size == 0:
+        print(f"FILE PROOF FAIL: {mp4} is empty (0 bytes)")
+        return 1
+    r = subprocess.run([ffmpeg_exe(), "-i", mp4],
+                       capture_output=True, text=True)
+    m = re.search(r"Duration: (\d+):(\d+):([\d.]+)", r.stderr)
+    if not m:
+        print(f"FILE PROOF FAIL: no duration in ffmpeg output for "
+              f"{mp4}:\n{r.stderr[-1000:]}")
+        return 1
+    dur = int(m.group(1)) * 3600 + int(m.group(2)) * 60 + float(m.group(3))
+    print(f"FILE PROOF: {mp4} exists, {size} B, duration {dur:.2f}s "
+          f"(needs >= {min_duration:.1f}s)")
+    if dur < min_duration:
+        print(f"FILE PROOF FAIL: duration {dur:.2f}s < {min_duration:.1f}s")
+        return 1
+    out = "file-proof-frame.png"
+    if not extract_frame(mp4, out, 1):
+        print(f"FILE PROOF FAIL: no frame extracts at t=1s — not playable")
+        return 1
+    print(f"FILE PROOF PASS: {mp4} exists, duration {dur:.2f}s, frame "
+          f"extracts ({out})")
+    return 0
+
+
+def gallery_proof(query_file, expect_name, rec_start_file):
+    """MediaStore side of the core-loop proof: parse an
+    `adb shell content query` dump of the video table and require a
+    row with duration > 0. --expect-name ties the row to this
+    recording (the _data path ends with the recorded file's name);
+    --rec-start requires date_added within 10 s before the
+    recording's start (device clock == host clock on the emulator)."""
+    import os
+    import re
+
+    if not os.path.exists(query_file):
+        print(f"GALLERY PROOF FAIL: {query_file} does not exist")
+        return 1
+    text = open(query_file).read()
+    print(f"gallery query output:\n{text.strip()}")
+    rows = re.findall(r"Row: \d+ (.*)", text)
+    if not rows:
+        print("GALLERY PROOF FAIL: no rows in the MediaStore video table")
+        return 1
+    start = None
+    if rec_start_file:
+        start = int(open(rec_start_file).read().strip())
+    for row in rows:
+        data = re.search(r"_data=([^,]+)", row)
+        dur = re.search(r"duration=(\d+)", row)
+        added = re.search(r"date_added=(\d+)", row)
+        if not dur or int(dur.group(1)) <= 0:
+            continue
+        if expect_name and not (data and data.group(1).endswith(expect_name)):
+            continue
+        if start is not None:
+            if not added or int(added.group(1)) < start - 10:
+                continue
+        print(f"GALLERY PROOF PASS: {row.strip()}")
+        return 0
+    print("GALLERY PROOF FAIL: no gallery row with duration > 0"
+          + (f" for {expect_name}" if expect_name else "")
+          + (f" since {start}" if start is not None else ""))
+    return 1
+
+
+def ffmpeg_exe():
+    """Static ffmpeg from imageio-ffmpeg (installed on the runner);
+    falls back to a system ffmpeg when the package is absent, so the
+    helper also runs on a plain checkout."""
+    try:
+        import imageio_ffmpeg
+
+        return imageio_ffmpeg.get_ffmpeg_exe()
+    except ImportError:
+        return "ffmpeg"
+
+
+def extract_frame(mp4, out_png, t_sec):
     import subprocess
 
     r = subprocess.run([
-        imageio_ffmpeg.get_ffmpeg_exe(), "-y", "-ss", str(t_sec),
+        ffmpeg_exe(), "-y", "-ss", str(t_sec),
         "-i", mp4, "-frames:v", "1", "-f", "image2", out_png,
     ], capture_output=True, text=True)
     if r.returncode != 0:
@@ -248,11 +384,35 @@ def main(argv=None):
     parser.add_argument("--min-mean-diff", type=float, default=MIN_MEAN_DIFF,
                         help="minimum mean abs diff for --regions")
     parser.add_argument("--video-proof", metavar="MP4",
-                        help="recorded-video proof: regions + motion")
+                        help="recorded-video proof: regions + motion "
+                        "(Track B only — not invoked on the emulated feed)")
     parser.add_argument("--times", default="1,5",
                         help="comma-separated frame times (s) for "
                         "--video-proof")
+    parser.add_argument("--not-black", metavar="PNG",
+                        help="black-guard sanity check: both feed regions "
+                        "must clear the brightness floor")
+    parser.add_argument("--file-proof", metavar="MP4",
+                        help="core-loop proof: file exists, duration >= "
+                        "--min-duration, frame extracts")
+    parser.add_argument("--min-duration", type=float, default=0.0,
+                        help="minimum duration (s) for --file-proof")
+    parser.add_argument("--gallery-proof", metavar="TXT",
+                        help="MediaStore proof: content-query dump must "
+                        "hold a row with duration > 0")
+    parser.add_argument("--expect-name", metavar="FILE",
+                        help="gallery row _data must end with this name")
+    parser.add_argument("--rec-start", metavar="FILE",
+                        help="file holding the recording start epoch (s); "
+                        "gallery row date_added must be >= start - 10")
     args = parser.parse_args(argv)
+    if args.not_black:
+        return 0 if not_black_check(args.not_black) else 1
+    if args.file_proof:
+        return file_proof(args.file_proof, args.min_duration)
+    if args.gallery_proof:
+        return gallery_proof(args.gallery_proof, args.expect_name,
+                             args.rec_start)
     if args.video_proof:
         times = [int(t) for t in args.times.split(",")]
         return video_proof(args.video_proof, times, args.min_diff,
@@ -260,7 +420,8 @@ def main(argv=None):
     if args.regions:
         return 0 if regions_check(args.regions, args.min_mean_diff) else 1
     if not args.before or not args.after:
-        parser.error("need <before> <after>, --regions, or --video-proof")
+        parser.error("need <before> <after>, --regions, --video-proof, "
+                     "--not-black, --file-proof, or --gallery-proof")
     pct = diff_fraction(args.before, args.after, box=args.box)
     print(f"{args.box}-region diff {args.before} vs {args.after}: "
           f"{pct:.2f}% (needs >= {args.min_diff:.2f}%)")

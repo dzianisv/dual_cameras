@@ -8,44 +8,37 @@
 # is still the proof gate and the source of the best screenshots (see
 # ~/workspace/storycam/PHONE_TEST_PLAN.md).
 #
-# ISSUE #79 ADDENDUM (2026-11-16) — distinct REAL video feeds + full
-# walkthrough: the emulator no longer plays the synthetic test pattern.
-# The 'Prepare emulator camera feeds' step below loop-extends two
-# committed Blender open-movie trailers (CC-BY 3.0, Blender Foundation
-# — attribution in tools/emulator-feeds/README.md and on issue #79;
-# reuse in CI test feeds only) to 600 s with ffmpeg, then the emulator
-# plays them per camera: rear = Big Buck Bunny trailer (bright
-# forest/bunny, unmistakable), front = Sintel trailer (snowy mountains /
-# girl + dragon, unmistakable). COMMITTED FIXTURES, not downloaded:
-# the first attempt downloaded in-workflow, and run 43804082643 failed
-# on `curl: (22) 403` from download.blender.org to the GitHub runner's
-# egress IP (same URL is 200 from a dev machine; Google's
-# gtv-videos-bucket samples 403 from cloud IPs too) — two media hosts
-# blocking cloud egress makes a third host a gamble, so the 25.4 MB of
-# trailers live in tools/emulator-feeds/ with SHA-256 provenance in
-# its README.md. No ffmpeg test patterns, no emulated feed, no other
-# product's assets. The 600 s loop covers the whole walkthrough even
-# if the emulator plays the file once through instead of looping it
-# (unknown until a run — the launch motion pair + video proof below
-# are the check).
-# Paths are absolute via ${{ github.workspace }}: the emulator resolves
-# videofile: paths on the HOST, and the runner's checkout dir is the
-# only path that is the same in the download step and the emulator step.
-# The script then walks EVERYTHING with the feeds live: all 8 filters
-# in order, all 5 bottom-menu items + the settings sections they open,
-# map zoom (double-tap + slider drag, value read back from the UI),
-# record start/stop, last-video menu, share sheet, and a recorded-video
-# frame proof (tools/preview_diff.py --video-proof). Walkthrough items
-# print WALKTHROUGH <item>: PASS|FAIL lines to the log and never fail
-# the run on their own — the results table is compiled from the log +
-# screenshots and posted on #79. The CORE proof DOES fail the run:
-# front/rear regions differ + both move at launch, and the recorded
-# video's frames show two different moving feeds. If videofile fails
-# on this emulator (black/frozen preview), those checks fail loudly —
-# do NOT fall back to the test pattern; record the error on #79.
-# Shot numbering: 01 launch, 10-17 filters, 20-27 settings sections,
-# 04-07 recording/share (kept from the old flow), video-proof-t*.png
-# frames from the recording. Old 02-captions-sheet / 03-filters shots
+# ISSUE #79 — TRACK A REWORK (2026-11-16): the emulator runs its
+# EMULATED test-pattern feed (-camera-back/-camera-front emulated).
+# The videofile attempt is OVER: Stage 4 FAILED it (PR #80 comment
+# 6909005894) — the CI emulator's camera HAL reports no front+back
+# concurrent combo for any non-emulated feed (videofile, v4l2loopback,
+# imagefile all end in a black preview + "Dual camera is unavailable
+# on this device (noConcurrentCamera)"), so wiring videofile: would
+# brick the camera in both CI workflows. The committed fixtures under
+# tools/emulator-feeds/ (Sintel + BBB trailers + README) STAY as the
+# record + Track B reuse — they cost nothing at runtime when
+# unreferenced. Distinct REAL feeds (different moving content front
+# vs rear) are proven on a real device instead (Track B); this pass
+# proves the walkthrough + the saved file on the emulated feed, and
+# its screenshots show the test pattern — said honestly, never
+# claimed as real feeds. The script walks EVERYTHING: all 8 filters
+# in order, the lens pills, all 5 bottom-menu items + the settings
+# sections they open, map zoom (double-tap + slider drag, value read
+# back from the UI), record start/stop, last-video menu, share sheet,
+# and the recorded-file proof (tools/preview_diff.py --file-proof +
+# --gallery-proof). Walkthrough items print WALKTHROUGH <item>:
+# PASS|FAIL lines to the log. The CORE proof DOES fail the run: the
+# launch preview must be live (not black, moving), and after EVERY
+# recording the video file must EXIST in MediaStore/the gallery with
+# duration > 0 — queried from the gallery, never the "Video saved to
+# gallery" status text — including a 30 s+ recording stopped with map
+# ON and captions ON (the issue #87 path). A missing gallery file
+# fails loudly; the assertion is never weakened to go green.
+# Shot numbering: 01 launch, 10-17 filters, 18 lens pills, 20-27
+# settings sections, 04-07 recording/share (kept from the old flow),
+# 29-30 the 30 s map+captions recording, file-proof-*-frame.png
+# frames from the recordings. Old 02-captions-sheet / 03-filters shots
 # are superseded by 23-section-captions / 11-filter-moody.
 #
 # SHELL RULE (learned the hard way, run 43491636991): the
@@ -203,34 +196,14 @@ jobs:
           sudo chmod 666 /dev/kvm 2>/dev/null || echo "chmod /dev/kvm skipped"
           ls -l /dev/kvm || true
 
-      # ISSUE #79: loop-extend the two committed real camera feeds
-      # (Blender open-movie trailers, CC-BY 3.0 — sources, licenses,
-      # hashes, and the fixtures-vs-download reasoning live in
-      # tools/emulator-feeds/README.md) to 600 s each, so the feed
-      # outlasts the walkthrough even if the emulator plays the file
-      # once through instead of looping it. ffmpeg is NOT preinstalled
-      # on the current ubuntu-latest image (run 43804082643 installed
-      # it via apt) — the apt fallback stays. ffprobe prints the
-      # resulting durations for the log.
-      - name: Prepare emulator camera feeds (issue #79)
-        run: |
-          pwd
-          ls -la tools/emulator-feeds/
-          stat tools/emulator-feeds/sintel-trailer-720p.mp4 tools/emulator-feeds/bbb-trailer-720p.mov
-          df -h .
-          command -v ffmpeg >/dev/null || (sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg)
-          command -v ffprobe >/dev/null || (sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg)
-          ls -la tools/emulator-feeds/
-          stat tools/emulator-feeds/sintel-trailer-720p.mp4 tools/emulator-feeds/bbb-trailer-720p.mov
-          ffmpeg -y -v error -stream_loop 19 -i "$GITHUB_WORKSPACE/tools/emulator-feeds/sintel-trailer-720p.mp4" -c copy -t 600 "$GITHUB_WORKSPACE/tools/emulator-feeds/front-feed.mp4"
-          ffmpeg -y -v error -stream_loop 19 -i "$GITHUB_WORKSPACE/tools/emulator-feeds/bbb-trailer-720p.mov" -c copy -t 600 "$GITHUB_WORKSPACE/tools/emulator-feeds/rear-feed.mp4"
-          ffprobe -v error -show_entries format=duration -of csv=p=0 tools/emulator-feeds/front-feed.mp4
-          ffprobe -v error -show_entries format=duration -of csv=p=0 tools/emulator-feeds/rear-feed.mp4
-          ls -la tools/emulator-feeds/
+      # ISSUE #79 — TRACK A: no feed-preparation step on this route.
+      # The emulator runs its emulated test-pattern feed, so nothing
+      # is loop-extended or downloaded. The committed fixtures under
+      # tools/emulator-feeds/ stay as the record + Track B reuse.
 
-      # Pillow is needed by tools/preview_diff.py (region-aware preview
-      # liveness + front/rear feed proof, issues #13/#79) and
-      # imageio-ffmpeg provides the static ffmpeg binary the video proof
+      # Pillow is needed by tools/preview_diff.py (preview liveness,
+      # black-guard, and file/gallery proof, issues #13/#79) and
+      # imageio-ffmpeg provides the static ffmpeg binary the file proof
       # extracts frames with. Neither is preinstalled on the runner.
       - name: Install Pillow + imageio-ffmpeg for the image checks
         run: python3 -m pip install --quiet pillow imageio-ffmpeg
@@ -244,7 +217,7 @@ jobs:
           heap-size: 1024
           arch: x86_64
           target: google_apis
-          emulator-options: -no-snapshot-save -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back videofile:${{ github.workspace }}/tools/emulator-feeds/rear-feed.mp4 -camera-front videofile:${{ github.workspace }}/tools/emulator-feeds/front-feed.mp4
+          emulator-options: -no-snapshot-save -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back emulated -camera-front emulated
           disable-animations: true
           disable-linux-hw-accel: false
           emulator-boot-timeout: 900
@@ -274,12 +247,17 @@ jobs:
             adb pull /data/local/tmp/ui.xml /tmp/ui-launch.xml
             grep -o 'Mendocino[^"]*' /tmp/ui-launch.xml | head -1 || echo 'WALKTHROUGH place-name: no Mendocino text in tree (check the pill in 01-launch.png)'
             grep -o 'text="[^"]*"' /tmp/ui-launch.xml | head -60
-            python3 tools/preview_diff.py --regions 01-launch.png --min-mean-diff 5.0 || (echo 'FEED PROOF FAILED: front-circle vs rear-area regions look the same in 01-launch.png - videofile feeds not distinct'; exit 1)
+            # LAUNCH PROOF (Track A): the preview must be LIVE on the
+            # emulated test-pattern feed — not black (the camera opened)
+            # and moving between shots 3 s apart. NO distinctness check
+            # here: front and rear show the SAME test pattern, so
+            # --regions cannot pass on this route; it stays available
+            # for the Track B real-device proof.
+            python3 tools/preview_diff.py --not-black 01-launch.png || (echo 'LAUNCH PROOF FAILED: a feed region looks black in 01-launch.png - the camera did not open'; exit 1)
             sleep 3
             adb exec-out screencap -p > 01b-motion.png
-            python3 tools/preview_diff.py 01-launch.png 01b-motion.png --min-diff 0.1 --box front || (echo 'FEED PROOF FAILED: no motion in the front-circle region between launch shots 3 s apart - front feed frozen'; exit 1)
-            python3 tools/preview_diff.py 01-launch.png 01b-motion.png --min-diff 0.1 --box rear || (echo 'FEED PROOF FAILED: no motion in the rear region between launch shots 3 s apart - rear feed frozen'; exit 1)
-            echo 'FEED PROOF (launch): front/rear regions differ + both feeds move over 3 s'
+            python3 tools/preview_diff.py 01-launch.png 01b-motion.png --min-diff 0.1 || (echo 'LAUNCH PROOF FAILED: no motion in the preview region between launch shots 3 s apart - preview frozen'; exit 1)
+            echo 'LAUNCH PROOF: preview is live (not black, moving) on the emulated test-pattern feed'
             python3 tools/emulator_tap.py 'Original' || echo 'WALKTHROUGH filter-Original: FAIL (tap missed)'
             sleep 2
             adb exec-out screencap -p > 10-filter-original.png
@@ -309,6 +287,18 @@ jobs:
             sleep 2
             adb exec-out screencap -p > 17-filter-san-andreas.png
             echo 'WALKTHROUGH filters: 8 taps attempted, see shots 10-17 + FAIL lines above'
+            # LENS PILLS (issue #79, Stage 4 note N1): tap every lens
+            # pill the camera API reports and verify no error. The
+            # mode discovers the pills from the live tree (labels are
+            # the zoom ratios, e.g. "0.5"/"1"/"1.5") and hard-fails
+            # when a tap kills the app or raises error text; pills
+            # absent (single-lens camera) is reported honestly, not
+            # failed. The selected pill's state is colour-only and is
+            # not exposed to uiautomator — shot 18 is the visual
+            # record.
+            python3 tools/emulator_tap.py --lens-pills || (echo 'WALKTHROUGH lens-pills: FAIL (see lines above)'; exit 1)
+            sleep 1
+            adb exec-out screencap -p > 18-lens-pills.png
             adb shell input tap 60 105 && adb shell input tap 60 105
             sleep 2
             python3 tools/emulator_tap.py 'Map' || echo 'WALKTHROUGH menu-Map: FAIL (tap missed)'
@@ -406,6 +396,47 @@ jobs:
             adb shell input keyevent 4
             sleep 1
             adb shell pidof app.storycam || (adb logcat -d | grep -i -E "storycam|flutter|fatal|crash" | tail -30; exit 1)
+            # FILE PROOF #1 (issues #79 + #87): the core-loop proof for
+            # the 6 s recording above. The recording path comes from the
+            # app's own Session details tile ('Original: <path>'), not
+            # from a guessed directory — the file lives in the app cache
+            # (DualCamerasPlugin: cacheDir/dcr_<nano>.mp4), so it is
+            # pulled with `adb root` + the /sdcard fallback from
+            # tools/mapburn_check.py. This validates the --video-proof
+            # grep pattern in CI (Stage 4 note N3 — it was never
+            # executed). --file-proof then asserts the pulled file
+            # EXISTS with duration > 0 and a frame that extracts
+            # (playable) — never the "Video saved to gallery" status
+            # text. The MediaStore query asserts the gallery copy
+            # exists too: the row for this recording (matched by file
+            # name) must have duration > 0. A missing gallery row is
+            # issue #87 reproducing — the run fails loudly, the
+            # assertion is NOT weakened to go green.
+            python3 tools/emulator_tap.py 'Settings' || (echo 'FILE PROOF #1 FAILED: Settings tap missed - cannot read the recording path'; exit 1)
+            sleep 3
+            adb shell input swipe 160 500 160 200 300
+            sleep 1
+            adb shell input swipe 160 500 160 200 300
+            sleep 2
+            python3 tools/emulator_tap.py 'Session details' || (echo 'FILE PROOF #1 FAILED: Session details tile not found - cannot read the recording path'; exit 1)
+            sleep 2
+            adb shell uiautomator dump /data/local/tmp/ui.xml
+            adb pull /data/local/tmp/ui.xml /tmp/ui-session.xml
+            grep -o 'Original: [^"]*' /tmp/ui-session.xml | head -1 | sed 's/^Original: //' > /tmp/orig-path.txt
+            cat /tmp/orig-path.txt
+            test -s /tmp/orig-path.txt || (echo 'FILE PROOF #1 FAILED: no Original: path in Session details'; exit 1)
+            basename "$(cat /tmp/orig-path.txt)" > /tmp/orig-base.txt
+            adb root || true
+            adb pull "$(cat /tmp/orig-path.txt)" recorded-6s.mp4 || (adb shell cp "$(cat /tmp/orig-path.txt)" /sdcard/recorded-6s.mp4 && adb pull /sdcard/recorded-6s.mp4 recorded-6s.mp4) || (echo 'FILE PROOF #1 FAILED: could not pull the recording'; exit 1)
+            ls -la recorded-6s.mp4
+            python3 tools/preview_diff.py --file-proof recorded-6s.mp4 --min-duration 5 || (echo 'FILE PROOF #1 FAILED: recorded file missing, empty, too short, or unplayable'; exit 1)
+            mv file-proof-frame.png file-proof-6s-frame.png
+            adb shell content query --uri content://media/external/video/media --projection _data:duration:date_added --sort "date_added DESC" > /tmp/gallery.txt || (echo 'FILE PROOF #1 FAILED: MediaStore query failed'; exit 1)
+            python3 tools/preview_diff.py --gallery-proof /tmp/gallery.txt --expect-name "$(cat /tmp/orig-base.txt)" || (echo 'FILE PROOF #1 FAILED: no gallery row with duration > 0 for this recording (issue #87)'; exit 1)
+            echo 'FILE PROOF #1: 6 s recording exists in the gallery with duration > 0 and plays'
+            adb shell input keyevent 4
+            sleep 1
+            adb shell pidof app.storycam || (adb logcat -d | grep -i -E "storycam|flutter|fatal|crash" | tail -30; exit 1)
             # #82 BEGIN — wide-zoom proof (issue #82): Bali mock location,
             # Settings Map-section slider dragged to its minimum (2.0),
             # then the map circle at the wide zoom. Uses only main-branch
@@ -444,33 +475,60 @@ jobs:
             sleep 3
             adb exec-out screencap -p > 10-map-wide-bali.png
             # #82 END
-            # VIDEO PROOF (issue #79): the recording path comes from the
-            # app's own Session details tile ('Original: <path>'), not
-            # from a guessed directory — the file lives in the app cache
-            # (DualCamerasPlugin: cacheDir/dcr_<nano>.mp4), so it is
-            # pulled with `adb root` + the /sdcard fallback from
-            # tools/mapburn_check.py. --video-proof extracts frames at
-            # t=1s and t=5s and checks front-vs-rear regions differ in
-            # each frame AND each feed's region moves across the two
-            # times. It fails loudly: a frozen or single-feed recording
-            # is not proof.
-            python3 tools/emulator_tap.py 'Settings' || (echo 'VIDEO PROOF FAILED: Settings tap missed - cannot read the recording path'; exit 1)
+            # 30 S RECORDING, MAP ON + CAPTIONS ON (issues #79 + #87):
+            # the stop path that can throw in _mapStopCapture BEFORE
+            # Gal.putVideo saves the file (issue #87 H2). Map is on by
+            # default (CameraSettings mapVisible defaults true) — verify
+            # it explicitly. Captions are off by default — turn them
+            # on. The menu taps below open the sheet at the section
+            # (same as the walkthrough above); --ensure-switch-on reads
+            # the Switch state and taps only when off, then re-reads.
+            # _queueCaptions runs fire-and-forget after Stop and never
+            # holds _busy, so the proof steps below can run while it
+            # works. The recording runs 30 s+ to Stop with the app
+            # alive after; FILE PROOF #2 is the same file-exists +
+            # gallery proof as #1 for this take.
+            python3 tools/emulator_tap.py 'Map' || (echo '30S RECORDING FAILED: Map menu tap missed'; exit 1)
+            sleep 3
+            python3 tools/emulator_tap.py --ensure-switch-on 'Location circle' || (echo '30S RECORDING FAILED: map (Location circle) is not ON'; exit 1)
+            adb shell input keyevent 4
+            sleep 2
+            python3 tools/emulator_tap.py 'Captions' || (echo '30S RECORDING FAILED: Captions menu tap missed'; exit 1)
+            sleep 3
+            python3 tools/emulator_tap.py --ensure-switch-on 'Auto-captions' || (echo '30S RECORDING FAILED: captions (Auto-captions) are not ON'; exit 1)
+            adb shell input keyevent 4
+            sleep 2
+            python3 tools/emulator_tap.py 'Start recording'
+            sleep 30
+            python3 tools/emulator_tap.py 'Wait' || true
+            sleep 3
+            adb exec-out screencap -p > 29-recording-30s.png
+            python3 tools/emulator_tap.py 'Stop recording'
+            sleep 8
+            adb shell pidof app.storycam || (adb logcat -d | grep -i -E "storycam|flutter|fatal|crash" | tail -30; exit 1)
+            adb exec-out screencap -p > 30-after-30s-recording.png
+            python3 tools/emulator_tap.py 'Settings' || (echo 'FILE PROOF #2 FAILED: Settings tap missed - cannot read the recording path'; exit 1)
             sleep 3
             adb shell input swipe 160 500 160 200 300
             sleep 1
             adb shell input swipe 160 500 160 200 300
             sleep 2
-            python3 tools/emulator_tap.py 'Session details' || (echo 'VIDEO PROOF FAILED: Session details tile not found - cannot read the recording path'; exit 1)
+            python3 tools/emulator_tap.py 'Session details' || (echo 'FILE PROOF #2 FAILED: Session details tile not found - cannot read the recording path'; exit 1)
             sleep 2
             adb shell uiautomator dump /data/local/tmp/ui.xml
-            adb pull /data/local/tmp/ui.xml /tmp/ui-session.xml
-            grep -o 'Original: [^"]*' /tmp/ui-session.xml | head -1 | sed 's/^Original: //' > /tmp/orig-path.txt
-            cat /tmp/orig-path.txt
+            adb pull /data/local/tmp/ui.xml /tmp/ui-session2.xml
+            grep -o 'Original: [^"]*' /tmp/ui-session2.xml | head -1 | sed 's/^Original: //' > /tmp/orig-path2.txt
+            cat /tmp/orig-path2.txt
+            test -s /tmp/orig-path2.txt || (echo 'FILE PROOF #2 FAILED: no Original: path in Session details'; exit 1)
+            basename "$(cat /tmp/orig-path2.txt)" > /tmp/orig-base2.txt
             adb root || true
-            adb pull "$(cat /tmp/orig-path.txt)" recorded.mp4 || (adb shell cp "$(cat /tmp/orig-path.txt)" /sdcard/recorded.mp4 && adb pull /sdcard/recorded.mp4 recorded.mp4) || (echo 'VIDEO PROOF FAILED: could not pull the recording'; exit 1)
-            ls -la recorded.mp4
-            python3 tools/preview_diff.py --video-proof recorded.mp4 --times 1,5 --min-diff 0.1 --min-mean-diff 5.0 || (echo 'VIDEO PROOF FAILED: recorded video frames do not show two different moving feeds'; exit 1)
-            echo 'VIDEO PROOF: recorded video frames show two different moving feeds (front circle vs rear area)'
+            adb pull "$(cat /tmp/orig-path2.txt)" recorded-30s.mp4 || (adb shell cp "$(cat /tmp/orig-path2.txt)" /sdcard/recorded-30s.mp4 && adb pull /sdcard/recorded-30s.mp4 recorded-30s.mp4) || (echo 'FILE PROOF #2 FAILED: could not pull the recording'; exit 1)
+            ls -la recorded-30s.mp4
+            python3 tools/preview_diff.py --file-proof recorded-30s.mp4 --min-duration 28 || (echo 'FILE PROOF #2 FAILED: recorded file missing, empty, too short, or unplayable'; exit 1)
+            mv file-proof-frame.png file-proof-30s-frame.png
+            adb shell content query --uri content://media/external/video/media --projection _data:duration:date_added --sort "date_added DESC" > /tmp/gallery2.txt || (echo 'FILE PROOF #2 FAILED: MediaStore query failed'; exit 1)
+            python3 tools/preview_diff.py --gallery-proof /tmp/gallery2.txt --expect-name "$(cat /tmp/orig-base2.txt)" || (echo 'FILE PROOF #2 FAILED: no gallery row with duration > 0 for this recording (issue #87)'; exit 1)
+            echo 'FILE PROOF #2: 30 s recording (map ON + captions ON) exists in the gallery with duration > 0 and plays'
             adb shell input keyevent 4
             sleep 1
             adb shell pidof app.storycam || (adb logcat -d | grep -i -E "storycam|flutter|fatal|crash" | tail -30; exit 1)
@@ -484,5 +542,6 @@ jobs:
           name: emulator-play-screenshots
           path: |
             *.png
-            recorded.mp4
+            recorded-*.mp4
+            file-proof-*-frame.png
           retention-days: 14

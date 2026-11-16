@@ -1,11 +1,19 @@
 # Emulator camera feeds (issue #79)
 
-Two real video clips the CI emulator plays per camera via
-`-camera-back/-camera-front videofile:` — rear = Big Buck Bunny,
-front = Sintel. The workflows loop-extend these to 600 s with ffmpeg
-in the 'Prepare emulator camera feeds' step; the looped
-`front-feed.mp4` / `rear-feed.mp4` are generated on the runner and
-gitignored, only the two trailers below are committed.
+Two real video clips for distinct front/rear camera feeds — rear =
+Big Buck Bunny, front = Sintel — reserved for the Track B
+real-device proof. They were wired to the CI emulator via
+`-camera-back/-camera-front videofile:` and loop-extended to 600 s,
+but Stage 4 FAILED that route (PR #80 comment 6909005894): the CI
+emulator's camera HAL reports no front+back concurrent combo for any
+non-emulated feed, so the camera never opened. The Track A rework
+runs CI on the emulated test-pattern feed instead and these fixtures
+are currently UNREFERENCED by either workflow — they stay committed
+as the record + Track B reuse, costing nothing at runtime. When a
+real-device proof (or a different emulator image/HAL) uses them
+again, the looped `front-feed.mp4` / `rear-feed.mp4` are generated
+on the runner and gitignored; only the two trailers below are
+committed.
 
 ## Sources (Blender Foundation open movies, CC-BY 3.0)
 
