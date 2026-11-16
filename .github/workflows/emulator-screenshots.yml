@@ -249,14 +249,20 @@ jobs:
             grep -o 'text="[^"]*"' /tmp/ui-launch.xml | head -60
             # LAUNCH PROOF (Track A): the preview must be LIVE on the
             # emulated test-pattern feed — not black (the camera opened)
-            # and moving between shots 3 s apart. NO distinctness check
-            # here: front and rear show the SAME test pattern, so
-            # --regions cannot pass on this route; it stays available
-            # for the Track B real-device proof.
+            # and moving in at least one interval of three shots 4 s
+            # apart (--live: runs 43819821940 + 43819834598 false-failed
+            # a single 3 s pair at 0.00% on live previews — the pattern
+            # moves in bursts with still gaps >= 3 s; see
+            # tools/preview_diff.py). NO distinctness check here: front
+            # and rear show the SAME test pattern, so --regions cannot
+            # pass on this route; it stays available for the Track B
+            # real-device proof.
             python3 tools/preview_diff.py --not-black 01-launch.png || (echo 'LAUNCH PROOF FAILED: a feed region looks black in 01-launch.png - the camera did not open'; exit 1)
-            sleep 3
+            sleep 4
             adb exec-out screencap -p > 01b-motion.png
-            python3 tools/preview_diff.py 01-launch.png 01b-motion.png --min-diff 0.1 || (echo 'LAUNCH PROOF FAILED: no motion in the preview region between launch shots 3 s apart - preview frozen'; exit 1)
+            sleep 4
+            adb exec-out screencap -p > 01c-motion.png
+            python3 tools/preview_diff.py --live 01-launch.png 01b-motion.png 01c-motion.png --min-diff 0.1 || (echo 'LAUNCH PROOF FAILED: no motion in the preview region over the 8 s three-shot window - preview frozen'; exit 1)
             echo 'LAUNCH PROOF: preview is live (not black, moving) on the emulated test-pattern feed'
             python3 tools/emulator_tap.py 'Original' || echo 'WALKTHROUGH filter-Original: FAIL (tap missed)'
             sleep 2

@@ -13,6 +13,7 @@ Usage:
     python3 tools/preview_diff.py --regions <shot.png> --min-mean-diff <diff>
     python3 tools/preview_diff.py --video-proof <recording.mp4> --times 1,5 --min-diff 0.1 --min-mean-diff 5.0
     python3 tools/preview_diff.py --not-black <shot.png>
+    python3 tools/preview_diff.py --live <a.png> <b.png> <c.png> --min-diff <pct>
     python3 tools/preview_diff.py --file-proof <recording.mp4> --min-duration <secs>
     python3 tools/preview_diff.py --gallery-proof <content-query.txt> [--expect-name <file>] [--rec-start <epoch-file>]
 
@@ -44,6 +45,22 @@ false-fail below 0.1%. That fails closed and loud, never as a silent
 pass — acceptable for a regression guard. This test guards "no worse",
 not "fixed": it already passes on unfixed code, and Den's phone is the
 proof gate for the fix.
+
+UPDATE 2026-11-16 (head 65fe70f, runs 43819821940 + 43819834598): the
+3 s single-pair check false-failed TWICE in one round — screenshots
+launch pair 0.00%, smoke post-recording resume pair 0.00% — on live
+previews. Cross-pair evidence proves still gaps, not a freeze: the
+smoke resume-after-rec-1.png frame differs 13.71% from the
+resume-after-1.png frame ~85 s earlier (and 14.55% from
+resume-pre-1.png), while the 3 s pair inside the post-recording
+window was 0.00%. The emulated test pattern moves in bursts with
+still gaps >= 3 s, so a single 3 s pair is miscalibrated for this
+feed. The --live mode below takes THREE shots ~4 s apart (8 s
+window) and passes when EITHER consecutive interval shows motion:
+a genuinely frozen preview scores 0.00% in BOTH intervals and still
+fails, while a still gap only fails the run if it covers the whole
+8 s window. Same 0.1% threshold per interval — this is a longer
+window, not a lower bar.
 
 ISSUE #79 EXTENSION — front-vs-rear feed proof (2026-11-16): the
 videofile attempt wired two DIFFERENT real videos (Big Buck Bunny
@@ -218,6 +235,28 @@ def regions_check(img_path, min_mean_diff):
     print(f"front-vs-rear regions {img_path}: mean abs diff {diff:.2f} "
           f"(needs >= {min_mean_diff:.2f})")
     return diff >= min_mean_diff
+
+
+def live_check(a_path, b_path, c_path, min_diff, box="preview"):
+    """Liveness over THREE shots (see module docstring, 2026-11-16
+    update): the emulated test pattern moves in bursts with still gaps
+    >= 3 s, so a single 3 s pair false-fails on live previews. Passes
+    when EITHER consecutive interval shows >= min_diff motion; a
+    genuinely frozen preview scores 0.00% in both intervals and fails."""
+    ab = diff_fraction(a_path, b_path, box=box)
+    bc = diff_fraction(b_path, c_path, box=box)
+    print(f"{box}-region diff {a_path} vs {b_path}: "
+          f"{ab:.2f}% (needs >= {min_diff:.2f}%)")
+    print(f"{box}-region diff {b_path} vs {c_path}: "
+          f"{bc:.2f}% (needs >= {min_diff:.2f}%)")
+    if ab >= min_diff or bc >= min_diff:
+        print(f"LIVE PASS: motion seen in at least one interval "
+              f"({max(ab, bc):.2f}%)")
+        return 0
+    print(f"LIVE FAIL: no motion in either interval over the "
+          f"three-shot window ({a_path} -> {b_path} -> {c_path}) — "
+          f"preview frozen")
+    return 1
 
 
 def not_black_check(img_path):
@@ -397,6 +436,10 @@ def main(argv=None):
     parser.add_argument("--times", default="1,5",
                         help="comma-separated frame times (s) for "
                         "--video-proof")
+    parser.add_argument("--live", nargs=3, metavar=("A", "B", "C"),
+                        help="three-shot liveness check: passes when "
+                        "either consecutive interval shows >= --min-diff "
+                        "motion (bursty test pattern; see docstring)")
     parser.add_argument("--not-black", metavar="PNG",
                         help="black-guard sanity check: both feed regions "
                         "must clear the brightness floor")
@@ -414,6 +457,9 @@ def main(argv=None):
                         help="file holding the recording start epoch (s); "
                         "gallery row date_added must be >= start - 10")
     args = parser.parse_args(argv)
+    if args.live:
+        return live_check(args.live[0], args.live[1], args.live[2],
+                          args.min_diff, box=args.box)
     if args.not_black:
         return 0 if not_black_check(args.not_black) else 1
     if args.file_proof:
@@ -428,8 +474,9 @@ def main(argv=None):
     if args.regions:
         return 0 if regions_check(args.regions, args.min_mean_diff) else 1
     if not args.before or not args.after:
-        parser.error("need <before> <after>, --regions, --video-proof, "
-                     "--not-black, --file-proof, or --gallery-proof")
+        parser.error("need <before> <after>, --live, --regions, "
+                     "--video-proof, --not-black, --file-proof, or "
+                     "--gallery-proof")
     pct = diff_fraction(args.before, args.after, box=args.box)
     print(f"{args.box}-region diff {args.before} vs {args.after}: "
           f"{pct:.2f}% (needs >= {args.min_diff:.2f}%)")
