@@ -95,10 +95,14 @@ def mediastore_newest():
     # "date_added DESC" value arrives as two words and the content
     # command rejects the stray DESC ("[ERROR] Unsupported argument:
     # DESC", run 43818765878). Rows are sorted in Python below.
+    # PROOF ONLY (#87): `size` is not a MediaStore column — the
+    # provider rejects the projection with "Invalid column size"
+    # (proof run 43820652345). The column is `_size`; the `size=(\d+)`
+    # row parser below still matches it as a substring.
     r = run([
         "adb", "shell", "content", "query",
         "--uri", "content://media/external/video/media",
-        "--projection", "_display_name:duration:size:date_added",
+        "--projection", "_display_name:duration:_size:date_added",
     ])
     out = (r.stdout or "") + (r.stderr or "")
     rows = []
