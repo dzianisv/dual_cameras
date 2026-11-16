@@ -2113,10 +2113,27 @@ void main() {
     expect(slider, findsOneWidget);
     expect(find.text('Map zoom 16.0'), findsOneWidget);
 
-    // Drag 16.0 -> 18.5: the drag starts at the thumb (value center) and
-    // the value range is 6, so dx is 2.5/6 of the slider width.
+    // Drag 16.0 -> 18.5. A drag starts at the touched position, so start
+    // at the widget center — the midpoint value 10.5 of the 2–19 range
+    // (issue #82; the track padding is symmetric, so the center is the
+    // midpoint under any theme) — and move +8.0 of value. One value unit
+    // spans trackWidth/17, where the track is the slider width less the
+    // overlay/thumb padding (BaseSliderTrackShape.getPreferredRect), so
+    // read that padding from the live theme instead of assuming it.
     final rect = tester.getRect(slider);
-    await tester.drag(slider, Offset(rect.width * (2.5 / 6), 0));
+    final theme = SliderTheme.of(tester.element(slider));
+    // The theme in this test leaves the shapes null; fall back to the
+    // framework defaults (the same shapes SliderThemeData uses).
+    final overlayWidth = (theme.overlayShape ?? const RoundSliderOverlayShape())
+        .getPreferredSize(true, true)
+        .width;
+    final thumbWidth = (theme.thumbShape ?? const RoundSliderThumbShape())
+        .getPreferredSize(true, true)
+        .width;
+    final trackWidth =
+        rect.width - (overlayWidth > thumbWidth ? overlayWidth : thumbWidth);
+    await tester.dragFrom(
+        rect.center, Offset(trackWidth * (8.0 / 17), 0));
     await tester.pumpAndSettle();
     expect(find.text('Map zoom 18.5'), findsOneWidget);
     // Live: the map behind the sheet re-zoomed.
@@ -2151,9 +2168,10 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  test('CameraSettings.fromJson clamps mapZoom to 13-19', () {
+  test('CameraSettings.fromJson clamps mapZoom to 2-19', () {
     expect(CameraSettings.fromJson({'mapZoom': 25}).mapZoom, 19.0);
-    expect(CameraSettings.fromJson({'mapZoom': 2}).mapZoom, 13.0);
+    expect(CameraSettings.fromJson({'mapZoom': 0}).mapZoom, 2.0);
+    expect(CameraSettings.fromJson({'mapZoom': 2}).mapZoom, 2.0);
     expect(CameraSettings.fromJson({'mapZoom': 18.5}).mapZoom, 18.5);
     expect(CameraSettings.fromJson({}).mapZoom, 16.0);
     expect(CameraSettings.fromJson({'mapZoom': 'high'}).mapZoom, 16.0);

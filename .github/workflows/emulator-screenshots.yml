@@ -183,6 +183,11 @@ jobs:
             adb shell pm grant app.storycam android.permission.POST_NOTIFICATIONS || true
             adb shell pm grant app.storycam android.permission.ACCESS_FINE_LOCATION || true
             adb shell pm grant app.storycam android.permission.ACCESS_COARSE_LOCATION || true
+            # #82 BEGIN — Bali mock location FIRST, before launch, so the
+            # app's first location fix (and place label) is Bali, not the
+            # emulator default. `adb emu geo fix` takes longitude first.
+            adb emu geo fix 115.3088 -8.4264
+            # #82 END
             adb shell am start -n app.storycam/.MainActivity
             sleep 30
             adb shell pidof app.storycam || (adb logcat -d | grep -i -E "storycam|flutter|fatal|crash" | tail -30; exit 1)
@@ -250,6 +255,44 @@ jobs:
             adb shell input keyevent 4
             sleep 1
             adb shell pidof app.storycam || (adb logcat -d | grep -i -E "storycam|flutter|fatal|crash" | tail -30; exit 1)
+            # #82 BEGIN — wide-zoom proof (issue #82): Bali mock location,
+            # Settings Map-section slider dragged to its minimum (2.0),
+            # then the map circle at the wide zoom. Uses only main-branch
+            # helpers (tools/emulator_tap.py text taps + adb).
+            # DUMP RULE (run 43810110567): `uiautomator dump` fails with
+            # "ERROR: could not get idle state" while the Settings sheet
+            # is open (3 attempts over 44 s, no dump file), so the slider
+            # is NOT located from a dump — it is dragged by fixed
+            # coordinates and verified from the screenshots below.
+            # COORDINATES (320x640 emulator): the sheet is 85% tall (top
+            # y~117), title row 56, ListView padding 20/8; the Map
+            # section above the slider is header 44 + compass label 36 +
+            # chips 40 + location switch ~68 + zoom label 36, so the
+            # 48-tall slider sits at about y405-453, centre ~429, track
+            # x44-276 (20 px sheet padding + 24 px overlay radius each
+            # side). Three swipes at y420/435/448 span the slider's
+            # height — a swipe that lands on the track drags it to the
+            # minimum, the others are no-ops (a horizontal swipe on a
+            # label, chip or switch row does nothing, and a bottom sheet
+            # only dismisses on a downward drag). Each swipe runs
+            # right-to-left from x275 (near max) to x25 (past the track's
+            # left edge, so the value clamps at the 2.0 minimum).
+            adb emu geo fix 115.3088 -8.4264
+            sleep 5
+            python3 tools/emulator_tap.py 'Map'
+            sleep 3
+            adb exec-out screencap -p > 08-settings-map-sheet.png
+            adb shell input swipe 275 420 25 420 600
+            sleep 1
+            adb shell input swipe 275 435 25 435 600
+            sleep 1
+            adb shell input swipe 275 448 25 448 600
+            sleep 2
+            adb exec-out screencap -p > 09-zoom-slider-min.png
+            adb shell input keyevent 4
+            sleep 3
+            adb exec-out screencap -p > 10-map-wide-bali.png
+            # #82 END
             adb logcat -d | grep -i -E "storycam|flutter|fatal|crash" | tail -50 || true
             ls -la *.png
 
