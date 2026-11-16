@@ -27,9 +27,13 @@ gestures the tap helper could not do (emulator_tap.py cannot drag a
 slider or scroll a sheet): --swipe-on scrolls a horizontal row (the
 filter slider) at the row's own y, found from a visible label node;
 --drag-slider drags the map-zoom slider, whose row sits just below
-its 'Map zoom X.X' label (code order in main.dart: label text,
-subtitle, Slider — about 8% of the screen height below the label
-centre at 320x640). Every swipe/drag mode re-dumps and verifies
+its 'Map zoom X.X' label: the SeekBar node's centre when one sits
+just below the label, else the label centre + 5% of the screen height
+(measured on run 43817680362's 20-section-map shot — the old 8%
+overshot the track). Labels are matched on text OR content-desc:
+Flutter exposes them as content-desc (run 43817680362: the 'Map
+zoom' label and the "1" lens pill both have text='' with the label
+in content-desc). Every swipe/drag mode re-dumps and verifies
 where it can: --drag-slider reads the value before and after and
 exits 1 when it did not change, so a missed slider fails loudly
 instead of screenshotting the same zoom. Coordinates come from
@@ -129,11 +133,25 @@ def swipe_on(needle, direction):
 
 
 def drag_slider(prefix, to_frac):
+    """Drag the slider below a label (issue #79, Stage 4 note N4).
+
+    The label node is found by text OR content-desc starting with the
+    prefix (Flutter exposes these labels as content-desc, not text —
+    run 43817680362: the 'Map zoom' label was invisible to a
+    text-only match). The slider row y is the SeekBar node's centre
+    when one sits just below the label, else the label centre + 5% of
+    the screen height (measured on run 43817680362's 20-section-map
+    shot: label ~470, track ~500 in 320x640 — the old 8% overshot the
+    track). Reads the value before and after and exits 1 when it did
+    not change, so a missed slider fails loudly."""
     root = dump_ui()
+
+    def label_text(n):
+        return n.get("text") or n.get("content-desc") or ""
+
     node = None
     for cand in root.iter("node"):
-        text = cand.get("text") or ""
-        if text.startswith(prefix):
+        if label_text(cand).startswith(prefix):
             node = cand
             break
     if node is None:
@@ -141,23 +159,32 @@ def drag_slider(prefix, to_frac):
         return 1
 
     def value_of(n):
-        m = re.search(r"([0-9]+(?:\.[0-9]+)?)\s*$", n.get("text") or "")
+        m = re.search(r"([0-9]+(?:\.[0-9]+)?)\s*$", label_text(n))
         return m.group(1) if m else None
 
     before = value_of(node)
     if before is None:
-        print(f'no numeric value in node text: {node.get("text")!r}')
+        print(f'no numeric value in node text: {label_text(node)!r}')
         return 1
     w, h = screen_size()
     _, y1, _, y2 = node_bounds(node)
-    y = (y1 + y2) // 2 + int(0.08 * h)  # slider row below its label
+    label_y = (y1 + y2) // 2
+    y = label_y + int(0.05 * h)  # fallback: track just below the label
+    for cand in root.iter("node"):
+        if "SeekBar" not in (cand.get("class") or ""):
+            continue
+        _, sy1, _, sy2 = node_bounds(cand)
+        cy = (sy1 + sy2) // 2
+        if label_y < cy <= label_y + int(0.20 * h):
+            y = cy
+            break
+    print(f"slider {prefix}: value {before}, dragging at y={y}")
     swipe(int(0.10 * w), y, int(float(to_frac) * w), y, 500)
     time.sleep(1)
     root = dump_ui()
     node = None
     for cand in root.iter("node"):
-        text = cand.get("text") or ""
-        if text.startswith(prefix):
+        if label_text(cand).startswith(prefix):
             node = cand
             break
     if node is None:
@@ -193,7 +220,10 @@ def lens_pills():
     pills = []
     seen = set()
     for node in root.iter("node"):
-        text = node.get("text") or ""
+        # Flutter exposes the pill label as content-desc, not text
+        # (run 43817680362: the single "1" pill is visible in
+        # 18-lens-pills.png but has text='' desc='1').
+        text = node.get("text") or node.get("content-desc") or ""
         if re.fullmatch(r"[0-9]+(?:\.[0-9]+)?", text) and text not in seen:
             seen.add(text)
             pills.append(text)

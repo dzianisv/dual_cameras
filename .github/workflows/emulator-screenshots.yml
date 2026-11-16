@@ -306,14 +306,28 @@ jobs:
             adb exec-out screencap -p > 20-section-map.png
             adb shell uiautomator dump /data/local/tmp/ui.xml
             adb pull /data/local/tmp/ui.xml /tmp/ui-map.xml
-            grep -o 'Map zoom [0-9.]*' /tmp/ui-map.xml | head -1 || echo 'WALKTHROUGH map-zoom-doubletap: FAIL (no Map zoom text in tree)'
-            grep -q 'Map zoom 16.0' /tmp/ui-map.xml && echo 'WALKTHROUGH map-zoom-doubletap: FAIL (still 16.0 after double-tap on the map circle)' || echo 'WALKTHROUGH map-zoom-doubletap: PASS (zoom value changed, see Map zoom line above)'
+            # FALSE-PASS RULE (run 43817680362): the old check printed
+            # PASS whenever 16.0 was absent — including when the dump
+            # held no Map zoom line at all (ANR dialog tree). Require
+            # the line to exist AND differ from 16.0.
+            grep -o 'Map zoom [0-9.]*' /tmp/ui-map.xml | head -1 > /tmp/mapzoom.txt; cat /tmp/mapzoom.txt
+            test -s /tmp/mapzoom.txt && (grep -q 'Map zoom 16.0' /tmp/mapzoom.txt && echo 'WALKTHROUGH map-zoom-doubletap: FAIL (still 16.0 after double-tap on the map circle)' || echo 'WALKTHROUGH map-zoom-doubletap: PASS (zoom value changed, see Map zoom line above)') || echo 'WALKTHROUGH map-zoom-doubletap: FAIL (no Map zoom text in tree)'
             python3 tools/emulator_tap.py --drag-slider 'Map zoom' 0.8 || echo 'WALKTHROUGH map-zoom-slider: FAIL (value did not change)'
             adb shell uiautomator dump /data/local/tmp/ui.xml
             adb pull /data/local/tmp/ui.xml /tmp/ui-map2.xml
             grep -o 'Map zoom [0-9.]*' /tmp/ui-map2.xml | head -1 || echo 'WALKTHROUGH map-zoom-slider: FAIL (no Map zoom text after drag)'
+            # ANR GUARD (run 43817680362): a "Process system isn't
+            # responding" dialog appeared over the sheet during the map
+            # work — with it up, the dumps hold only the dialog tree,
+            # so the menu taps below all miss and the run dies. Dismiss
+            # it with a best-effort 'Wait' tap before Back and again
+            # after (|| true: absent when no dialog).
+            python3 tools/emulator_tap.py 'Wait' || true
+            sleep 1
             adb shell input keyevent 4
             sleep 2
+            python3 tools/emulator_tap.py 'Wait' || true
+            sleep 1
             python3 tools/emulator_tap.py 'Front' || echo 'WALKTHROUGH menu-Front: FAIL (tap missed)'
             sleep 3
             adb exec-out screencap -p > 21-section-front.png
