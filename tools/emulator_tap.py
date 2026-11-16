@@ -168,9 +168,27 @@ def swipe(x1, y1, x2, y2, duration_ms=300):
 
 
 def swipe_on(needle, direction):
-    root = dump_ui()
-    node = find_node(root, needle)
-    if node is None:
+    """Scroll a horizontal row at a visible label's y. Up to 3
+    attempts: a dump can die (exit 137) or return a tree without the
+    label while the sheet rebuilds (issue #86) — run 43833599869
+    failed a bare tap the same way. A swipe that lands is still a
+    single swipe; only the locate step retries."""
+    for attempt in range(1, 4):
+        try:
+            root = dump_ui()
+        except subprocess.CalledProcessError as e:
+            print(f'swipe-on "{needle}": attempt {attempt}/3: dump '
+                  f'failed (exit {e.returncode}) — retrying')
+            time.sleep(2)
+            continue
+        node = find_node(root, needle)
+        if node is None:
+            print(f'swipe-on "{needle}": attempt {attempt}/3: NOT '
+                  f'FOUND — retrying')
+            time.sleep(2)
+            continue
+        break
+    else:
         print(f'NOT FOUND: "{needle}"')
         return 1
     w, _ = screen_size()
@@ -378,7 +396,15 @@ def ensure_switch_on(label):
 
 
 def tap(needle):
-    root = dump_ui()
+    """Tap a visible UI element by its text (up to 3 attempts).
+
+    A dump can die (exit 137) or return a tree without the label
+    while the sheet rebuilds (issue #86) or the app restarts — run
+    43833599869 failed a bare 'Map' tap exactly that way (two dumps
+    died, the third tree held no camera screen). Only the locate
+    step retries; a tap that lands is still a single tap. Genuinely
+    absent labels still fail loudly after 3 attempts.
+    """
     # MATCH RULE (run 43534775105, 2026-11-14): the first node whose text
     # merely CONTAINS the needle is not necessarily the button. Tapping
     # 'Allow' hit the permission dialog's TITLE ("Allow StoryCam to send
@@ -386,15 +412,29 @@ def tap(needle):
     # the dialog stayed up and the next tap ('Captions') failed. Prefer
     # an exact text/content-desc match, then a clickable node; only then
     # fall back to the first substring match in document order.
-    matches = []
-    for node in root.iter("node"):
-        text = node.get("text") or ""
-        desc = node.get("content-desc") or ""
-        if needle in (text + desc):
-            exact = text == needle or desc == needle
-            clickable = node.get("clickable") == "true"
-            matches.append((node, exact, clickable))
-    if not matches:
+    for attempt in range(1, 4):
+        try:
+            root = dump_ui()
+        except subprocess.CalledProcessError as e:
+            print(f'tap "{needle}": attempt {attempt}/3: dump failed '
+                  f'(exit {e.returncode}) — retrying')
+            time.sleep(2)
+            continue
+        matches = []
+        for node in root.iter("node"):
+            text = node.get("text") or ""
+            desc = node.get("content-desc") or ""
+            if needle in (text + desc):
+                exact = text == needle or desc == needle
+                clickable = node.get("clickable") == "true"
+                matches.append((node, exact, clickable))
+        if not matches:
+            print(f'tap "{needle}": attempt {attempt}/3: NOT FOUND — '
+                  f'retrying')
+            time.sleep(2)
+            continue
+        break
+    else:
         print(f'NOT FOUND: "{needle}"')
         return 1
     for node, exact, clickable in matches:
