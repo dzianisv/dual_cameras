@@ -258,31 +258,40 @@ jobs:
             # #82 BEGIN — wide-zoom proof (issue #82): Bali mock location,
             # Settings Map-section slider dragged to its minimum (2.0),
             # then the map circle at the wide zoom. Uses only main-branch
-            # helpers (tools/emulator_tap.py text taps + adb); the slider
-            # drag reads the slider track from a uiautomator dump and
-            # swipes it end to end — each script: line is a separate
-            # `sh -c`, so the dump+pull retry is a one-line shell loop and
-            # the parse+swipe is one self-contained python3 -c line.
-            # RETRY RULE (run 43808683248): a single dump+pull can fail on
-            # this slow emulator (adb pull of the dump file failed once),
-            # so dump+pull retries 3x before the parse step reads the
-            # file; the test -s guard fails loudly if no dump lands.
+            # helpers (tools/emulator_tap.py text taps + adb).
+            # DUMP RULE (run 43810110567): `uiautomator dump` fails with
+            # "ERROR: could not get idle state" while the Settings sheet
+            # is open (3 attempts over 44 s, no dump file), so the slider
+            # is NOT located from a dump — it is dragged by fixed
+            # coordinates and verified from the screenshots below.
+            # COORDINATES (320x640 emulator): the sheet is 85% tall (top
+            # y~117), title row 56, ListView padding 20/8; the Map
+            # section above the slider is header 44 + compass label 36 +
+            # chips 40 + location switch ~68 + zoom label 36, so the
+            # 48-tall slider sits at about y405-453, centre ~429, track
+            # x44-276 (20 px sheet padding + 24 px overlay radius each
+            # side). Three swipes at y420/435/448 span the slider's
+            # height — a swipe that lands on the track drags it to the
+            # minimum, the others are no-ops (a horizontal swipe on a
+            # label, chip or switch row does nothing, and a bottom sheet
+            # only dismisses on a downward drag). Each swipe runs
+            # right-to-left from x275 (near max) to x25 (past the track's
+            # left edge, so the value clamps at the 2.0 minimum).
             adb emu geo fix 115.3088 -8.4264
             sleep 5
             python3 tools/emulator_tap.py 'Map'
             sleep 3
-            for i in 1 2 3; do adb shell uiautomator dump /data/local/tmp/ui82.xml && adb pull /data/local/tmp/ui82.xml /tmp/ui82.xml && break || sleep 3; done
-            test -s /tmp/ui82.xml || (echo 'UI DUMP FAILED: no ui82.xml after 3 attempts'; exit 1)
-            python3 -c "import subprocess, xml.etree.ElementTree as ET; root = ET.parse('/tmp/ui82.xml').getroot(); print('zoom-nodes:', [(n.get('class'), n.get('bounds'), n.get('text'), n.get('content-desc')) for n in root.iter('node') if 'Map zoom' in ((n.get('text') or '') + (n.get('content-desc') or ''))]); bars = [n for n in root.iter('node') if 'SeekBar' in (n.get('class') or '')]; print('seekbars:', [(n.get('bounds'), n.get('text'), n.get('content-desc')) for n in bars]); assert bars, 'no SeekBar in dump'; b = bars[0].get('bounds').replace('][', ',').strip('[]').split(','); x1, y1, x2, y2 = map(int, b); cy = (y1 + y2) // 2; print('slider bounds:', b, 'cy:', cy); subprocess.run(['adb', 'shell', 'input', 'swipe', str(x2 - 8), str(cy), str(x1 + 8), str(cy), '600'], check=True); print('swiped slider to min')"
+            adb exec-out screencap -p > 08-settings-map-sheet.png
+            adb shell input swipe 275 420 25 420 600
+            sleep 1
+            adb shell input swipe 275 435 25 435 600
+            sleep 1
+            adb shell input swipe 275 448 25 448 600
             sleep 2
-            for i in 1 2 3; do adb shell uiautomator dump /data/local/tmp/ui82.xml && adb pull /data/local/tmp/ui82.xml /tmp/ui82.xml && break || sleep 3; done
-            test -s /tmp/ui82.xml || (echo 'UI DUMP FAILED: no ui82.xml after 3 attempts'; exit 1)
-            python3 -c "import xml.etree.ElementTree as ET; root = ET.parse('/tmp/ui82.xml').getroot(); print('labels:', [n.get('text') for n in root.iter('node') if (n.get('text') or '').startswith('Map zoom')])"
-            sleep 2
-            adb exec-out screencap -p > 08-zoom-slider-min.png
+            adb exec-out screencap -p > 09-zoom-slider-min.png
             adb shell input keyevent 4
             sleep 3
-            adb exec-out screencap -p > 09-map-wide-bali.png
+            adb exec-out screencap -p > 10-map-wide-bali.png
             # #82 END
             adb logcat -d | grep -i -E "storycam|flutter|fatal|crash" | tail -50 || true
             ls -la *.png
