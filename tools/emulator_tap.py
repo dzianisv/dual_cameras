@@ -51,6 +51,15 @@ reads a Settings SwitchListTile's Switch state and taps it only when
 off, then re-reads and fails loudly if it did not turn on. Pills
 absent (the API reported no lenses) is reported honestly, not failed:
 on this emulator the camera may offer a single lens.
+
+ANR RULE (runs 43817680362 + 43821624111, 2026-11-16): the loaded CI
+emulator throws a "Process system isn't responding" dialog at random
+points mid-walkthrough (filter taps in 43821624111, settings sections
+in 43817680362) — while it is up, dumps hold only the dialog's tree
+and every tap misses. dump_ui() therefore taps the dialog's 'Wait'
+button and re-dumps once, and retries a SIGKILLed dump (exit 137)
+once, before any caller sees the tree. A dialog that will not dismiss
+or a dump that keeps failing still fails loudly.
 """
 
 import re
@@ -60,7 +69,7 @@ import time
 import xml.etree.ElementTree as ET
 
 
-def dump_ui():
+def _dump_once():
     subprocess.run(
         ["adb", "shell", "uiautomator", "dump", "/data/local/tmp/ui.xml"],
         check=True,
@@ -72,6 +81,50 @@ def dump_ui():
         capture_output=True,
     )
     return ET.parse("/tmp/ui.xml").getroot()
+
+
+def _anr_wait_node(root):
+    """The 'Wait' button of an ANR ('... isn't responding') dialog,
+    or None. While the dialog is up the dump holds only the dialog's
+    tree, so every tap would miss until it is dismissed."""
+    if not any("isn't responding" in (n.get("text") or "")
+               for n in root.iter("node")):
+        return None
+    return find_node(root, "Wait")
+
+
+def dump_ui():
+    """uiautomator dump with two resiliences for the loaded CI
+    emulator (issue #79, runs 43817680362 + 43821624111): the dump
+    itself is sometimes SIGKILLed (exit 137) under load — retry once;
+    and an ANR dialog ('Process system isn't responding') sometimes
+    covers the app mid-walkthrough — tap its 'Wait' button and
+    re-dump once, so the caller sees the app's tree, not the dialog's.
+    A dump that still fails, or a dialog that will not dismiss, fails
+    loudly as before — never a silent pass."""
+    dismissed = False
+    for _ in range(2):
+        try:
+            root = _dump_once()
+        except subprocess.CalledProcessError as e:
+            print(f"uiautomator dump failed: exit {e.returncode} — "
+                  f"retrying once after 3 s")
+            time.sleep(3)
+            continue
+        wait = None if dismissed else _anr_wait_node(root)
+        if wait is None:
+            return root
+        x1, y1, x2, y2 = node_bounds(wait)
+        print("ANR dialog up ('... isn't responding') — tapping 'Wait' "
+              f"at {(x1 + x2) // 2},{(y1 + y2) // 2} and re-dumping")
+        subprocess.run(["adb", "shell", "input", "tap",
+                        str((x1 + x2) // 2), str((y1 + y2) // 2)],
+                       check=True)
+        dismissed = True
+        time.sleep(2)
+    # Both attempts exhausted (dump kept failing): one last dump,
+    # whose failure now raises loudly instead of passing silently.
+    return _dump_once()
 
 
 def find_node(root, needle):
