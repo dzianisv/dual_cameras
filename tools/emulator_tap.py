@@ -62,6 +62,7 @@ once, before any caller sees the tree. A dialog that will not dismiss
 or a dump that keeps failing still fails loudly.
 """
 
+import os
 import re
 import subprocess
 import sys
@@ -70,6 +71,22 @@ import xml.etree.ElementTree as ET
 
 
 def _dump_once():
+    # FRESHNESS RULE (runs 43842797586 + 43846063070): `uiautomator
+    # dump` exits 0 WITHOUT writing the file when it cannot get idle
+    # state ("ERROR: could not get idle state" — the app never idles
+    # while the map ticks and the sheet rebuilds, issue #86). The
+    # pull then fetches the STALE device file and every caller reads
+    # a tree from before the sheet opened: ensure-switch-on reported
+    # 'Location circle' absent from 3 dumps although shots 08 + 20
+    # show it visibly ON. Delete both files first, so a dump that
+    # writes nothing fails loudly on the pull (CalledProcessError,
+    # retried by dump_ui) instead of silently serving a stale tree.
+    subprocess.run(["adb", "shell", "rm", "-f", "/data/local/tmp/ui.xml"],
+                   capture_output=True)
+    try:
+        os.remove("/tmp/ui.xml")
+    except FileNotFoundError:
+        pass
     subprocess.run(
         ["adb", "shell", "uiautomator", "dump", "/data/local/tmp/ui.xml"],
         check=True,
@@ -356,7 +373,16 @@ def ensure_switch_on(label):
     diagnosable from the log alone.
     """
     for attempt in range(1, 4):
-        root = dump_ui()
+        try:
+            root = dump_ui()
+        except subprocess.CalledProcessError as e:
+            # FRESHNESS RULE: a dump that cannot get idle state now
+            # fails loudly (no file written) instead of serving a
+            # stale tree — retry the attempt, as tap() does.
+            print(f'attempt {attempt}/3: dump failed (exit '
+                  f'{e.returncode}) — retrying')
+            time.sleep(2)
+            continue
         switch = None
         seen = []
         for node in root.iter("node"):
@@ -389,7 +415,13 @@ def ensure_switch_on(label):
                         str((x1 + x2) // 2), str((y1 + y2) // 2)],
                        check=True)
         time.sleep(1)
-        root = dump_ui()
+        try:
+            root = dump_ui()
+        except subprocess.CalledProcessError as e:
+            print(f'attempt {attempt}/3: re-read dump failed (exit '
+                  f'{e.returncode}) — retrying')
+            time.sleep(2)
+            continue
         switch = None
         for node in root.iter("node"):
             text = node.get("text") or ""

@@ -247,6 +247,12 @@ jobs:
             # SIGKILLed (exit 137 — host OOM) and killed the whole run
             # although it feeds only soft checks. Dump/pull fail soft;
             # the greps below already fail soft (|| echo / || true).
+            # FRESHNESS RULE (runs 43842797586 + 43846063070): a dump
+            # that cannot get idle state exits 0 without writing the
+            # file, so the pull would fetch a STALE device file — rm
+            # both first, so a stale tree can never reach the greps.
+            adb shell rm -f /data/local/tmp/ui.xml || true
+            rm -f /tmp/ui-launch.xml
             adb shell uiautomator dump /data/local/tmp/ui.xml || true
             adb pull /data/local/tmp/ui.xml /tmp/ui-launch.xml || true
             grep -o 'Mendocino[^"]*' /tmp/ui-launch.xml | head -1 || echo 'WALKTHROUGH place-name: no Mendocino text in tree (check the pill in 01-launch.png)'
@@ -320,6 +326,12 @@ jobs:
             # three raw dump+pull pairs in this step are diagnostic-only,
             # so they fail soft (|| true); the downstream greps already
             # fail soft on a missing file.
+            # FRESHNESS RULE (runs 43842797586 + 43846063070): a dump
+            # that cannot get idle state exits 0 without writing the
+            # file, so the pull would fetch a STALE device file — rm
+            # both first, so a stale tree can never reach the greps.
+            adb shell rm -f /data/local/tmp/ui.xml || true
+            rm -f /tmp/ui-map.xml
             adb shell uiautomator dump /data/local/tmp/ui.xml || true
             adb pull /data/local/tmp/ui.xml /tmp/ui-map.xml || true
             # FALSE-PASS RULE (run 43817680362): the old check printed
@@ -335,6 +347,8 @@ jobs:
             grep -o 'Map zoom [0-9.]*' /tmp/ui-map.xml | head -1 > /tmp/mapzoom.txt; cat /tmp/mapzoom.txt
             test -s /tmp/mapzoom.txt && (grep -q 'Map zoom 16.0' /tmp/mapzoom.txt && echo 'WALKTHROUGH map-zoom-doubletap: FAIL (still 16.0 after double-tap on the map circle)' || echo 'WALKTHROUGH map-zoom-doubletap: PASS (zoom value changed, see Map zoom line above)') || echo 'WALKTHROUGH map-zoom-doubletap: FAIL (no Map zoom text in tree)'
             python3 tools/emulator_tap.py --drag-slider 'Map zoom' 0.8 || echo 'WALKTHROUGH map-zoom-slider: FAIL (value did not change)'
+            adb shell rm -f /data/local/tmp/ui.xml || true
+            rm -f /tmp/ui-map2.xml
             adb shell uiautomator dump /data/local/tmp/ui.xml || true
             adb pull /data/local/tmp/ui.xml /tmp/ui-map2.xml || true
             grep -o 'Map zoom [0-9.]*' /tmp/ui-map2.xml | head -1 || echo 'WALKTHROUGH map-zoom-slider: FAIL (no Map zoom text after drag)'

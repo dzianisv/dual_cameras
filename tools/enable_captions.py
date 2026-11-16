@@ -21,6 +21,7 @@ Usage (Settings sheet already open at the Captions section):
 import subprocess
 import sys
 import time
+import os
 import xml.etree.ElementTree as ET
 
 NEEDLE = "Auto-captions"
@@ -39,6 +40,18 @@ def switch_checked():
     content-desc; prefer a node that actually carries a checked
     attribute (the Switch itself) over a plain text node.
     """
+    # FRESHNESS RULE (runs 43842797586 + 43846063070, issue #79):
+    # `uiautomator dump` exits 0 WITHOUT writing the file when it
+    # cannot get idle state — the pull then fetches a STALE device
+    # file and this reads a tree from before the sheet opened.
+    # Delete both files first, so a dump that writes nothing fails
+    # loudly here (caught by main's retry) instead of silently
+    # serving a stale tree.
+    run(["adb", "shell", "rm", "-f", "/data/local/tmp/ui.xml"])
+    try:
+        os.remove(UI_XML)
+    except FileNotFoundError:
+        pass
     run(["adb", "shell", "uiautomator", "dump", "/data/local/tmp/ui.xml"],
         check=True)
     run(["adb", "pull", "/data/local/tmp/ui.xml", UI_XML], check=True)
