@@ -1,5 +1,4 @@
 import 'dart:math' as math;
-import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
@@ -17,7 +16,7 @@ import '../map/camera_settings.dart';
 ///
 /// Tiles are OpenStreetMap raster tiles via flutter_map (no key). The map
 /// itself is rotated with a [Transform] so the whole tile layer turns;
-/// the dot + heading cone stay centered on top, unrotated.
+/// the dot stays centered on top, unrotated.
 ///
 /// Zoom (issue #47): the map is a controlled widget — [zoom] is the single
 /// source of truth owned by the parent (the persisted `mapZoom` setting).
@@ -164,10 +163,6 @@ class _MapCircleState extends State<MapCircle> {
     // Heading-up: the map turns under you (-heading); north-up: fixed.
     final mapRotation =
         widget.mode == CompassMode.headingUp ? -headingRad : 0.0;
-    // The heading cone points where you face: up in heading-up, along the
-    // heading in north-up.
-    final coneRotation =
-        widget.mode == CompassMode.headingUp ? 0.0 : headingRad;
     final position = widget.position;
     final tilesShown = position != null && widget.showTiles;
     _mapBuilt = tilesShown;
@@ -235,18 +230,8 @@ class _MapCircleState extends State<MapCircle> {
                       ),
                     ),
                   ),
-                  // Heading cone + blue dot, centered, unrotated with the map.
+                  // Blue dot, centered, unrotated with the map.
                   if (position != null) ...[
-                    Center(
-                      child: Transform.rotate(
-                        angle: coneRotation,
-                        child: CustomPaint(
-                          key: const Key('map-heading-cone'),
-                          size: const Size(34, 40),
-                          painter: _HeadingConePainter(),
-                        ),
-                      ),
-                    ),
                     const Center(
                       child: DecoratedBox(
                         key: Key('map-dot'),
@@ -303,29 +288,4 @@ class _MapCircleState extends State<MapCircle> {
       ),
     );
   }
-}
-
-/// Translucent white triangle pointing up (direction of travel), with a
-/// soft outline so it reads over any map.
-class _HeadingConePainter extends CustomPainter {
-  @override
-  void paint(Canvas canvas, Size size) {
-    final paint = Paint()
-      ..color = Colors.white.withValues(alpha: 0.85)
-      ..style = PaintingStyle.fill;
-    final outline = Paint()
-      ..color = const Color(0xFF2F80ED)
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 1.5;
-    final path = ui.Path()
-      ..moveTo(size.width / 2, 0)
-      ..lineTo(size.width, size.height)
-      ..lineTo(0, size.height)
-      ..close();
-    canvas.drawPath(path, paint);
-    canvas.drawPath(path, outline);
-  }
-
-  @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }

@@ -17,7 +17,7 @@ import kotlin.math.roundToInt
  *
  * Snapshots are the complete render: each 2 fps RepaintBoundary snapshot
  * of MapCircle already contains the rotated tiles, the placed N badge, the
- * rotated heading cone, the centered dot and the circular clip — so [draw]
+ * centered dot and the circular clip — so [draw]
  * paints the snapshot as-is and never rotates anything. The track's only
  * roles are gating mapVisible (draw nothing from the time the map was
  * toggled off) and the fallback disc (no snapshot yet = plain disc +

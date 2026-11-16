@@ -1446,7 +1446,8 @@ void main() {
     await tester.pump();
     expect(find.byType(MapCircle), findsOneWidget);
     expect(find.byKey(const Key('map-dot')), findsOneWidget);
-    expect(find.byKey(const Key('map-heading-cone')), findsOneWidget);
+    // Heading cone removed (issue #83): no cone anywhere, dot only.
+    expect(find.byKey(const Key('map-heading-cone')), findsNothing);
     // A heading turn keeps the circle (heading-up default).
     headings.add(90);
     await tester.pump();
@@ -2046,7 +2047,7 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('N badge and heading cone render at zoom 19.0',
+  testWidgets('N badge and blue dot render at zoom 19.0',
       (tester) async {
     await tester.pumpWidget(const MapCircleHarness(
       initialPosition: LatLng(51.5, -0.12),
@@ -2054,7 +2055,8 @@ void main() {
     ));
     await tester.pump();
     expect(find.text('N'), findsOneWidget);
-    expect(find.byKey(const Key('map-heading-cone')), findsOneWidget);
+    // Heading cone removed (issue #83): no cone anywhere, dot only.
+    expect(find.byKey(const Key('map-heading-cone')), findsNothing);
     expect(find.byKey(const Key('map-dot')), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
