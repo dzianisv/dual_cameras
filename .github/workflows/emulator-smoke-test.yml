@@ -202,6 +202,13 @@ jobs:
             sleep 3
             python3 tools/emulator_tap.py 'Stop recording'
             sleep 8
+            adb shell uiautomator dump /data/local/tmp/ui-stop.xml
+            adb pull /data/local/tmp/ui-stop.xml /tmp/ui-stop.xml
+            grep -o 'Could not save video[^<]*' /tmp/ui-stop.xml || echo 'PROBE-87: no Could-not-save status text in UI dump'
+            adb shell content query --uri content://media/external/video/media --projection _data --sort "date_added DESC" | head -10 || true
+            adb logcat -d | grep -E "MAPBURN" | tail -20 || true
+            grep -q 'Could not save video' /tmp/ui-stop.xml && { echo 'PROBE-87 REPRODUCED: _mapStopCapture throw -> Could not save video, save skipped (H2 mechanism end to end)'; exit 1; }
+            echo 'PROBE-87 NOT reproduced: stop did not report Could not save video'
             python3 tools/mapburn_check.py || (echo 'MAP BURN FAILED (issue #49): see mapburn.log + the MAPBURN logcat lines below'; adb logcat -d | grep -i -E "MAPBURN|CaptionBurner|MapRenderer" | tail -40 || true; exit 1)
             echo 'map burn (issue #49): burned video carries the map top-left'
             adb shell input keyevent 3

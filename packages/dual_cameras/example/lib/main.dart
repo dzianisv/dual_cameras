@@ -1288,6 +1288,12 @@ class _DemoScreenState extends State<DemoScreen> with WidgetsBindingObserver {
     // it shows the map.
     var bytes = _mapSnapBytes;
     if (dir != null && dir.existsSync()) {
+      // PROBE ONLY (#87 fault injection — NEVER MERGE): stand in for the
+      // FileSystemException that dir.listSync() / e.lengthSync() can raise
+      // on a real phone (dir deleted mid-take, file vanishing between list
+      // and stat, IO error). The re-read block has no try/catch, so this
+      // throw must propagate into _stop()'s catch and eat the save.
+      throw FileSystemException('probe-87: frames dir unreadable', dir.path);
       final tracked =
           track.where((s) => s.file != null).map((s) => s.file!).toSet();
       for (final e in dir.listSync()) {
