@@ -1,1 +1,1 @@
-Filter names fixed: GTA is now Vice City, GTA 3 removed, San Andreas stays. Camera starts automatically when you open the app. Map pinch-zoom, place name, and saved settings. Tap a lens to switch — the wide lens now works. Last video thumbnail with Open, Delete, and Share.
+Recording fixed: stopping a recording now always saves the video. Map zooms out to see the whole island. The blue triangle on the map is gone. A 40-second recording test now runs on every build.
