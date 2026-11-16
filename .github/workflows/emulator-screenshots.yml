@@ -316,6 +316,12 @@ jobs:
             # PASS whenever 16.0 was absent — including when the dump
             # held no Map zoom line at all (ANR dialog tree). Require
             # the line to exist AND differ from 16.0.
+            # NOTE (run 43823525690): the dump can hold no Map zoom
+            # line at all while the sheet is open even with the value
+            # on screen (shot 20 shows 17.0) — dumps with the sheet
+            # open are unreliable (DUMP RULE, run 43810110567). The
+            # check stays a soft FAIL; the screenshot is the proof
+            # the double-tap zoom worked.
             grep -o 'Map zoom [0-9.]*' /tmp/ui-map.xml | head -1 > /tmp/mapzoom.txt; cat /tmp/mapzoom.txt
             test -s /tmp/mapzoom.txt && (grep -q 'Map zoom 16.0' /tmp/mapzoom.txt && echo 'WALKTHROUGH map-zoom-doubletap: FAIL (still 16.0 after double-tap on the map circle)' || echo 'WALKTHROUGH map-zoom-doubletap: PASS (zoom value changed, see Map zoom line above)') || echo 'WALKTHROUGH map-zoom-doubletap: FAIL (no Map zoom text in tree)'
             python3 tools/emulator_tap.py --drag-slider 'Map zoom' 0.8 || echo 'WALKTHROUGH map-zoom-slider: FAIL (value did not change)'
@@ -367,6 +373,7 @@ jobs:
             adb exec-out screencap -p > 27-session-details.png
             adb shell input keyevent 4
             sleep 2
+            date +%s > /tmp/rec-start.txt
             python3 tools/emulator_tap.py 'Start recording'
             sleep 6
             python3 tools/emulator_tap.py 'Wait' || true
@@ -417,46 +424,29 @@ jobs:
             sleep 1
             adb shell pidof app.storycam || (adb logcat -d | grep -i -E "storycam|flutter|fatal|crash" | tail -30; exit 1)
             # FILE PROOF #1 (issues #79 + #87): the core-loop proof for
-            # the 6 s recording above. The recording path comes from the
-            # app's own Session details tile ('Original: <path>'), not
-            # from a guessed directory — the file lives in the app cache
-            # (DualCamerasPlugin: cacheDir/dcr_<nano>.mp4), so it is
-            # pulled with `adb root` + the /sdcard fallback from
-            # tools/mapburn_check.py. This validates the --video-proof
-            # grep pattern in CI (Stage 4 note N3 — it was never
-            # executed). --file-proof then asserts the pulled file
-            # EXISTS with duration > 0 and a frame that extracts
-            # (playable) — never the "Video saved to gallery" status
-            # text. The MediaStore query asserts the gallery copy
-            # exists too: the row for this recording (matched by file
-            # name) must have duration > 0. A missing gallery row is
-            # issue #87 reproducing — the run fails loudly, the
+            # the 6 s recording above. The recording path comes from
+            # MediaStore, NOT from the app's Session details tile:
+            # run 43823525690 proved the tile's 'Original:' row is
+            # in-memory only (_lastFile, main.dart:258 — "gone on app
+            # restart"): the app re-initialized after the share sheet
+            # (status back to 'Ready to tell your story', no Original
+            # row) while the gallery row survived. --gallery-proof
+            # asserts a row with duration > 0 postdates this
+            # recording's start; --gallery-path prints that row's
+            # _data path, which is pulled (shared storage, no root
+            # needed) and --file-proof asserts EXISTS with duration
+            # >= 5 s and a frame that extracts (playable) — never the
+            # "Video saved to gallery" status text. A missing gallery
+            # row is issue #87 reproducing — the run fails loudly, the
             # assertion is NOT weakened to go green.
-            python3 tools/emulator_tap.py 'Settings' || (echo 'FILE PROOF #1 FAILED: Settings tap missed - cannot read the recording path'; exit 1)
-            sleep 3
-            adb shell input swipe 160 500 160 200 300
-            sleep 1
-            adb shell input swipe 160 500 160 200 300
-            sleep 2
-            python3 tools/emulator_tap.py 'Session details' || (echo 'FILE PROOF #1 FAILED: Session details tile not found - cannot read the recording path'; exit 1)
-            sleep 2
-            adb shell uiautomator dump /data/local/tmp/ui.xml
-            adb pull /data/local/tmp/ui.xml /tmp/ui-session.xml
-            grep -o 'Original: [^"]*' /tmp/ui-session.xml | head -1 | sed 's/^Original: //' > /tmp/orig-path.txt
-            cat /tmp/orig-path.txt
-            test -s /tmp/orig-path.txt || (echo 'FILE PROOF #1 FAILED: no Original: path in Session details'; exit 1)
-            basename "$(cat /tmp/orig-path.txt)" > /tmp/orig-base.txt
-            adb root || true
-            adb pull "$(cat /tmp/orig-path.txt)" recorded-6s.mp4 || (adb shell cp "$(cat /tmp/orig-path.txt)" /sdcard/recorded-6s.mp4 && adb pull /sdcard/recorded-6s.mp4 recorded-6s.mp4) || (echo 'FILE PROOF #1 FAILED: could not pull the recording'; exit 1)
+            adb shell content query --uri content://media/external/video/media --projection _data:duration:date_added > /tmp/gallery.txt || (echo 'FILE PROOF #1 FAILED: MediaStore query failed'; exit 1)
+            python3 tools/preview_diff.py --gallery-proof /tmp/gallery.txt --rec-start /tmp/rec-start.txt || (echo 'FILE PROOF #1 FAILED: no gallery row with duration > 0 for this recording (issue #87)'; exit 1)
+            REC_PATH=$(python3 tools/preview_diff.py --gallery-path /tmp/gallery.txt --rec-start /tmp/rec-start.txt) || (echo 'FILE PROOF #1 FAILED: no gallery path for this recording'; exit 1)
+            adb pull "$REC_PATH" recorded-6s.mp4 || (echo 'FILE PROOF #1 FAILED: could not pull the recording from the gallery'; exit 1)
             ls -la recorded-6s.mp4
             python3 tools/preview_diff.py --file-proof recorded-6s.mp4 --min-duration 5 || (echo 'FILE PROOF #1 FAILED: recorded file missing, empty, too short, or unplayable'; exit 1)
             mv file-proof-frame.png file-proof-6s-frame.png
-            adb shell content query --uri content://media/external/video/media --projection _data:duration:date_added > /tmp/gallery.txt || (echo 'FILE PROOF #1 FAILED: MediaStore query failed'; exit 1)
-            python3 tools/preview_diff.py --gallery-proof /tmp/gallery.txt --expect-name "$(cat /tmp/orig-base.txt)" || (echo 'FILE PROOF #1 FAILED: no gallery row with duration > 0 for this recording (issue #87)'; exit 1)
             echo 'FILE PROOF #1: 6 s recording exists in the gallery with duration > 0 and plays'
-            adb shell input keyevent 4
-            sleep 1
-            adb shell pidof app.storycam || (adb logcat -d | grep -i -E "storycam|flutter|fatal|crash" | tail -30; exit 1)
             # #82 BEGIN — wide-zoom proof (issue #82): Bali mock location,
             # Settings Map-section slider dragged to its minimum (2.0),
             # then the map circle at the wide zoom. Uses only main-branch
@@ -518,6 +508,7 @@ jobs:
             python3 tools/emulator_tap.py --ensure-switch-on 'Auto-captions' || (echo '30S RECORDING FAILED: captions (Auto-captions) are not ON'; exit 1)
             adb shell input keyevent 4
             sleep 2
+            date +%s > /tmp/rec-start2.txt
             python3 tools/emulator_tap.py 'Start recording'
             sleep 30
             python3 tools/emulator_tap.py 'Wait' || true
@@ -527,30 +518,20 @@ jobs:
             sleep 8
             adb shell pidof app.storycam || (adb logcat -d | grep -i -E "storycam|flutter|fatal|crash" | tail -30; exit 1)
             adb exec-out screencap -p > 30-after-30s-recording.png
-            python3 tools/emulator_tap.py 'Settings' || (echo 'FILE PROOF #2 FAILED: Settings tap missed - cannot read the recording path'; exit 1)
-            sleep 3
-            adb shell input swipe 160 500 160 200 300
-            sleep 1
-            adb shell input swipe 160 500 160 200 300
-            sleep 2
-            python3 tools/emulator_tap.py 'Session details' || (echo 'FILE PROOF #2 FAILED: Session details tile not found - cannot read the recording path'; exit 1)
-            sleep 2
-            adb shell uiautomator dump /data/local/tmp/ui.xml
-            adb pull /data/local/tmp/ui.xml /tmp/ui-session2.xml
-            grep -o 'Original: [^"]*' /tmp/ui-session2.xml | head -1 | sed 's/^Original: //' > /tmp/orig-path2.txt
-            cat /tmp/orig-path2.txt
-            test -s /tmp/orig-path2.txt || (echo 'FILE PROOF #2 FAILED: no Original: path in Session details'; exit 1)
-            basename "$(cat /tmp/orig-path2.txt)" > /tmp/orig-base2.txt
-            adb root || true
-            adb pull "$(cat /tmp/orig-path2.txt)" recorded-30s.mp4 || (adb shell cp "$(cat /tmp/orig-path2.txt)" /sdcard/recorded-30s.mp4 && adb pull /sdcard/recorded-30s.mp4 recorded-30s.mp4) || (echo 'FILE PROOF #2 FAILED: could not pull the recording'; exit 1)
+            # FILE PROOF #2 (issues #79 + #87): same gallery-driven
+            # proof as #1 for the 30 s take (map ON + captions ON) —
+            # path from MediaStore, never from Session details (see
+            # the #1 comment: _lastFile is in-memory only, run
+            # 43823525690). No sheet is open here, so no Back press:
+            # the pidof below is the app-alive-after proof.
+            adb shell content query --uri content://media/external/video/media --projection _data:duration:date_added > /tmp/gallery2.txt || (echo 'FILE PROOF #2 FAILED: MediaStore query failed'; exit 1)
+            python3 tools/preview_diff.py --gallery-proof /tmp/gallery2.txt --rec-start /tmp/rec-start2.txt || (echo 'FILE PROOF #2 FAILED: no gallery row with duration > 0 for this recording (issue #87)'; exit 1)
+            REC_PATH2=$(python3 tools/preview_diff.py --gallery-path /tmp/gallery2.txt --rec-start /tmp/rec-start2.txt) || (echo 'FILE PROOF #2 FAILED: no gallery path for this recording'; exit 1)
+            adb pull "$REC_PATH2" recorded-30s.mp4 || (echo 'FILE PROOF #2 FAILED: could not pull the recording from the gallery'; exit 1)
             ls -la recorded-30s.mp4
             python3 tools/preview_diff.py --file-proof recorded-30s.mp4 --min-duration 28 || (echo 'FILE PROOF #2 FAILED: recorded file missing, empty, too short, or unplayable'; exit 1)
             mv file-proof-frame.png file-proof-30s-frame.png
-            adb shell content query --uri content://media/external/video/media --projection _data:duration:date_added > /tmp/gallery2.txt || (echo 'FILE PROOF #2 FAILED: MediaStore query failed'; exit 1)
-            python3 tools/preview_diff.py --gallery-proof /tmp/gallery2.txt --expect-name "$(cat /tmp/orig-base2.txt)" || (echo 'FILE PROOF #2 FAILED: no gallery row with duration > 0 for this recording (issue #87)'; exit 1)
             echo 'FILE PROOF #2: 30 s recording (map ON + captions ON) exists in the gallery with duration > 0 and plays'
-            adb shell input keyevent 4
-            sleep 1
             adb shell pidof app.storycam || (adb logcat -d | grep -i -E "storycam|flutter|fatal|crash" | tail -30; exit 1)
             adb logcat -d | grep -i -E "storycam|flutter|fatal|crash" | tail -50 || true
             ls -la *.png *.mp4

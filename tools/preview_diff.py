@@ -16,6 +16,7 @@ Usage:
     python3 tools/preview_diff.py --live <a.png> <b.png> <c.png> --min-diff <pct>
     python3 tools/preview_diff.py --file-proof <recording.mp4> --min-duration <secs>
     python3 tools/preview_diff.py --gallery-proof <content-query.txt> [--expect-name <file>] [--rec-start <epoch-file>]
+    python3 tools/preview_diff.py --gallery-path <content-query.txt> [--rec-start <epoch-file>]
 
 Exits 0 when the differing-pixel fraction is at or above --min-diff
 (motion seen: the preview is live), 1 otherwise (frozen or blind), and
@@ -92,6 +93,15 @@ asserts instead:
   proof — the gallery row for the recording exists with
   duration > 0 (optionally tied to this recording by file name
   and/or by date_added recency).
+* --gallery-path <content-query.txt> [--rec-start <epoch-file>]:
+  prints the _data path of that same newest matching row, so the
+  workflow can pull the GALLERY copy and --file-proof it. The path
+  comes from MediaStore on purpose: run 43823525690 proved the
+  Session-details tile's 'Original:' row is in-memory only
+  (_lastFile, main.dart:258 — "gone on app restart"): the app
+  re-initialized after the share sheet (status back to 'Ready to
+  tell your story', no Original row) while the gallery row
+  survived. Never read a recording path from the app's memory.
 
 Two new modes prove the feeds are live and different at the same
 moment (TRACK B ONLY — see above):
@@ -313,6 +323,37 @@ def file_proof(mp4, min_duration):
     return 0
 
 
+def select_gallery_row(text, expect_name, rec_start):
+    """Newest MediaStore video row with duration > 0, optionally tied
+    to this recording by file name and/or by date_added recency
+    (row must postdate rec_start - 10 s). Returns the row string,
+    or None. The query itself is unsorted (`adb shell content query
+    --sort "date_added DESC"` fails on the emulator — the device-side
+    parser splits the value and rejects the bare DESC token — so
+    ordering happens here)."""
+    import re
+
+    rows = re.findall(r"Row: \d+ (.*)", text)
+    # Newest first by date_added.
+    def added_of(row):
+        m = re.search(r"date_added=(\d+)", row)
+        return int(m.group(1)) if m else -1
+    rows = sorted(rows, key=added_of, reverse=True)
+    for row in rows:
+        data = re.search(r"_data=([^,]+)", row)
+        dur = re.search(r"duration=(\d+)", row)
+        added = re.search(r"date_added=(\d+)", row)
+        if not dur or int(dur.group(1)) <= 0:
+            continue
+        if expect_name and not (data and data.group(1).endswith(expect_name)):
+            continue
+        if rec_start is not None:
+            if not added or int(added.group(1)) < rec_start - 10:
+                continue
+        return row
+    return None
+
+
 def gallery_proof(query_file, expect_name, rec_start_file):
     """MediaStore side of the core-loop proof: parse an
     `adb shell content query` dump of the video table and require a
@@ -328,37 +369,49 @@ def gallery_proof(query_file, expect_name, rec_start_file):
         return 1
     text = open(query_file).read()
     print(f"gallery query output:\n{text.strip()}")
-    rows = re.findall(r"Row: \d+ (.*)", text)
-    if not rows:
+    if not re.findall(r"Row: \d+ ", text):
         print("GALLERY PROOF FAIL: no rows in the MediaStore video table")
         return 1
-    # Newest first by date_added (the query itself is unsorted: `adb
-    # shell content query --sort "date_added DESC"` fails on the
-    # emulator — the device-side parser splits the value and rejects
-    # the bare DESC token — so ordering happens here).
-    def added_of(row):
-        m = re.search(r"date_added=(\d+)", row)
-        return int(m.group(1)) if m else -1
-    rows = sorted(rows, key=added_of, reverse=True)
     start = None
     if rec_start_file:
         start = int(open(rec_start_file).read().strip())
-    for row in rows:
-        data = re.search(r"_data=([^,]+)", row)
-        dur = re.search(r"duration=(\d+)", row)
-        added = re.search(r"date_added=(\d+)", row)
-        if not dur or int(dur.group(1)) <= 0:
-            continue
-        if expect_name and not (data and data.group(1).endswith(expect_name)):
-            continue
-        if start is not None:
-            if not added or int(added.group(1)) < start - 10:
-                continue
-        print(f"GALLERY PROOF PASS: {row.strip()}")
-        return 0
-    print("GALLERY PROOF FAIL: no gallery row with duration > 0"
-          + (f" for {expect_name}" if expect_name else "")
-          + (f" since {start}" if start is not None else ""))
+    row = select_gallery_row(text, expect_name, start)
+    if row is None:
+        print("GALLERY PROOF FAIL: no gallery row with duration > 0"
+              + (f" for {expect_name}" if expect_name else "")
+              + (f" since {start}" if start is not None else ""))
+        return 1
+    print(f"GALLERY PROOF PASS: {row.strip()}")
+    return 0
+
+
+def gallery_path(query_file, expect_name, rec_start_file):
+    """Print the _data path of the newest matching gallery row (same
+    selection as gallery_proof) and nothing else, so the workflow can
+    capture it with $(...) and pull the gallery copy for
+    --file-proof. Exit 1 when no row matches."""
+    import os
+    import re
+
+    if not os.path.exists(query_file):
+        print(f"GALLERY PATH FAIL: {query_file} does not exist")
+        return 1
+    text = open(query_file).read()
+    start = None
+    if rec_start_file:
+        start = int(open(rec_start_file).read().strip())
+    row = select_gallery_row(text, expect_name, start)
+    if row is None:
+        print("GALLERY PATH FAIL: no gallery row with duration > 0"
+              + (f" for {expect_name}" if expect_name else "")
+              + (f" since {start}" if start is not None else ""))
+        return 1
+    data = re.search(r"_data=([^,]+)", row)
+    if not data:
+        print(f"GALLERY PATH FAIL: no _data in row: {row.strip()}")
+        return 1
+    print(data.group(1))
+    return 0
     return 1
 
 
@@ -451,6 +504,10 @@ def main(argv=None):
     parser.add_argument("--gallery-proof", metavar="TXT",
                         help="MediaStore proof: content-query dump must "
                         "hold a row with duration > 0")
+    parser.add_argument("--gallery-path", metavar="TXT",
+                        help="print the _data path of the newest matching "
+                        "gallery row (same selection as --gallery-proof), "
+                        "so the workflow can pull the gallery copy")
     parser.add_argument("--expect-name", metavar="FILE",
                         help="gallery row _data must end with this name")
     parser.add_argument("--rec-start", metavar="FILE",
@@ -467,6 +524,9 @@ def main(argv=None):
     if args.gallery_proof:
         return gallery_proof(args.gallery_proof, args.expect_name,
                              args.rec_start)
+    if args.gallery_path:
+        return gallery_path(args.gallery_path, args.expect_name,
+                            args.rec_start)
     if args.video_proof:
         times = [int(t) for t in args.times.split(",")]
         return video_proof(args.video_proof, times, args.min_diff,
@@ -475,8 +535,8 @@ def main(argv=None):
         return 0 if regions_check(args.regions, args.min_mean_diff) else 1
     if not args.before or not args.after:
         parser.error("need <before> <after>, --live, --regions, "
-                     "--video-proof, --not-black, --file-proof, or "
-                     "--gallery-proof")
+                     "--video-proof, --not-black, --file-proof, "
+                     "--gallery-proof, or --gallery-path")
     pct = diff_fraction(args.before, args.after, box=args.box)
     print(f"{args.box}-region diff {args.before} vs {args.after}: "
           f"{pct:.2f}% (needs >= {args.min_diff:.2f}%)")
