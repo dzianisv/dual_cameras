@@ -15,6 +15,16 @@ name: Publish to Google Play Store
 # Publisher API (tools/promote_play_release.py). Do NOT re-dispatch the
 # upload for a version code that is already live on any track.
 #
+# DRAFT-APP LIMIT (runs 43878320544 + 43878646446, 2026-11-16): while the
+# app has never had a production release, the API allows ONLY draft
+# releases on it — inProgress fails ("Staged rollout is not permitted
+# on draft app") and completed fails ("Only releases with status draft
+# may be created on draft app"). So the first production release must be
+# created as status=draft via this workflow, and then submitted for
+# review in the Play Console UI (a human step — the API cannot submit a
+# draft app's first release). After that first publication, staged
+# rollouts (inProgress + user_fraction) work normally.
+#
 # Requires repo secrets:
 #   STORYCAM_KEYSTORE_BASE64 / STORYCAM_KEYSTORE_PASSWORD /
 #   STORYCAM_KEY_ALIAS / STORYCAM_KEY_PASSWORD — the production upload
