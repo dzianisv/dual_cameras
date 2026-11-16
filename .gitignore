@@ -31,3 +31,9 @@ pubspec.lock
 .vscode/
 *.swp
 .DS_Store
+
+# CI test feeds (issue #79): downloaded in-workflow from
+# download.blender.org on every run, never committed. The looped
+# front/rear-feed.mp4 files are 45 MB + 161 MB — they must not land
+# in the repo if a workflow step is ever run locally.
+tools/emulator-feeds/

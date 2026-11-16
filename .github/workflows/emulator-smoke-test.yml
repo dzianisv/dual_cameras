@@ -2,7 +2,15 @@
 # launch crashes, permission failures, and startup model-download failures — it
 # does NOT prove concurrent cameras, mic audio, or caption inference:
 # emulator cameras are virtual, and sherpa-onnx runs through the native
-# bridge. A real phone is still the proof gate
+# bridge. A real phone is still the proof gate for the fix itself
+# (issue #13) — but since issue #79 the emulator IS the gate for
+# test work wherever it can exercise it: it now plays two distinct
+# real videos (Big Buck Bunny trailer rear, Sintel trailer front —
+# Blender open movies, CC-BY 3.0; see emulator-screenshots.yml header
+# for sources, licenses, and the download-vs-fixtures reasoning) via
+# -camera-back/-camera-front videofile:, so the motion pairs below run
+# against real moving feeds instead of the synthetic test pattern, and
+# a --regions check proves the two feeds differ on the live preview.
 # (see ~/workspace/storycam/PHONE_TEST_PLAN.md).
 # It DOES prove the save path: after every recording, tools/longrec_check.py
 # asserts the video file EXISTS in MediaStore with duration > 0 (issue #87 —
@@ -177,6 +185,24 @@ jobs:
           sudo chmod 666 /dev/kvm 2>/dev/null || echo "chmod /dev/kvm skipped"
           ls -l /dev/kvm || true
 
+      # ISSUE #79: fetch the two real camera feeds (Blender open-movie
+      # trailers, CC-BY 3.0) and loop-extend each to 600 s — same step as
+      # emulator-screenshots.yml (sources, licenses, and the
+      # download-vs-fixtures reasoning live in that file's header).
+      - name: Download emulator camera feeds (issue #79)
+        run: |
+          mkdir -p tools/emulator-feeds
+          command -v ffmpeg >/dev/null || (sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg)
+          command -v ffprobe >/dev/null || (sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg)
+          curl -fSL --max-time 300 -o tools/emulator-feeds/sintel-trailer.mp4 https://download.blender.org/durian/trailer/sintel_trailer-720p.mp4
+          curl -fSL --max-time 300 -o tools/emulator-feeds/bbb-trailer.mov https://download.blender.org/peach/trailer/trailer_720p.mov
+          ls -la tools/emulator-feeds/
+          ffmpeg -y -v error -stream_loop 19 -i tools/emulator-feeds/sintel-trailer.mp4 -c copy -t 600 tools/emulator-feeds/front-feed.mp4
+          ffmpeg -y -v error -stream_loop 19 -i tools/emulator-feeds/bbb-trailer.mov -c copy -t 600 tools/emulator-feeds/rear-feed.mp4
+          ffprobe -v error -show_entries format=duration -of csv=p=0 tools/emulator-feeds/front-feed.mp4
+          ffprobe -v error -show_entries format=duration -of csv=p=0 tools/emulator-feeds/rear-feed.mp4
+          ls -la tools/emulator-feeds/
+
       # Pillow is needed by tools/preview_diff.py (region-aware preview
       # liveness check, issue #13) and tools/mapburn_check.py (issue #49
       # map-burn pixel check); imageio-ffmpeg provides the static ffmpeg
@@ -194,7 +220,7 @@ jobs:
           heap-size: 1024
           arch: x86_64
           target: google_apis
-          emulator-options: -no-snapshot-save -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back emulated -camera-front emulated
+          emulator-options: -no-snapshot-save -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back videofile:${{ github.workspace }}/tools/emulator-feeds/rear-feed.mp4 -camera-front videofile:${{ github.workspace }}/tools/emulator-feeds/front-feed.mp4
           disable-animations: true
           disable-linux-hw-accel: false
           emulator-boot-timeout: 900
@@ -221,6 +247,10 @@ jobs:
             adb exec-out screencap -p > resume-pre-2.png
             python3 tools/preview_diff.py resume-pre-1.png resume-pre-2.png --min-diff 0.1 || (echo 'PRE-CHECK FAILED: no motion in the preview region before backgrounding - the live-preview assertion cannot see motion on this emulator'; exit 1)
             echo 'pre-check: preview region shows motion (live preview before background)'
+            python3 tools/preview_diff.py --regions resume-pre-1.png --min-mean-diff 5.0 || (echo 'FEED PROOF FAILED: front-circle vs rear-area regions look the same - videofile feeds not distinct'; exit 1)
+            python3 tools/preview_diff.py resume-pre-1.png resume-pre-2.png --min-diff 0.1 --box front || (echo 'FEED PROOF FAILED: no motion in the front-circle region - front feed frozen'; exit 1)
+            python3 tools/preview_diff.py resume-pre-1.png resume-pre-2.png --min-diff 0.1 --box rear || (echo 'FEED PROOF FAILED: no motion in the rear region - rear feed frozen'; exit 1)
+            echo 'feed proof (smoke): front/rear regions differ + both feeds move (issue #79)'
             adb shell input keyevent 3
             sleep 5
             adb shell am start -n app.storycam/.MainActivity
