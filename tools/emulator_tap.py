@@ -333,46 +333,52 @@ def lens_pills():
     return 0
 
 
-def _switch_on_row(root, label):
-    """(label_node, switch) for a Settings SwitchListTile, or
-    (None, None) / (label_node, None) when the label or its Switch
-    is not in this tree."""
-    label_node = find_node(root, label)
-    if label_node is None:
-        return None, None
-    lx1, ly1, lx2, ly2 = node_bounds(label_node)
-    ly = (ly1 + ly2) // 2
-    switch = None
-    best_gap = None
-    for node in root.iter("node"):
-        if node.get("class") != "android.widget.Switch":
-            continue
-        _, sy1, _, sy2 = node_bounds(node)
-        gap = abs((sy1 + sy2) // 2 - ly)
-        if best_gap is None or gap < best_gap:
-            switch, best_gap = node, gap
-    if switch is None or best_gap > (ly2 - ly1) // 2 + 20:
-        return label_node, None
-    return label_node, switch
-
-
 def ensure_switch_on(label):
     """Ensure a Settings SwitchListTile is ON (issue #79 + #87: the
     30 s recording runs with map ON + captions ON). Reads the
     Switch state and taps it only when off, then re-reads and fails
     loudly if it did not turn on. Already-on is a PASS, not a tap.
     Up to 3 attempts: the Settings sheet rebuilds continuously
-    (issue #86), so a single dump can miss the label entirely — run
-    43828702544 failed the first attempt with 'switch label
-    "Location circle" not found' 12 s after the Map tap, on a dump
-    that returned a tree without it. Mirrors the retry in
-    tools/enable_captions.py on main."""
+    (issue #86), so a single dump can miss the label entirely.
+
+    MATCHER (run 43842797586): the first version looked for the
+    label node and then the nearest android.widget.Switch by Y —
+    it failed 3/3 on 'Location circle' although the switch was
+    visibly ON in shots 08 + 20. The proven matcher is
+    tools/enable_captions.py (main, 6 green smoke runs): a
+    SwitchListTile exposes its title+subtitle as the Switch node's
+    content-desc, so match nodes whose text/desc start with the
+    label and prefer one carrying a `checked` attribute — that node
+    IS the Switch, no Y-proximity guess needed. Tapping the row
+    toggles it. When the switch is not found, the log now says
+    WHAT the dump held (label present? switches present?) instead
+    of the old conflated 'not in tree', so the next failure is
+    diagnosable from the log alone.
+    """
     for attempt in range(1, 4):
         root = dump_ui()
-        _, switch = _switch_on_row(root, label)
+        switch = None
+        seen = []
+        for node in root.iter("node"):
+            text = node.get("text") or ""
+            desc = node.get("content-desc") or ""
+            if text.startswith(label) or desc.startswith(label):
+                seen.append((node.get("class"), node.get("checked"),
+                             desc or text))
+                # Prefer the Switch itself: in the real tree the tile's
+                # title+subtitle are the Switch node's content-desc and
+                # there is no separate title node (smoke run 43836635166:
+                # class=android.widget.Switch, checked=false->true).
+                # Fall back to the first startswith match carrying a
+                # checked attribute, as enable_captions.py does.
+                if node.get("class") == "android.widget.Switch":
+                    switch = node
+                    break
+                if switch is None and node.get("checked") is not None:
+                    switch = node
         if switch is None:
-            print(f'attempt {attempt}/3: switch "{label}" not in tree '
-                  f'— retrying')
+            print(f'attempt {attempt}/3: switch "{label}" not found '
+                  f'(label matches in tree: {seen}) — retrying')
             time.sleep(2)
             continue
         if switch.get("checked") == "true":
@@ -384,7 +390,16 @@ def ensure_switch_on(label):
                        check=True)
         time.sleep(1)
         root = dump_ui()
-        _, switch = _switch_on_row(root, label)
+        switch = None
+        for node in root.iter("node"):
+            text = node.get("text") or ""
+            desc = node.get("content-desc") or ""
+            if ((text.startswith(label) or desc.startswith(label))
+                    and (node.get("class") == "android.widget.Switch"
+                         or node.get("checked") is not None)):
+                switch = node
+                if node.get("class") == "android.widget.Switch":
+                    break
         if switch is not None and switch.get("checked") == "true":
             print(f'switch "{label}": OFF -> ON')
             return 0
@@ -392,6 +407,7 @@ def ensure_switch_on(label):
               f'retrying')
         time.sleep(2)
     print(f'SWITCH FAILED: "{label}" not ON after 3 attempts')
+    return 1
     return 1
 
 
