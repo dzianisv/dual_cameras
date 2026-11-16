@@ -61,7 +61,13 @@ window) and passes when EITHER consecutive interval shows motion:
 a genuinely frozen preview scores 0.00% in BOTH intervals and still
 fails, while a still gap only fails the run if it covers the whole
 8 s window. Same 0.1% threshold per interval — this is a longer
-window, not a lower bar.
+window, not a lower bar. --live originated on the #79 Track A branch
+(PR #80, commit 7c45317), which proved it on runs 43819821940 /
+43819834598 / 43846071240; it reached main via the #80 merge.
+Residual risk (issue #13 Stage 2): still phases reach ~38 s on
+provably live previews, longer than the 8 s window — if --live still
+false-fails, the next step is a cross-pair fallback (live cross-pairs
+score 4.70-38.49%), not a lower threshold.
 
 ISSUE #79 EXTENSION — front-vs-rear feed proof (2026-11-16): the
 videofile attempt wired two DIFFERENT real videos (Big Buck Bunny
