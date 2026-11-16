@@ -55,7 +55,12 @@
 # not two: runs 43819821940 + 43819834598 (2026-11-16) false-failed a
 # single 3 s pair at 0.00% on live previews — the test pattern moves in
 # bursts with still gaps >= 3 s, so a frozen preview is only proven by
-# 0.00% in BOTH intervals of the 8 s window.
+# 0.00% in BOTH intervals of the 8 s window. Still phases reach ~38 s
+# on provably live previews (issue #13 Stage 2: run 43838941437
+# launch-to-pre-1 0.00% over ~38 s, then 14.15% 3 s later), longer than
+# the 8 s window — if --live still false-fails, the next step is a
+# cross-pair fallback (live cross-pairs score 4.70-38.49%), not a lower
+# threshold.
 # `pidof` alone is NOT enough: run #8 proved a dead app can pass
 # pidof-style checks, and a frozen preview keeps the process alive. A
 # whole-file `cmp` is NOT enough either: it fails on a status-bar clock
