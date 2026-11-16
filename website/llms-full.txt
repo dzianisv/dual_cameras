@@ -80,6 +80,8 @@ https://dzianisv.github.io/dual_cameras/privacy.html
 - Latest APK: https://dzianisv.github.io/dual_cameras/latest.html
 - Releases: https://github.com/dzianisv/dual_cameras/releases
 - Blog post: https://dzianisv.github.io/dual_cameras/blog/travel-vlog-story.html
+- Blog post: https://dzianisv.github.io/dual_cameras/blog/dual-camera-recording-guide.html
+- Blog post: https://dzianisv.github.io/dual_cameras/blog/dual-camera-recording-guide.html
 - Source (plugin): https://github.com/dzianisv/dual_cameras
 - Upstream plugin: https://github.com/RomanSlack/dual_cameras
 - Plugin site: https://romanslack.com
