@@ -1,0 +1,187 @@
+# SCRATCH — issue #81 investigation only (branch fix/recording-30s-lock-81).
+# NOT a permanent workflow: reproduces Den's report ("recording ~30 s
+# locks the app and the recording stops") in the CI emulator and captures
+# the evidence (freeze time, UI responsiveness, full logcat, pidof
+# before/after, output video duration/size/validity). Delete before merge.
+#
+# Run 1 settings (defaults, matching Den's likely setup as closely as the
+# emulator allows): map ON (default mapVisible=true), 1080p (default),
+# captions as default (fresh install: off — the smoke test's mapburn leg
+# asserts words==0), emulated feeds (PR #80 NOT merged; its proof run
+# 43804082643 FAILED at the feed download — curl 403 on the Sintel
+# trailer — so videofile feeds are currently unavailable in CI;
+# re-verification on #79 feeds is owed after #80 lands).
+#
+# SHELL RULE (runs 43491636991 etc.): android-emulator-runner executes
+# each line of `script:` as a SEPARATE `sh -c` call — no variables,
+# functions or heredocs survive across lines. Every command below is
+# self-contained on one line.
+# SCREENSHOT RULE (run 43497670419): screenshots only via
+# `adb exec-out screencap -p > file.png` (sdcard screencap fails).
+# ANR RULE (run 43501670656): best-effort 'Wait' taps after launch and
+# after starting recording (|| true).
+# X86_64 RULE: STORYCAM_ABI=x86_64 or the APK ships with no native libs
+# and crashes on launch. KVM RULE: `sudo chmod 666 /dev/kvm` before the
+# emulator step or it silently falls back to `-accel off`.
+# Permissions are pre-granted (CAMERA/RECORD_AUDIO/POST_NOTIFICATIONS/
+# location) so no modal dialog covers the shutter.
+#
+# Recording plan: start, then checkpoints at T+10 / T+20 / T+30 / T+35 s
+# (pidof + screencap each; UI dump at T+30/T+35 grepping for
+# 'Stop recording' vs 'Start recording' — that is the freeze detector:
+# if the app locked and the take stopped by itself, the shutter is back
+# to 'Start recording' before any Stop tap). Stop tap at ~T+40 s.
+# The workflow NEVER fails fast on a freeze — every checkpoint prints
+# its verdict and the run continues to the logcat + video pull, so a
+# repro still yields full evidence. It exits 1 at the end if the take
+# stopped early or the app died, so the run status carries the verdict.
+name: StoryCam long recording repro (#81)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  longrec:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Check out the repo
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: 3.47.7
+          channel: stable
+          cache: true
+
+      - name: Build release APK (x86_64)
+        working-directory: packages/dual_cameras/example
+        env:
+          STORYCAM_ABI: x86_64
+        run: |
+          flutter pub get
+          flutter build apk --release --target-platform android-x64
+
+      - name: Enable KVM for the emulator
+        run: |
+          ls -l /dev/kvm || echo "no /dev/kvm on this runner"
+          sudo chmod 666 /dev/kvm 2>/dev/null || echo "chmod /dev/kvm skipped"
+          ls -l /dev/kvm || true
+
+      - name: Install Pillow + imageio-ffmpeg for the image checks
+        run: python3 -m pip install --quiet pillow imageio-ffmpeg
+
+      - name: Emulator long recording repro (#81)
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          cores: 4
+          ram-size: 4096
+          heap-size: 1024
+          arch: x86_64
+          target: google_apis
+          emulator-options: -no-snapshot-save -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back emulated -camera-front emulated
+          disable-animations: true
+          disable-linux-hw-accel: false
+          emulator-boot-timeout: 900
+          script: |
+            adb install -r packages/dual_cameras/example/build/app/outputs/flutter-apk/app-release.apk
+            adb shell pm grant app.storycam android.permission.CAMERA || true
+            adb shell pm grant app.storycam android.permission.RECORD_AUDIO || true
+            adb shell pm grant app.storycam android.permission.POST_NOTIFICATIONS || true
+            adb shell pm grant app.storycam android.permission.ACCESS_FINE_LOCATION || true
+            adb shell pm grant app.storycam android.permission.ACCESS_COARSE_LOCATION || true
+            adb shell am start -n app.storycam/.MainActivity
+            sleep 20
+            adb shell pidof app.storycam || (adb logcat -d | grep -i -E "storycam|flutter|fatal|crash" | tail -30; adb logcat -d -b crash | tail -40 || true; exit 1)
+            adb exec-out screencap -p > longrec-launch.png
+            python3 tools/emulator_tap.py 'Wait' || true
+            sleep 5
+            python3 tools/emulator_tap.py 'Allow' || true
+            sleep 2
+            python3 tools/emulator_tap.py 'Open camera' || true
+            sleep 20
+            adb shell pidof app.storycam || (adb logcat -d | grep -i -E "storycam|flutter|fatal|crash" | tail -30; adb logcat -d -b crash | tail -40 || true; exit 1)
+            adb exec-out screencap -p > longrec-ready.png
+            date -u '+RECORDING START %Y-%m-%dT%H:%M:%SZ'
+            python3 tools/emulator_tap.py 'Start recording'
+            sleep 10
+            date -u '+CHECKPOINT T+10s %Y-%m-%dT%H:%M:%SZ'
+            adb shell pidof app.storycam && echo 'T+10: APP ALIVE' || echo 'T+10: APP DEAD (pidof empty)'
+            adb exec-out screencap -p > longrec-t10.png
+            python3 tools/emulator_tap.py 'Wait' || true
+            sleep 10
+            date -u '+CHECKPOINT T+20s %Y-%m-%dT%H:%M:%SZ'
+            adb shell pidof app.storycam && echo 'T+20: APP ALIVE' || echo 'T+20: APP DEAD (pidof empty)'
+            adb exec-out screencap -p > longrec-t20.png
+            sleep 10
+            date -u '+CHECKPOINT T+30s %Y-%m-%dT%H:%M:%SZ'
+            adb shell pidof app.storycam && echo 'T+30: APP ALIVE' || echo 'T+30: APP DEAD (pidof empty)'
+            adb exec-out screencap -p > longrec-t30.png
+            adb shell uiautomator dump /data/local/tmp/ui.xml
+            adb pull /data/local/tmp/ui.xml /tmp/ui-30s.xml
+            cp /tmp/ui-30s.xml ui-30s.xml || true
+            grep -q 'Stop recording' /tmp/ui-30s.xml && echo 'T+30: STILL RECORDING (Stop button present)' || echo 'T+30: NOT RECORDING (no Stop button — take stopped early or UI frozen)'
+            grep -q -i 'responding' /tmp/ui-30s.xml && echo 'T+30: ANR DIALOG PRESENT' || echo 'T+30: no ANR dialog in UI dump'
+            sleep 5
+            date -u '+CHECKPOINT T+35s %Y-%m-%dT%H:%M:%SZ'
+            adb shell pidof app.storycam && echo 'T+35: APP ALIVE' || echo 'T+35: APP DEAD (pidof empty)'
+            adb exec-out screencap -p > longrec-t35.png
+            adb shell uiautomator dump /data/local/tmp/ui.xml
+            adb pull /data/local/tmp/ui.xml /tmp/ui-35s.xml
+            cp /tmp/ui-35s.xml ui-35s.xml || true
+            grep -q 'Stop recording' /tmp/ui-35s.xml && echo 'T+35: STILL RECORDING (Stop button present)' || echo 'T+35: NOT RECORDING (no Stop button — take stopped early or UI frozen)'
+            sleep 5
+            date -u '+STOP TAP ~T+40s %Y-%m-%dT%H:%M:%SZ'
+            timeout 120 python3 tools/emulator_tap.py 'Stop recording' && echo 'STOP TAP: tapped' || echo 'STOP TAP: FAILED (button absent or tap helper failed — UI may be frozen)'
+            sleep 15
+            adb shell pidof app.storycam && echo 'AFTER-STOP: APP ALIVE' || echo 'AFTER-STOP: APP DEAD (pidof empty)'
+            adb exec-out screencap -p > longrec-after-stop.png
+            python3 tools/preview_diff.py longrec-t10.png longrec-t20.png --min-diff 0.1 || echo 'MOTION T10-T20: 0.00% or below threshold (preview frozen in that window — see diff output above)'
+            python3 tools/preview_diff.py longrec-t20.png longrec-t30.png --min-diff 0.1 || echo 'MOTION T20-T30: 0.00% or below threshold (preview frozen in that window — see diff output above)'
+            python3 tools/preview_diff.py longrec-t30.png longrec-t35.png --min-diff 0.1 || echo 'MOTION T30-T35: 0.00% or below threshold (preview frozen in that window — see diff output above)'
+            adb logcat -d > logcat-full.txt
+            adb logcat -d | grep -i -E "storycam|flutter|fatal|crash" | tail -100 > logcat-storycam.txt || true
+            adb logcat -d | grep -i -E "MAPBURN|CaptionBurner|MapRenderer" | tail -60 > logcat-mapburn.txt || true
+            adb logcat -d | grep -i -E "ANR|not responding|OutOfMemory|thermal|MediaCodec|MediaMuxer" | tail -60 > logcat-anr.txt || true
+            adb logcat -d -b crash > logcat-crash.txt || true
+            adb shell dumpsys meminfo app.storycam > meminfo.txt || true
+            adb shell dumpsys activity activities > dumpsys-activities.txt || true
+            python3 tools/mapburn_check.py || echo 'MAPBURN CHECK: non-zero exit (see mapburn.log — expected if the take stopped early and no burn ran)'
+            python3 tools/longrec_probe.py
+            ls -l *.mp4 *.png *.txt *.log 2>/dev/null || true
+            echo 'LONGREC RUN 1 DONE — verdict from the checkpoint lines + longrec_probe output above'
+
+      - name: Upload long-recording evidence
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: longrec-81-run1
+          path: |
+            longrec-*.png
+            logcat-full.txt
+            logcat-storycam.txt
+            logcat-mapburn.txt
+            logcat-anr.txt
+            logcat-crash.txt
+            meminfo.txt
+            dumpsys-activities.txt
+            mapburn.log
+            mapburn-original.png
+            mapburn-burned.png
+            mapburn-original.mp4
+            mapburn-burned.mp4
+            device-*.mp4
+            ui-30s.xml
+            ui-35s.xml
+          retention-days: 14
