@@ -56,15 +56,6 @@ def duration_secs(mp4):
 
 def main():
     print("=== #81 LONGREC PROBE ===")
-    mp4s = sorted(glob.glob("*.mp4"))
-    if not mp4s:
-        print("no mp4 files in the working directory (nothing pulled)")
-    for mp4 in mp4s:
-        size = os.path.getsize(mp4)
-        dur = duration_secs(mp4)
-        dur_s = f"{dur:.1f}s" if dur is not None else "UNKNOWN (ffprobe parse failed — file may be truncated/corrupt)"
-        print(f"FILE {mp4}: {size} B, duration {dur_s}")
-
     logcat = ""
     if os.path.exists(LOG):
         with open(LOG, encoding="utf-8", errors="replace") as fh:
@@ -107,6 +98,16 @@ def main():
             print("device pull failed (cache not readable from adb on this image)")
     else:
         print("no dcr_*.mp4 found in the device app cache (or cache not listable)")
+
+    # List mp4s LAST so a fallback pull above is included.
+    mp4s = sorted(glob.glob("*.mp4"))
+    if not mp4s:
+        print("no mp4 files in the working directory (nothing pulled)")
+    for mp4 in mp4s:
+        size = os.path.getsize(mp4)
+        dur = duration_secs(mp4)
+        dur_s = f"{dur:.1f}s" if dur is not None else "UNKNOWN (ffprobe parse failed — file may be truncated/corrupt)"
+        print(f"FILE {mp4}: {size} B, duration {dur_s}")
     return 0
 
 

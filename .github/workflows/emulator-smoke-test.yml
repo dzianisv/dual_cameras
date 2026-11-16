@@ -69,6 +69,10 @@ on:
         description: 'Issue #81 scratch: 40 s long-recording repro instead of the normal smoke legs (temporary, revert before merge)'
         type: boolean
         default: false
+      longrec_preset:
+        description: 'Issue #81 scratch: settings preset for the long take — defaults | captions-on | map-off (temporary, revert before merge)'
+        type: string
+        default: 'defaults'
 
 permissions:
   contents: read
@@ -229,6 +233,8 @@ jobs:
       - name: Emulator long recording repro (#81, scratch)
         if: ${{ inputs.longrec81 }}
         uses: reactivecircus/android-emulator-runner@v2
+        env:
+          LONGREC_PRESET: ${{ inputs.longrec_preset }}
         with:
           api-level: 34
           cores: 4
@@ -259,6 +265,9 @@ jobs:
             sleep 20
             adb shell pidof app.storycam || (adb logcat -d | grep -i -E "storycam|flutter|fatal|crash" | tail -30; adb logcat -d -b crash | tail -40 || true; exit 1)
             adb exec-out screencap -p > longrec-ready.png
+            if [ "$LONGREC_PRESET" = captions-on ]; then python3 tools/emulator_tap.py 'Captions'; sleep 3; python3 tools/emulator_tap.py 'Auto-captions'; sleep 2; adb shell uiautomator dump /data/local/tmp/ui.xml; adb pull /data/local/tmp/ui.xml /tmp/ui-preset.xml; cp /tmp/ui-preset.xml ui-preset.xml || true; grep -q '4K is not available' /tmp/ui-preset.xml && echo 'PRESET captions-on: 4K NOT offered on this emulator' || echo 'PRESET captions-on: 4K may be offered (no not-available note)'; adb shell input keyevent 4; sleep 2; echo 'PRESET captions-on: Auto-captions tapped'; fi
+            if [ "$LONGREC_PRESET" = map-off ]; then python3 tools/emulator_tap.py 'Map'; sleep 3; python3 tools/emulator_tap.py 'Location circle'; sleep 2; adb shell uiautomator dump /data/local/tmp/ui.xml; adb pull /data/local/tmp/ui.xml /tmp/ui-preset.xml; cp /tmp/ui-preset.xml ui-preset.xml || true; grep -q '4K is not available' /tmp/ui-preset.xml && echo 'PRESET map-off: 4K NOT offered on this emulator' || echo 'PRESET map-off: 4K may be offered (no not-available note)'; adb shell input keyevent 4; sleep 2; echo 'PRESET map-off: Location circle tapped (map off)'; fi
+            if [ "$LONGREC_PRESET" = defaults ]; then echo 'PRESET defaults: no settings change (map on, 1080p, captions off)'; fi
             date -u '+RECORDING START %Y-%m-%dT%H:%M:%SZ'
             python3 tools/emulator_tap.py 'Start recording'
             sleep 10
@@ -293,6 +302,10 @@ jobs:
             sleep 15
             adb shell pidof app.storycam && echo 'AFTER-STOP: APP ALIVE' || echo 'AFTER-STOP: APP DEAD (pidof empty)'
             adb exec-out screencap -p > longrec-after-stop.png
+            adb shell uiautomator dump /data/local/tmp/ui.xml
+            adb pull /data/local/tmp/ui.xml /tmp/ui-after-stop.xml
+            cp /tmp/ui-after-stop.xml ui-after-stop.xml || true
+            grep -q 'Start recording' /tmp/ui-after-stop.xml && echo 'AFTER-STOP: CAMERA SCREEN BACK (Start recording present — UI responsive after stop)' || echo 'AFTER-STOP: NOT ON CAMERA SCREEN (no Start recording — UI may be stuck on the stop/burn path)'
             python3 tools/preview_diff.py longrec-t10.png longrec-t20.png --min-diff 0.1 || echo 'MOTION T10-T20: 0.00% or below threshold (preview frozen in that window — see diff output above)'
             python3 tools/preview_diff.py longrec-t20.png longrec-t30.png --min-diff 0.1 || echo 'MOTION T20-T30: 0.00% or below threshold (preview frozen in that window — see diff output above)'
             python3 tools/preview_diff.py longrec-t30.png longrec-t35.png --min-diff 0.1 || echo 'MOTION T30-T35: 0.00% or below threshold (preview frozen in that window — see diff output above)'
@@ -333,4 +346,6 @@ jobs:
             device-*.mp4
             ui-30s.xml
             ui-35s.xml
+            ui-preset.xml
+            ui-after-stop.xml
           retention-days: 7
