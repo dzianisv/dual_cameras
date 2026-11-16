@@ -338,6 +338,20 @@ jobs:
             adb shell uiautomator dump /data/local/tmp/ui.xml || true
             adb pull /data/local/tmp/ui.xml /tmp/ui-map2.xml || true
             grep -o 'Map zoom [0-9.]*' /tmp/ui-map2.xml | head -1 || echo 'WALKTHROUGH map-zoom-slider: FAIL (no Map zoom text after drag)'
+            # RELAUNCH RULE (run 43839237141): the app died mid-walkthrough
+            # during the map work — shot 21 is the Android home screen, and
+            # every later tap missed (the dumps held the launcher tree),
+            # dying hard on 'Start recording'. pidof is NOT the check: a
+            # finished activity leaves the process alive (run 43569645665),
+            # so the foreground window is what matters. If StoryCam is not
+            # the current focus, relaunch it like the initial launch (am
+            # start + 'Open camera'; permissions already granted) and
+            # verify it is foreground again; if it still is not, the app
+            # genuinely will not start — logcat + fail loudly. A relaunch
+            # is visible in the log (the am start line), so a death is
+            # recorded, not hidden. /tmp/relaunched.txt tells the Back
+            # below the sheet is already closed (see there).
+            if ! adb shell dumpsys window | grep mCurrentFocus | grep -q app.storycam; then adb shell am start -n app.storycam/.MainActivity; sleep 30; python3 tools/emulator_tap.py 'Open camera' || true; sleep 20; if ! adb shell dumpsys window | grep mCurrentFocus | grep -q app.storycam; then adb logcat -d | grep -i -E "storycam|flutter|fatal|crash" | tail -30; echo 'WALKTHROUGH: app will not come to foreground after relaunch'; exit 1; fi; touch /tmp/relaunched.txt; fi
             # ANR GUARD (run 43817680362): a "Process system isn't
             # responding" dialog appeared over the sheet during the map
             # work — with it up, the dumps hold only the dialog tree,
@@ -352,7 +366,12 @@ jobs:
             # loaded emulator. Back/Home are navigation, not proof, so
             # every keyevent below retries once after 2 s; a second
             # failure still fails the run loudly.
-            adb shell input keyevent 4 || (sleep 2; adb shell input keyevent 4)
+            # RELAUNCH SKIP (run 43839237141): if the relaunch above ran,
+            # the app restarted on the camera screen with the sheet
+            # already closed — a Back here would exit the app to the
+            # home screen. Skip it (the flag is consumed); the menu
+            # taps below open the sheet themselves.
+            if [ -f /tmp/relaunched.txt ]; then rm -f /tmp/relaunched.txt; echo 'WALKTHROUGH: app was relaunched, sheet already closed — skipping Back'; else adb shell input keyevent 4 || (sleep 2; adb shell input keyevent 4); fi
             sleep 2
             python3 tools/emulator_tap.py 'Wait' || true
             sleep 1
@@ -389,6 +408,10 @@ jobs:
             adb exec-out screencap -p > 27-session-details.png
             adb shell input keyevent 4 || (sleep 2; adb shell input keyevent 4)
             sleep 2
+            # RELAUNCH RULE (run 43839237141, see the map-work block
+            # above): the app can die during the long menu section too —
+            # make sure it is foreground before the gated recording.
+            if ! adb shell dumpsys window | grep mCurrentFocus | grep -q app.storycam; then adb shell am start -n app.storycam/.MainActivity; sleep 30; python3 tools/emulator_tap.py 'Open camera' || true; sleep 20; if ! adb shell dumpsys window | grep mCurrentFocus | grep -q app.storycam; then adb logcat -d | grep -i -E "storycam|flutter|fatal|crash" | tail -30; echo 'WALKTHROUGH: app will not come to foreground after relaunch'; exit 1; fi; fi
             date +%s > /tmp/rec-start.txt
             python3 tools/emulator_tap.py 'Start recording'
             sleep 6
@@ -519,6 +542,11 @@ jobs:
             # works. The recording runs 30 s+ to Stop with the app
             # alive after; FILE PROOF #2 is the same file-exists +
             # gallery proof as #1 for this take.
+            # RELAUNCH RULE (run 43839237141, see the map-work block
+            # above): the app can die during the 6 s recording + share
+            # too — make sure it is foreground before the gated 30 s
+            # recording.
+            if ! adb shell dumpsys window | grep mCurrentFocus | grep -q app.storycam; then adb shell am start -n app.storycam/.MainActivity; sleep 30; python3 tools/emulator_tap.py 'Open camera' || true; sleep 20; if ! adb shell dumpsys window | grep mCurrentFocus | grep -q app.storycam; then adb logcat -d | grep -i -E "storycam|flutter|fatal|crash" | tail -30; echo 'WALKTHROUGH: app will not come to foreground after relaunch'; exit 1; fi; fi
             python3 tools/emulator_tap.py 'Map' || (echo '30S RECORDING FAILED: Map menu tap missed'; exit 1)
             sleep 3
             python3 tools/emulator_tap.py --ensure-switch-on 'Location circle' || (echo '30S RECORDING FAILED: map (Location circle) is not ON'; exit 1)
