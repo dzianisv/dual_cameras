@@ -1,0 +1,203 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>How to record front and back camera at the same time — StoryCam</title>
+<meta name="description" content="Record the front and back cameras at the same time into one video with StoryCam: pick a layout, tap to swap, add a filter, captions in Russian and English, and a map burned into the video. Free on Android.">
+<meta name="keywords" content="StoryCam, record front and back camera at the same time, front and back camera simultaneously, dual camera recording app, record both cameras Android, picture-in-picture video app, on-device captions Russian English">
+<meta name="author" content="Den">
+<meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1">
+<meta name="theme-color" content="#027DFD">
+<link rel="canonical" href="https://dzianisv.github.io/dual_cameras/blog/dual-camera-recording-guide.html">
+
+<!-- Open Graph -->
+<meta property="og:type" content="article">
+<meta property="og:site_name" content="StoryCam">
+<meta property="og:url" content="https://dzianisv.github.io/dual_cameras/blog/dual-camera-recording-guide.html">
+<meta property="og:title" content="How to record the front and back camera at the same time">
+<meta property="og:description" content="One tap records both cameras into a single portrait video: your face and the place, together, with filters, on-device captions, and a map in the frame. Free on Android.">
+<meta property="og:image" content="https://dzianisv.github.io/dual_cameras/assets/demo-back-primary.jpg">
+<meta property="og:image:width" content="1080">
+<meta property="og:image:height" content="1920">
+<meta property="og:image:alt" content="StoryCam dual-camera capture: back camera full-frame with a circular selfie inset.">
+<meta property="og:locale" content="en_US">
+<meta property="article:published_time" content="2026-11-16">
+<meta property="article:author" content="Den">
+
+<!-- Twitter / X -->
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="How to record the front and back camera at the same time">
+<meta name="twitter:description" content="StoryCam records both cameras into one video — pick a layout, tap to swap, add a filter and captions. Free on Android.">
+<meta name="twitter:image" content="https://dzianisv.github.io/dual_cameras/assets/demo-back-primary.jpg">
+<meta name="twitter:image:alt" content="StoryCam dual-camera capture with selfie inset.">
+
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><rect width='24' height='24' rx='6' fill='%23027DFD'/><circle cx='9' cy='12' r='4.5' fill='white'/><circle cx='16' cy='9' r='2.5' fill='white'/></svg>">
+
+<!-- Structured data: BlogPosting, for Google rich results and AI answer engines. -->
+<script type="application/ld+json">
+{"@context": "https://schema.org", "@graph": [{"@context": "https://schema.org", "@type": "BlogPosting", "headline": "How to record the front and back camera at the same time", "description": "Record the front and back cameras at the same time into one video with StoryCam: pick a layout, tap to swap, add a filter, captions in Russian and English, and a map burned into the video. Free on Android.", "url": "https://dzianisv.github.io/dual_cameras/blog/dual-camera-recording-guide.html", "datePublished": "2026-11-16", "author": {"@id": "https://github.com/dzianisv#person"}, "publisher": {"@type": "Organization", "name": "StoryCam"}, "inLanguage": "en", "isAccessibleForFree": true, "about": {"@type": "MobileApplication", "name": "StoryCam", "applicationCategory": "MultimediaApplication", "operatingSystem": "Android", "offers": {"@type": "Offer", "price": "0", "priceCurrency": "USD"}, "downloadUrl": "https://dzianisv.github.io/dual_cameras/latest.html"}}, {"@type": "Person", "@id": "https://github.com/dzianisv#person", "name": "Den", "sameAs": ["https://github.com/dzianisv"]}, {"@type": "BreadcrumbList", "@id": "https://dzianisv.github.io/dual_cameras/blog/dual-camera-recording-guide.html#breadcrumbs", "itemListElement": [{"@type": "ListItem", "position": 1, "name": "Dual Cameras", "item": "https://dzianisv.github.io/dual_cameras/"}, {"@type": "ListItem", "position": 2, "name": "StoryCam", "item": "https://dzianisv.github.io/dual_cameras/storycam.html"}, {"@type": "ListItem", "position": 3, "name": "How to record front and back camera at the same time", "item": "https://dzianisv.github.io/dual_cameras/blog/dual-camera-recording-guide.html"}]}]}
+</script>
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+
+<style>
+  :root {
+    --bg: #ffffff; --ink: #0b0b0c; --muted: #5b626b; --faint: #8a909a;
+    --line: #ececef; --surface: #f7f8fa; --blue: #027DFD; --green: #3DDC84;
+    --maxw: 1120px; --radius: 16px;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html { scroll-behavior: smooth; -webkit-text-size-adjust: 100%; overflow-x: hidden; }
+  body {
+    font-family: "Inter", -apple-system, "Segoe UI", Roboto, sans-serif;
+    color: var(--ink); background: var(--bg); line-height: 1.6;
+    overflow-x: hidden; -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility;
+  }
+  a { color: inherit; text-decoration: none; }
+  .wrap { max-width: var(--maxw); margin: 0 auto; padding: 0 24px; }
+
+  header {
+    position: sticky; top: 0; z-index: 50;
+    background: rgba(255,255,255,0.82);
+    backdrop-filter: saturate(180%) blur(12px);
+    border-bottom: 1px solid var(--line);
+  }
+  .nav { display: flex; align-items: center; justify-content: space-between; height: 64px; }
+  .brand { font-weight: 700; font-size: 15px; letter-spacing: -0.2px; display: flex; align-items: center; gap: 10px; }
+  .brand .mark { width: 26px; height: 26px; border-radius: 7px; background: var(--blue); position: relative; flex: none; }
+  .brand .mark::before { content:""; position:absolute; width:13px; height:13px; border-radius:50%; background:#fff; left:4px; top:6px; }
+  .brand .mark::after { content:""; position:absolute; width:8px; height:8px; border-radius:50%; background:#fff; right:4px; top:4px; }
+  .nav nav { display: flex; align-items: center; gap: 30px; }
+  .nav nav a { font-size: 14.5px; color: var(--muted); font-weight: 500; }
+  .nav nav a:hover { color: var(--ink); }
+  .btn {
+    display: inline-flex; align-items: center; gap: 9px; font-weight: 600; font-size: 14.5px;
+    padding: 10px 18px; border-radius: 10px; border: 1px solid var(--ink); background: var(--ink); color: #fff;
+    transition: transform .12s ease, opacity .12s ease;
+  }
+  .btn:hover { opacity: 0.88; }
+  .btn.ghost { background: transparent; color: var(--ink); border-color: var(--line); }
+  .btn.ghost:hover { border-color: var(--ink); opacity: 1; }
+
+  article { max-width: 760px; margin: 0 auto; padding: 72px 24px 96px; }
+  .eyebrow {
+    font-size: 13px; font-weight: 700; letter-spacing: 1.6px; text-transform: uppercase;
+    color: var(--blue); display: inline-flex; align-items: center; gap: 9px;
+  }
+  .eyebrow::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--blue); }
+  article h1 {
+    font-size: clamp(34px, 5vw, 52px); font-weight: 800; letter-spacing: -1.8px; line-height: 1.05;
+    margin: 18px 0 0;
+  }
+  .byline { margin-top: 18px; color: var(--faint); font-size: 14.5px; }
+  .byline b { color: var(--muted); font-weight: 600; }
+  article p { color: #2a2e33; font-size: 18px; margin-top: 26px; line-height: 1.7; }
+  article p.lead { font-size: 21px; color: var(--muted); }
+  article h2 { font-size: 26px; font-weight: 800; letter-spacing: -0.8px; line-height: 1.15; margin: 56px 0 0; }
+  article ul, article ol { margin: 22px 0 0 22px; font-size: 18px; line-height: 1.7; color: #2a2e33; }
+  article ul li, article ol li { margin-top: 10px; }
+  article ul b, article ol b { color: var(--ink); }
+  article a.inline { color: var(--blue); font-weight: 600; }
+  article a.inline:hover { text-decoration: underline; }
+  figure { margin: 40px 0 0; }
+  figure img { display: block; width: 100%; height: auto; border-radius: var(--radius); border: 1px solid var(--line); }
+  figcaption { margin-top: 12px; color: var(--muted); font-size: 14.5px; line-height: 1.55; }
+  figcaption b { color: var(--ink); }
+  .fig-single { max-width: 340px; }
+  .fig-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
+  .fig-pair figure { margin-top: 0; }
+  @media (max-width: 720px) { .fig-pair { grid-template-columns: 1fr; } }
+  .cta-box {
+    margin-top: 56px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius);
+    padding: 30px 32px;
+  }
+  .cta-box h2 { margin-top: 0; }
+  .cta-box p { margin-top: 12px; font-size: 16.5px; }
+  .cta { margin-top: 24px; display: flex; gap: 12px; flex-wrap: wrap; }
+  footer { border-top: 1px solid var(--line); padding: 36px 0 48px; color: var(--faint); font-size: 14px; }
+  footer .wrap { display: flex; justify-content: space-between; gap: 20px; flex-wrap: wrap; }
+  footer a:hover { color: var(--ink); }
+  @media (max-width: 720px) { .nav nav a.hide-sm { display: none; } article { padding-top: 52px; } }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="wrap nav">
+    <a class="brand" href="../storycam.html"><span class="mark"></span>StoryCam</a>
+    <nav>
+      <a class="hide-sm" href="../storycam.html">App</a>
+      <a class="hide-sm" href="https://github.com/dzianisv/dual_cameras">GitHub</a>
+      <a class="btn" href="../latest.html">Get the app — free</a>
+    </nav>
+  </div>
+</header>
+
+<article>
+  <span class="eyebrow">StoryCam — how to record with both cameras</span>
+  <h1>How to record the front and back camera at the same time</h1>
+  <p class="byline">By <b>Den</b> · November 16, 2026</p>
+
+  <p class="lead">I was traveling and wanted one video that showed my face and the place at the same time — my reaction and the view, in the same frame, with no editing after. That is exactly what StoryCam does, and this is how to record it.</p>
+
+  <figure class="fig-single">
+    <img src="../assets/blog-app-recording.png" alt="StoryCam recording screen from the automated test run: live map with place name top-left, filter slider, record button, and the bottom menu (Map, Front, Rear, Captions, Settings)." width="320" height="640" loading="lazy">
+    <figcaption><b>The app as it looks now.</b> The map in the corner, the filter slider, the record button. This shot is from the automated test run, so the camera feed is the emulator's test pattern, not a real place.</figcaption>
+  </figure>
+
+  <h2>Record both cameras in four steps</h2>
+  <ol>
+    <li><b>Open StoryCam and pick a layout.</b> The place fills the screen and you appear in a small inset — picture-in-picture, circle, or split screen. Choose the one that fits the moment before you press record.</li>
+    <li><b>Tap to swap, if you want it the other way round.</b> One tap makes your face full-frame and puts the place in the inset instead. You can swap before recording; what you see on screen is exactly what gets saved.</li>
+    <li><b>Press record — both cameras record together into one portrait video.</b> There is no second file to stitch later. When you stop, you can press record again right away for the next take.</li>
+    <li><b>Share it.</b> After you stop, the share button opens the system share sheet, so the video goes straight to Instagram, WhatsApp, or wherever your family is — no export step, no gallery hunt.</li>
+  </ol>
+
+  <div class="fig-pair">
+    <figure>
+      <img src="../assets/demo-back-primary.jpg" alt="A real dual-camera shot: snowy mountains fill the frame, the photographer in a circular selfie inset at the bottom right." width="1080" height="1920" loading="lazy">
+      <figcaption><b>Back camera full-frame, you in the circle.</b> A real dual-camera shot — the mountains fill the frame.</figcaption>
+    </figure>
+    <figure>
+      <img src="../assets/demo-front-primary.jpg" alt="A real dual-camera shot: the photographer fills the frame, a red rock canyon in a circular inset at the top right." width="1080" height="1920" loading="lazy">
+      <figcaption><b>Front camera full-frame, the place in the circle.</b> The same video, the other way round — tap to swap.</figcaption>
+    </figure>
+  </div>
+
+  <h2>Make it look like you meant it: filters</h2>
+  <p>A plain walk can look flat. StoryCam has 8 filters on a slider — from clean to game-style looks, including Vice City and San Andreas — so the video looks finished before you send it. Pick the filter before you press record; it applies to the video as you record it.</p>
+
+  <h2>Captions in Russian and English, on the phone</h2>
+  <p>My family speaks Russian and English, so the video needs captions both of them can read. StoryCam adds captions on the phone itself, with the Whisper speech model — no account, no cloud, your audio never leaves the device. The caption models are about 160 MB and download on first use; the download and the captioning both run as system notifications with a progress bar and a Stop button, and the original video is always kept.</p>
+  <p>One honest note: auto-detection struggles with very short clips — a single word is the hardest case. If your clip is short, force the language (Русский or English) instead of relying on auto-detect, and you will get captions that actually match what you said.</p>
+
+  <h2>The map is in the video, not just on screen</h2>
+  <p>While you record, a small live map sits in the corner showing where you are. In version 0.5.15 the map is burned into the recorded video itself, so the video shows where it was taken even after you share it somewhere the location is stripped from the file.</p>
+
+  <h2>Which phones can do this</h2>
+  <p>Recording with both cameras at once needs an ARM64 Android phone with concurrent-camera support — Pixel 6 and newer, Galaxy S22 and newer work. If the phone cannot run both cameras at once, StoryCam falls back to single-camera recording instead of failing. That is the whole requirement: no account, no subscription, no paid version. The app is free, and that is the whole model.</p>
+
+  <p>That is the whole guide. Open the app, pick a layout, press record — your face and the place, in one video, ready to send the same evening.</p>
+
+  <div class="cta-box">
+    <h2>Get StoryCam — free</h2>
+    <p>StoryCam is in testing on Google Play now (internal track, version 0.5.15), and the free APK is on GitHub. It needs an ARM64 Android phone with front-and-back camera support (Pixel 6 and newer, Galaxy S22 and newer work; other phones fall back to single-camera recording).</p>
+    <div class="cta">
+      <a class="btn" href="../latest.html">Download the latest APK</a>
+      <a class="btn ghost" href="../storycam.html">About the app</a>
+    </div>
+  </div>
+</article>
+
+<footer>
+  <div class="wrap">
+    <span>StoryCam — a free Android app by Den, built on the open-source <a href="https://github.com/dzianisv/dual_cameras">dual_cameras</a> plugin.</span>
+    <span><a href="../storycam.html">App</a> · <a href="travel-vlog-story.html">Why I built it</a> · <a href="../privacy.html">Privacy</a> · <a href="https://github.com/dzianisv/dual_cameras">GitHub</a></span>
+  </div>
+</footer>
+
+</body>
+</html>

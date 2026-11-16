@@ -31,6 +31,7 @@ Dual Cameras fills a real gap: as of 2026 no other Flutter plugin records a comp
 - Captions: Auto-detect, or force Русский / English. Karaoke highlighting. Silence and noise produce no captions. Single short words are the hardest case for auto-detection — force a language for short clips.
 - Page: https://dzianisv.github.io/dual_cameras/storycam.html
 - Blog: why I built it — traveling and vlogging for family: https://dzianisv.github.io/dual_cameras/blog/travel-vlog-story.html
+- Blog: how to record the front and back camera at the same time: https://dzianisv.github.io/dual_cameras/blog/dual-camera-recording-guide.html
 
 ## Links
 - Full content in one plain-text file: https://dzianisv.github.io/dual_cameras/llms-full.txt
