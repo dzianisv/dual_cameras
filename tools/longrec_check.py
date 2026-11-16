@@ -158,6 +158,13 @@ def main() -> int:
          f"(min-duration {args.min_duration_secs}s, "
          f"min-captured {args.min_captured}, pull={args.pull}) ===")
 
+    # Logcat dump, shared by the STOP-line gate (check 1) and the ANR
+    # gate (check 3). Fetched once up front so --skip-stop-line (which
+    # skips check 1) still leaves check 3 with its input — fetching it
+    # inside check 1 crashed check 3 with UnboundLocalError when
+    # skipped (run 43882036897).
+    text = run(["adb", "logcat", "-d"]).stdout
+
     # 1. [MAPBURN] STOP line: the take ran long enough, map tick ran.
     # Skipped with --skip-stop-line (camflow leg only): see the flag's
     # help. When skipped, the take length is proven by the in-test
@@ -165,7 +172,6 @@ def main() -> int:
     if args.skip_stop_line:
         note("STOP gate: SKIPPED (--skip-stop-line, flutter-test launch)")
     else:
-        text = run(["adb", "logcat", "-d"]).stdout
         stops = list(STOP_RE.finditer(text))
         if not stops:
             return fail("no [MAPBURN] STOP line in logcat (capture never ran?)")
