@@ -97,6 +97,11 @@ FRONT_BOX_FRAC = (0.52, 0.67, 0.76, 0.79)  # inscribed in the selfie circle
 REAR_BOX_FRAC = (0.55, 0.28, 0.95, 0.45)  # rear full-frame area, top-right
 REGION_BOXES = {"preview": None, "front": FRONT_BOX_FRAC, "rear": REAR_BOX_FRAC}
 MIN_MEAN_DIFF = 5.0  # 0-255 mean abs diff; same floor as mapburn_check.py
+MIN_MEAN_BRIGHTNESS = 8.0  # 0-255 mean brightness floor per region (issue
+# #79, run 43806479078): on a black preview (camera failed to open) two
+# near-black regions still score a small mean diff (7.97, from a UI edge
+# inside one box) and would PASS --regions. A region darker than this
+# is not a video feed at all — fail it loudly instead.
 
 
 def frac_box(size, frac):
@@ -147,11 +152,24 @@ def diff_fraction(a_path, b_path, box="preview"):
     return 100.0 * diff / (bw * bh)
 
 
+def mean_brightness(img, frac):
+    crop = box_pixels(img, frac)
+    px = list(crop.getdata())
+    return sum(r + g + b for r, g, b in px) / (len(px) * 3)
+
+
 def regions_mean_diff(img_path):
     """Mean abs per-channel diff between the front-circle and rear-area
     regions of ONE image (both downscaled to 32x32 first). Two different
     real videos score in the tens; the same feed twice scores ~0."""
     img = Image.open(img_path).convert("RGB")
+    for name, frac in (("front", FRONT_BOX_FRAC), ("rear", REAR_BOX_FRAC)):
+        bright = mean_brightness(img, frac)
+        if bright < MIN_MEAN_BRIGHTNESS:
+            print(f"regions {name} box looks black (mean brightness "
+                  f"{bright:.2f} < {MIN_MEAN_BRIGHTNESS}) — no video "
+                  f"feed in {img_path}")
+            return None
     a = box_pixels(img, FRONT_BOX_FRAC).resize((32, 32))
     b = box_pixels(img, REAR_BOX_FRAC).resize((32, 32))
     pa = list(a.getdata())
@@ -164,6 +182,8 @@ def regions_mean_diff(img_path):
 
 def regions_check(img_path, min_mean_diff):
     diff = regions_mean_diff(img_path)
+    if diff is None:
+        return False
     print(f"front-vs-rear regions {img_path}: mean abs diff {diff:.2f} "
           f"(needs >= {min_mean_diff:.2f})")
     return diff >= min_mean_diff
