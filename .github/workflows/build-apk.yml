@@ -35,6 +35,28 @@ jobs:
           channel: stable
           cache: true
 
+      # Gradle dependency cache (issue #72): the Flutter build shells out
+      # to the Gradle wrapper in packages/dual_cameras/example/android, so
+      # Gradle downloads its plugin artifacts (e.g. kotlin-stdlib,
+      # kotlin-gradle-plugin) from Maven Central on every run. A 429 from
+      # repo.maven.apache.org failed run 43735274382. Cache ~/.gradle so a
+      # repeat run reuses the downloaded artifacts instead of re-fetching.
+      # actions/cache (not gradle/actions/setup-gradle): setup-gradle
+      # expects a top-level Gradle project / wrapper at the repo root and
+      # would install its own Gradle distribution; here Gradle is invoked
+      # indirectly by Flutter from a nested android/ directory, so cache
+      # the dependency + wrapper dirs directly and leave the toolchain
+      # Flutter manages untouched.
+      - name: Cache Gradle dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: ${{ runner.os }}-gradle-${{ hashFiles('packages/dual_cameras/example/android/build.gradle.kts', 'packages/dual_cameras/example/android/app/build.gradle.kts', 'packages/dual_cameras/example/android/settings.gradle.kts', 'packages/dual_cameras/example/android/gradle.properties', 'packages/dual_cameras/example/android/gradle/wrapper/gradle-wrapper.properties') }}
+          restore-keys: |
+            ${{ runner.os }}-gradle-
+
       - name: Fetch packages
         working-directory: ${{ env.EXAMPLE_DIR }}
         run: flutter pub get
@@ -289,6 +311,28 @@ jobs:
           flutter-version: 3.47.7
           channel: stable
           cache: true
+
+      # Gradle dependency cache (issue #72): the Flutter build shells out
+      # to the Gradle wrapper in packages/dual_cameras/example/android, so
+      # Gradle downloads its plugin artifacts (e.g. kotlin-stdlib,
+      # kotlin-gradle-plugin) from Maven Central on every run. A 429 from
+      # repo.maven.apache.org failed run 43735274382. Cache ~/.gradle so a
+      # repeat run reuses the downloaded artifacts instead of re-fetching.
+      # actions/cache (not gradle/actions/setup-gradle): setup-gradle
+      # expects a top-level Gradle project / wrapper at the repo root and
+      # would install its own Gradle distribution; here Gradle is invoked
+      # indirectly by Flutter from a nested android/ directory, so cache
+      # the dependency + wrapper dirs directly and leave the toolchain
+      # Flutter manages untouched.
+      - name: Cache Gradle dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: ${{ runner.os }}-gradle-${{ hashFiles('packages/dual_cameras/example/android/build.gradle.kts', 'packages/dual_cameras/example/android/app/build.gradle.kts', 'packages/dual_cameras/example/android/settings.gradle.kts', 'packages/dual_cameras/example/android/gradle.properties', 'packages/dual_cameras/example/android/gradle/wrapper/gradle-wrapper.properties') }}
+          restore-keys: |
+            ${{ runner.os }}-gradle-
 
       - name: Fetch packages
         working-directory: ${{ env.EXAMPLE_DIR }}
