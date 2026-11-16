@@ -2,7 +2,19 @@
 # launch crashes, permission failures, and startup model-download failures — it
 # does NOT prove concurrent cameras, mic audio, or caption inference:
 # emulator cameras are virtual, and sherpa-onnx runs through the native
-# bridge. A real phone is still the proof gate
+# bridge. A real phone is still the proof gate for the fix itself
+# (issue #13) — but since issue #79 the emulator IS the gate for
+# test work wherever it can exercise it: it runs the emulated
+# test-pattern feed (-camera-back/-camera-front emulated), so the
+# motion pairs below run against the moving test pattern, and a
+# black-guard proves a feed is actually on screen. It does NOT prove
+# two distinct real videos — that claim was false on this emulator
+# (Stage 4 FAIL, PR #80 comment 6909005894: the HAL reports no
+# front+back concurrent combo for any non-emulated feed) and is proven
+# on a real device instead (issue #79 Track B). After its recording
+# the smoke test also asserts the video EXISTS in MediaStore/the
+# gallery with duration > 0 (issues #79 + #87) — queried from the
+# gallery, never the status text.
 # (see ~/workspace/storycam/PHONE_TEST_PLAN.md).
 # It DOES prove the save path: after every recording, tools/longrec_check.py
 # asserts the video file EXISTS in MediaStore with duration > 0 (issue #87 —
@@ -36,9 +48,14 @@
 #
 # RESUME RULE (issue #13, 2026-11-14): after opening the camera, the test
 # backgrounds the app (HOME key) and relaunches it, then asserts the
-# preview is ALIVE after resume — two screencaps 3 s apart must show MOTION
-# in the preview region (tools/preview_diff.py: PIL, preview region
-# x40-280/y120-420 in 320x640 coords, per-channel diff threshold 8/255).
+# preview is ALIVE after resume — three screencaps 4 s apart must show
+# MOTION in the preview region in at least one interval
+# (tools/preview_diff.py --live: PIL, preview region x40-280/y120-420
+# in 320x640 coords, per-channel diff threshold 8/255). Three shots,
+# not two: runs 43819821940 + 43819834598 (2026-11-16) false-failed a
+# single 3 s pair at 0.00% on live previews — the test pattern moves in
+# bursts with still gaps >= 3 s, so a frozen preview is only proven by
+# 0.00% in BOTH intervals of the 8 s window.
 # `pidof` alone is NOT enough: run #8 proved a dead app can pass
 # pidof-style checks, and a frozen preview keeps the process alive. A
 # whole-file `cmp` is NOT enough either: it fails on a status-bar clock
@@ -49,7 +66,7 @@
 # A uiautomator dump asserts the camera screen is still up after resume
 # ('Start recording' present). NOTE (issue #46, auto-init): a fresh
 # relaunch now re-opens the camera itself, so 'Start recording' alone no
-# longer distinguishes a resume from a fresh restart — the motion pair
+# longer distinguishes a resume from a fresh restart — the motion window
 # below is the real resume signal. The second leg repeats
 # the cycle after a finished recording — Den's exact report (0.5.4).
 # Thresholds calibrated from repro run 43565398115's artifact (unfixed
@@ -177,6 +194,11 @@ jobs:
           sudo chmod 666 /dev/kvm 2>/dev/null || echo "chmod /dev/kvm skipped"
           ls -l /dev/kvm || true
 
+      # ISSUE #79 — TRACK A: no feed-preparation step on this route.
+      # The emulator runs its emulated test-pattern feed, so nothing
+      # is loop-extended or downloaded. The committed fixtures under
+      # tools/emulator-feeds/ stay as the record + Track B reuse.
+
       # Pillow is needed by tools/preview_diff.py (region-aware preview
       # liveness check, issue #13) and tools/mapburn_check.py (issue #49
       # map-burn pixel check); imageio-ffmpeg provides the static ffmpeg
@@ -217,11 +239,25 @@ jobs:
             sleep 20
             adb shell pidof app.storycam || (adb logcat -d | grep -i -E "storycam|flutter|fatal|crash" | tail -30; adb logcat -d -b crash | tail -40 || true; exit 1)
             adb exec-out screencap -p > resume-pre-1.png
-            sleep 3
+            sleep 4
             adb exec-out screencap -p > resume-pre-2.png
-            python3 tools/preview_diff.py resume-pre-1.png resume-pre-2.png --min-diff 0.1 || (echo 'PRE-CHECK FAILED: no motion in the preview region before backgrounding - the live-preview assertion cannot see motion on this emulator'; exit 1)
+            sleep 4
+            adb exec-out screencap -p > resume-pre-3.png
+            python3 tools/preview_diff.py --live resume-pre-1.png resume-pre-2.png resume-pre-3.png --min-diff 0.1 || (echo 'PRE-CHECK FAILED: no motion in the preview region before backgrounding - the live-preview assertion cannot see motion on this emulator'; exit 1)
             echo 'pre-check: preview region shows motion (live preview before background)'
-            adb shell input keyevent 3
+            # TRACK A: black-guard only — the preview must not be black
+            # (the camera opened). NO distinctness check here: front
+            # and rear show the SAME test pattern on the emulated feed,
+            # so --regions cannot pass on this route; it stays available
+            # for the Track B real-device proof.
+            python3 tools/preview_diff.py --not-black resume-pre-1.png || (echo 'LAUNCH PROOF FAILED: a feed region looks black - the camera did not open'; exit 1)
+            # BACK RULE (screenshots run 43831064425): a bare keyevent
+            # died with "Failure calling service input: Broken pipe
+            # (32)", exit 224 — the input service was briefly
+            # unreachable on the loaded emulator. Back/Home are
+            # navigation, not proof, so every keyevent below retries
+            # once after 2 s; a second failure still fails the run.
+            adb shell input keyevent 3 || (sleep 2; adb shell input keyevent 3)
             sleep 5
             adb shell am start -n app.storycam/.MainActivity
             sleep 10
@@ -230,10 +266,13 @@ jobs:
             adb pull /data/local/tmp/ui.xml /tmp/ui-resume.xml
             grep -q 'Start recording' /tmp/ui-resume.xml || (echo 'NOT ON CAMERA SCREEN AFTER RESUME: no Start recording button - app may have restarted fresh instead of resuming'; exit 1)
             adb exec-out screencap -p > resume-after-1.png
-            sleep 3
+            sleep 4
             adb exec-out screencap -p > resume-after-2.png
-            python3 tools/preview_diff.py resume-after-1.png resume-after-2.png --min-diff 0.1 || (echo 'RESUME FAILED (idle): no motion in the preview region after background/foreground - camera frozen (issue #13)'; adb logcat -d | grep -i -E "storycam|flutter|fatal|crash" | tail -30; adb logcat -d -b crash | tail -40 || true; exit 1)
+            sleep 4
+            adb exec-out screencap -p > resume-after-3.png
+            python3 tools/preview_diff.py --live resume-after-1.png resume-after-2.png resume-after-3.png --min-diff 0.1 || (echo 'RESUME FAILED (idle): no motion in the preview region after background/foreground - camera frozen (issue #13)'; adb logcat -d | grep -i -E "storycam|flutter|fatal|crash" | tail -30; adb logcat -d -b crash | tail -40 || true; exit 1)
             echo 'resume (idle): preview region shows motion after background/foreground (live preview restored)'
+            date +%s > /tmp/smoke-rec-start.txt
             python3 tools/emulator_tap.py 'Start recording'
             sleep 6
             python3 tools/emulator_tap.py 'Wait' || true
@@ -243,9 +282,18 @@ jobs:
             # Issue #87: the 6 s take must ALSO leave a file in MediaStore —
             # the status text alone shipped 0.5.15 with no files at all.
             python3 tools/longrec_check.py --min-duration-secs 5 --min-captured 5 --label 6s || (echo 'MEDIASTORE CHECK FAILED (6s take, issue #87): no video file in MediaStore — see longrec-check-6s.log'; adb logcat -d | grep -i -E "storycam|flutter|fatal|crash" | tail -30; exit 1)
+            # GALLERY PROOF (issues #79 + #87): the recording must EXIST
+            # in MediaStore/the gallery with duration > 0 — the newest
+            # gallery row must postdate this recording's start. The
+            # map-burn check below proves the cache files; this proves
+            # the gallery copy. A missing row is issue #87 reproducing
+            # — the run fails loudly, never weakened to go green.
+            adb shell content query --uri content://media/external/video/media --projection _data:duration:date_added > /tmp/gallery-smoke.txt || (echo 'GALLERY PROOF FAILED (smoke): MediaStore query failed'; exit 1)
+            python3 tools/preview_diff.py --gallery-proof /tmp/gallery-smoke.txt --rec-start /tmp/smoke-rec-start.txt || (echo 'GALLERY PROOF FAILED (smoke): no gallery row with duration > 0 from this recording (issue #87)'; exit 1)
+            echo 'gallery proof (smoke): recording exists in the gallery with duration > 0'
             python3 tools/mapburn_check.py || (echo 'MAP BURN FAILED (issue #49): see mapburn.log + the MAPBURN logcat lines below'; adb logcat -d | grep -i -E "MAPBURN|CaptionBurner|MapRenderer" | tail -40 || true; exit 1)
             echo 'map burn (issue #49): burned video carries the map top-left'
-            adb shell input keyevent 3
+            adb shell input keyevent 3 || (sleep 2; adb shell input keyevent 3)
             sleep 5
             adb shell am start -n app.storycam/.MainActivity
             sleep 10
@@ -254,9 +302,11 @@ jobs:
             adb pull /data/local/tmp/ui.xml /tmp/ui-resume2.xml
             grep -q 'Start recording' /tmp/ui-resume2.xml || (echo 'NOT ON CAMERA SCREEN AFTER RESUME (after recording): no Start recording button - app may have restarted fresh instead of resuming'; exit 1)
             adb exec-out screencap -p > resume-after-rec-1.png
-            sleep 3
+            sleep 4
             adb exec-out screencap -p > resume-after-rec-2.png
-            python3 tools/preview_diff.py resume-after-rec-1.png resume-after-rec-2.png --min-diff 0.1 || (echo 'RESUME FAILED (after recording): no motion in the preview region after background/foreground - camera frozen (issue #13)'; adb logcat -d | grep -i -E "storycam|flutter|fatal|crash" | tail -30; adb logcat -d -b crash | tail -40 || true; exit 1)
+            sleep 4
+            adb exec-out screencap -p > resume-after-rec-3.png
+            python3 tools/preview_diff.py --live resume-after-rec-1.png resume-after-rec-2.png resume-after-rec-3.png --min-diff 0.1 || (echo 'RESUME FAILED (after recording): no motion in the preview region after background/foreground - camera frozen (issue #13)'; adb logcat -d | grep -i -E "storycam|flutter|fatal|crash" | tail -30; adb logcat -d -b crash | tail -40 || true; exit 1)
             echo 'resume (after recording): preview region shows motion after background/foreground (live preview restored)'
             # Issue #86: the Settings sheet must not rebuild on camera
             # stats ticks (~2/s before the fix) — uiautomator cannot
@@ -334,7 +384,7 @@ jobs:
             adb shell uiautomator dump /data/local/tmp/ui.xml
             adb pull /data/local/tmp/ui.xml /tmp/ui-preset.xml
             cp /tmp/ui-preset.xml ui-preset.xml || true
-            adb shell input keyevent 4
+            adb shell input keyevent 4 || (sleep 2; adb shell input keyevent 4)
             sleep 2
             date -u '+LONGREC START %Y-%m-%dT%H:%M:%SZ'
             python3 tools/emulator_tap.py 'Start recording'

@@ -31,3 +31,10 @@ pubspec.lock
 .vscode/
 *.swp
 .DS_Store
+
+# CI test feeds (issue #79): the two trailers in
+# tools/emulator-feeds/ are COMMITTED fixtures (download.blender.org
+# 403s GitHub-runner IPs — see that dir's README.md); only the
+# loop-extended 600 s files generated in-workflow are ignored here.
+tools/emulator-feeds/front-feed.mp4
+tools/emulator-feeds/rear-feed.mp4

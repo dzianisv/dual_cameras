@@ -8,6 +8,39 @@
 # is still the proof gate and the source of the best screenshots (see
 # ~/workspace/storycam/PHONE_TEST_PLAN.md).
 #
+# ISSUE #79 — TRACK A REWORK (2026-11-16): the emulator runs its
+# EMULATED test-pattern feed (-camera-back/-camera-front emulated).
+# The videofile attempt is OVER: Stage 4 FAILED it (PR #80 comment
+# 6909005894) — the CI emulator's camera HAL reports no front+back
+# concurrent combo for any non-emulated feed (videofile, v4l2loopback,
+# imagefile all end in a black preview + "Dual camera is unavailable
+# on this device (noConcurrentCamera)"), so wiring videofile: would
+# brick the camera in both CI workflows. The committed fixtures under
+# tools/emulator-feeds/ (Sintel + BBB trailers + README) STAY as the
+# record + Track B reuse — they cost nothing at runtime when
+# unreferenced. Distinct REAL feeds (different moving content front
+# vs rear) are proven on a real device instead (Track B); this pass
+# proves the walkthrough + the saved file on the emulated feed, and
+# its screenshots show the test pattern — said honestly, never
+# claimed as real feeds. The script walks EVERYTHING: all 8 filters
+# in order, the lens pills, all 5 bottom-menu items + the settings
+# sections they open, map zoom (double-tap + slider drag, value read
+# back from the UI), record start/stop, last-video menu, share sheet,
+# and the recorded-file proof (tools/preview_diff.py --file-proof +
+# --gallery-proof). Walkthrough items print WALKTHROUGH <item>:
+# PASS|FAIL lines to the log. The CORE proof DOES fail the run: the
+# launch preview must be live (not black, moving), and after EVERY
+# recording the video file must EXIST in MediaStore/the gallery with
+# duration > 0 — queried from the gallery, never the "Video saved to
+# gallery" status text — including a 30 s+ recording stopped with map
+# ON and captions ON (the issue #87 path). A missing gallery file
+# fails loudly; the assertion is never weakened to go green.
+# Shot numbering: 01 launch, 10-17 filters, 18 lens pills, 20-27
+# settings sections, 04-07 recording/share (kept from the old flow),
+# 29-30 the 30 s map+captions recording, file-proof-*-frame.png
+# frames from the recordings. Old 02-captions-sheet / 03-filters shots
+# are superseded by 23-section-captions / 11-filter-moody.
+#
 # SHELL RULE (learned the hard way, run 43491636991): the
 # android-emulator-runner executes each line of `script:` as a SEPARATE
 # `sh -c` call. Variables, functions, and heredocs do NOT survive
@@ -163,6 +196,18 @@ jobs:
           sudo chmod 666 /dev/kvm 2>/dev/null || echo "chmod /dev/kvm skipped"
           ls -l /dev/kvm || true
 
+      # ISSUE #79 — TRACK A: no feed-preparation step on this route.
+      # The emulator runs its emulated test-pattern feed, so nothing
+      # is loop-extended or downloaded. The committed fixtures under
+      # tools/emulator-feeds/ stay as the record + Track B reuse.
+
+      # Pillow is needed by tools/preview_diff.py (preview liveness,
+      # black-guard, and file/gallery proof, issues #13/#79) and
+      # imageio-ffmpeg provides the static ffmpeg binary the file proof
+      # extracts frames with. Neither is preinstalled on the runner.
+      - name: Install Pillow + imageio-ffmpeg for the image checks
+        run: python3 -m pip install --quiet pillow imageio-ffmpeg
+
       - name: Emulator screenshots
         uses: reactivecircus/android-emulator-runner@v2
         with:
@@ -198,14 +243,190 @@ jobs:
             python3 tools/emulator_tap.py 'Open camera' || true
             sleep 20
             adb exec-out screencap -p > 01-launch.png
-            python3 tools/emulator_tap.py 'Captions'
-            sleep 3
-            adb exec-out screencap -p > 02-captions-sheet.png
-            adb shell input keyevent 4
+            # DIAGNOSTIC-DUMP RULE (run 43836629307): a raw dump was
+            # SIGKILLed (exit 137 — host OOM) and killed the whole run
+            # although it feeds only soft checks. Dump/pull fail soft;
+            # the greps below already fail soft (|| echo / || true).
+            # FRESHNESS RULE (runs 43842797586 + 43846063070): a dump
+            # that cannot get idle state exits 0 without writing the
+            # file, so the pull would fetch a STALE device file — rm
+            # both first, so a stale tree can never reach the greps.
+            adb shell rm -f /data/local/tmp/ui.xml || true
+            rm -f /tmp/ui-launch.xml
+            adb shell uiautomator dump /data/local/tmp/ui.xml || true
+            adb pull /data/local/tmp/ui.xml /tmp/ui-launch.xml || true
+            grep -o 'Mendocino[^"]*' /tmp/ui-launch.xml | head -1 || echo 'WALKTHROUGH place-name: no Mendocino text in tree (check the pill in 01-launch.png)'
+            grep -o 'text="[^"]*"' /tmp/ui-launch.xml | head -60 || true
+            # LAUNCH PROOF (Track A): the preview must be LIVE on the
+            # emulated test-pattern feed — not black (the camera opened)
+            # and moving in at least one interval of three shots 4 s
+            # apart (--live: runs 43819821940 + 43819834598 false-failed
+            # a single 3 s pair at 0.00% on live previews — the pattern
+            # moves in bursts with still gaps >= 3 s; see
+            # tools/preview_diff.py). NO distinctness check here: front
+            # and rear show the SAME test pattern, so --regions cannot
+            # pass on this route; it stays available for the Track B
+            # real-device proof.
+            python3 tools/preview_diff.py --not-black 01-launch.png || (echo 'LAUNCH PROOF FAILED: a feed region looks black in 01-launch.png - the camera did not open'; exit 1)
+            sleep 4
+            adb exec-out screencap -p > 01b-motion.png
+            sleep 4
+            adb exec-out screencap -p > 01c-motion.png
+            python3 tools/preview_diff.py --live 01-launch.png 01b-motion.png 01c-motion.png --min-diff 0.1 || (echo 'LAUNCH PROOF FAILED: no motion in the preview region over the 8 s three-shot window - preview frozen'; exit 1)
+            echo 'LAUNCH PROOF: preview is live (not black, moving) on the emulated test-pattern feed'
+            python3 tools/emulator_tap.py 'Original' || echo 'WALKTHROUGH filter-Original: FAIL (tap missed)'
             sleep 2
-            python3 tools/emulator_tap.py 'Moody'
+            adb exec-out screencap -p > 10-filter-original.png
+            python3 tools/emulator_tap.py 'Moody' || echo 'WALKTHROUGH filter-Moody: FAIL (tap missed)'
+            sleep 2
+            adb exec-out screencap -p > 11-filter-moody.png
+            python3 tools/emulator_tap.py 'Hyper' || echo 'WALKTHROUGH filter-Hyper: FAIL (tap missed)'
+            sleep 2
+            adb exec-out screencap -p > 12-filter-hyper.png
+            python3 tools/emulator_tap.py 'Midnight' || echo 'WALKTHROUGH filter-Midnight: FAIL (tap missed)'
+            sleep 2
+            adb exec-out screencap -p > 13-filter-midnight.png
+            python3 tools/emulator_tap.py --swipe-on 'Midnight' left || echo 'WALKTHROUGH filter-row-scroll-1: FAIL (swipe missed)'
+            sleep 1
+            python3 tools/emulator_tap.py 'Simple' || echo 'WALKTHROUGH filter-Simple: FAIL (tap missed)'
+            sleep 2
+            adb exec-out screencap -p > 14-filter-simple.png
+            python3 tools/emulator_tap.py 'Jakarta' || echo 'WALKTHROUGH filter-Jakarta: FAIL (tap missed)'
+            sleep 2
+            adb exec-out screencap -p > 15-filter-jakarta.png
+            python3 tools/emulator_tap.py --swipe-on 'Jakarta' left || echo 'WALKTHROUGH filter-row-scroll-2: FAIL (swipe missed)'
+            sleep 1
+            python3 tools/emulator_tap.py 'Vice City' || echo 'WALKTHROUGH filter-Vice-City: FAIL (tap missed)'
+            sleep 2
+            adb exec-out screencap -p > 16-filter-vice-city.png
+            python3 tools/emulator_tap.py 'San Andreas' || echo 'WALKTHROUGH filter-San-Andreas: FAIL (tap missed)'
+            sleep 2
+            adb exec-out screencap -p > 17-filter-san-andreas.png
+            echo 'WALKTHROUGH filters: 8 taps attempted, see shots 10-17 + FAIL lines above'
+            # LENS PILLS (issue #79, Stage 4 note N1): tap every lens
+            # pill the camera API reports and verify no error. The
+            # mode discovers the pills from the live tree (labels are
+            # the zoom ratios, e.g. "0.5"/"1"/"1.5") and hard-fails
+            # when a tap kills the app or raises error text; pills
+            # absent (single-lens camera) is reported honestly, not
+            # failed. The selected pill's state is colour-only and is
+            # not exposed to uiautomator — shot 18 is the visual
+            # record.
+            python3 tools/emulator_tap.py --lens-pills || (echo 'WALKTHROUGH lens-pills: FAIL (see lines above)'; exit 1)
+            sleep 1
+            adb exec-out screencap -p > 18-lens-pills.png
+            adb shell input tap 60 105 && adb shell input tap 60 105
+            sleep 2
+            python3 tools/emulator_tap.py 'Map' || echo 'WALKTHROUGH menu-Map: FAIL (tap missed)'
             sleep 3
-            adb exec-out screencap -p > 03-filters.png
+            adb exec-out screencap -p > 20-section-map.png
+            # DIAGNOSTIC-DUMP RULE (run 43836629307): the raw dump below
+            # was SIGKILLed (exit 137 — host OOM, not the app) and killed
+            # the whole run, even though it feeds only soft checks. All
+            # three raw dump+pull pairs in this step are diagnostic-only,
+            # so they fail soft (|| true); the downstream greps already
+            # fail soft on a missing file.
+            # FRESHNESS RULE (runs 43842797586 + 43846063070): a dump
+            # that cannot get idle state exits 0 without writing the
+            # file, so the pull would fetch a STALE device file — rm
+            # both first, so a stale tree can never reach the greps.
+            adb shell rm -f /data/local/tmp/ui.xml || true
+            rm -f /tmp/ui-map.xml
+            adb shell uiautomator dump /data/local/tmp/ui.xml || true
+            adb pull /data/local/tmp/ui.xml /tmp/ui-map.xml || true
+            # FALSE-PASS RULE (run 43817680362): the old check printed
+            # PASS whenever 16.0 was absent — including when the dump
+            # held no Map zoom line at all (ANR dialog tree). Require
+            # the line to exist AND differ from 16.0.
+            # NOTE (run 43823525690): the dump can hold no Map zoom
+            # line at all while the sheet is open even with the value
+            # on screen (shot 20 shows 17.0) — dumps with the sheet
+            # open are unreliable (DUMP RULE, run 43810110567). The
+            # check stays a soft FAIL; the screenshot is the proof
+            # the double-tap zoom worked.
+            grep -o 'Map zoom [0-9.]*' /tmp/ui-map.xml | head -1 > /tmp/mapzoom.txt; cat /tmp/mapzoom.txt
+            test -s /tmp/mapzoom.txt && (grep -q 'Map zoom 16.0' /tmp/mapzoom.txt && echo 'WALKTHROUGH map-zoom-doubletap: FAIL (still 16.0 after double-tap on the map circle)' || echo 'WALKTHROUGH map-zoom-doubletap: PASS (zoom value changed, see Map zoom line above)') || echo 'WALKTHROUGH map-zoom-doubletap: FAIL (no Map zoom text in tree)'
+            python3 tools/emulator_tap.py --drag-slider 'Map zoom' 0.8 || echo 'WALKTHROUGH map-zoom-slider: FAIL (value did not change)'
+            adb shell rm -f /data/local/tmp/ui.xml || true
+            rm -f /tmp/ui-map2.xml
+            adb shell uiautomator dump /data/local/tmp/ui.xml || true
+            adb pull /data/local/tmp/ui.xml /tmp/ui-map2.xml || true
+            grep -o 'Map zoom [0-9.]*' /tmp/ui-map2.xml | head -1 || echo 'WALKTHROUGH map-zoom-slider: FAIL (no Map zoom text after drag)'
+            # RELAUNCH RULE (run 43839237141): the app died mid-walkthrough
+            # during the map work — shot 21 is the Android home screen, and
+            # every later tap missed (the dumps held the launcher tree),
+            # dying hard on 'Start recording'. pidof is NOT the check: a
+            # finished activity leaves the process alive (run 43569645665),
+            # so the foreground window is what matters. If StoryCam is not
+            # the current focus, relaunch it like the initial launch (am
+            # start + 'Open camera'; permissions already granted) and
+            # verify it is foreground again; if it still is not, the app
+            # genuinely will not start — logcat + fail loudly. A relaunch
+            # is visible in the log (the am start line), so a death is
+            # recorded, not hidden. /tmp/relaunched.txt tells the Back
+            # below the sheet is already closed (see there).
+            if ! adb shell dumpsys window | grep mCurrentFocus | grep -q app.storycam; then adb shell am start -n app.storycam/.MainActivity; sleep 30; python3 tools/emulator_tap.py 'Open camera' || true; sleep 20; if ! adb shell dumpsys window | grep mCurrentFocus | grep -q app.storycam; then adb logcat -d | grep -i -E "storycam|flutter|fatal|crash" | tail -30; echo 'WALKTHROUGH: app will not come to foreground after relaunch'; exit 1; fi; touch /tmp/relaunched.txt; fi
+            # ANR GUARD (run 43817680362): a "Process system isn't
+            # responding" dialog appeared over the sheet during the map
+            # work — with it up, the dumps hold only the dialog tree,
+            # so the menu taps below all miss and the run dies. Dismiss
+            # it with a best-effort 'Wait' tap before Back and again
+            # after (|| true: absent when no dialog).
+            python3 tools/emulator_tap.py 'Wait' || true
+            sleep 1
+            # BACK RULE (run 43831064425): a bare Back died with
+            # "Failure calling service input: Broken pipe (32)", exit
+            # 224 — the input service was briefly unreachable on the
+            # loaded emulator. Back/Home are navigation, not proof, so
+            # every keyevent below retries once after 2 s; a second
+            # failure still fails the run loudly.
+            # RELAUNCH SKIP (run 43839237141): if the relaunch above ran,
+            # the app restarted on the camera screen with the sheet
+            # already closed — a Back here would exit the app to the
+            # home screen. Skip it (the flag is consumed); the menu
+            # taps below open the sheet themselves.
+            if [ -f /tmp/relaunched.txt ]; then rm -f /tmp/relaunched.txt; echo 'WALKTHROUGH: app was relaunched, sheet already closed — skipping Back'; else adb shell input keyevent 4 || (sleep 2; adb shell input keyevent 4); fi
+            sleep 2
+            python3 tools/emulator_tap.py 'Wait' || true
+            sleep 1
+            python3 tools/emulator_tap.py 'Front' || echo 'WALKTHROUGH menu-Front: FAIL (tap missed)'
+            sleep 3
+            adb exec-out screencap -p > 21-section-front.png
+            adb shell input keyevent 4 || (sleep 2; adb shell input keyevent 4)
+            sleep 2
+            python3 tools/emulator_tap.py 'Rear' || echo 'WALKTHROUGH menu-Rear: FAIL (tap missed)'
+            sleep 3
+            adb exec-out screencap -p > 22-section-rear.png
+            adb shell input keyevent 4 || (sleep 2; adb shell input keyevent 4)
+            sleep 2
+            python3 tools/emulator_tap.py 'Captions' || echo 'WALKTHROUGH menu-Captions: FAIL (tap missed)'
+            sleep 3
+            adb exec-out screencap -p > 23-section-captions.png
+            adb shell input keyevent 4 || (sleep 2; adb shell input keyevent 4)
+            sleep 2
+            python3 tools/emulator_tap.py 'Settings' || echo 'WALKTHROUGH menu-Settings: FAIL (tap missed)'
+            sleep 3
+            adb exec-out screencap -p > 24-section-settings.png
+            adb shell input swipe 160 500 160 200 300
+            sleep 1
+            adb shell input swipe 160 500 160 200 300
+            sleep 2
+            adb exec-out screencap -p > 25-sheet-scrolled.png
+            python3 tools/emulator_tap.py 'Exposure' || echo 'WALKTHROUGH exposure-tile: ABSENT-or-FAIL (tile only exists when EV is supported; see shot 25)'
+            sleep 2
+            adb exec-out screencap -p > 26-exposure.png
+            adb shell input swipe 160 500 160 200 300
+            sleep 1
+            python3 tools/emulator_tap.py 'Session details' || echo 'WALKTHROUGH session-details-tile: FAIL (tap missed)'
+            sleep 2
+            adb exec-out screencap -p > 27-session-details.png
+            adb shell input keyevent 4 || (sleep 2; adb shell input keyevent 4)
+            sleep 2
+            # RELAUNCH RULE (run 43839237141, see the map-work block
+            # above): the app can die during the long menu section too —
+            # make sure it is foreground before the gated recording.
+            if ! adb shell dumpsys window | grep mCurrentFocus | grep -q app.storycam; then adb shell am start -n app.storycam/.MainActivity; sleep 30; python3 tools/emulator_tap.py 'Open camera' || true; sleep 20; if ! adb shell dumpsys window | grep mCurrentFocus | grep -q app.storycam; then adb logcat -d | grep -i -E "storycam|flutter|fatal|crash" | tail -30; echo 'WALKTHROUGH: app will not come to foreground after relaunch'; exit 1; fi; fi
+            date +%s > /tmp/rec-start.txt
             python3 tools/emulator_tap.py 'Start recording'
             sleep 6
             python3 tools/emulator_tap.py 'Wait' || true
@@ -252,9 +473,38 @@ jobs:
             adb exec-out screencap -p > 07-share-sheet.png
             python3 tools/assert_share_chooser.py
             adb shell pidof app.storycam || (adb logcat -d | grep -i -E "storycam|flutter|fatal|crash" | tail -30; exit 1)
-            adb shell input keyevent 4
+            adb shell input keyevent 4 || (sleep 2; adb shell input keyevent 4)
             sleep 1
             adb shell pidof app.storycam || (adb logcat -d | grep -i -E "storycam|flutter|fatal|crash" | tail -30; exit 1)
+            # FILE PROOF #1 (issues #79 + #87): the core-loop proof for
+            # the 6 s recording above. The recording path comes from
+            # MediaStore, NOT from the app's Session details tile:
+            # run 43823525690 proved the tile's 'Original:' row is
+            # in-memory only (_lastFile, main.dart:258 — "gone on app
+            # restart"): the app re-initialized after the share sheet
+            # (status back to 'Ready to tell your story', no Original
+            # row) while the gallery row survived. --gallery-proof
+            # asserts a row with duration > 0 postdates this
+            # recording's start; --gallery-path prints that row's
+            # _data path, which is pulled (shared storage, no root
+            # needed) and --file-proof asserts EXISTS with duration
+            # >= 5 s and a frame that extracts (playable) — never the
+            # "Video saved to gallery" status text. A missing gallery
+            # row is issue #87 reproducing — the run fails loudly, the
+            # assertion is NOT weakened to go green. The path is passed
+            # via /tmp/rec-path.txt, NOT a shell variable: the runner
+            # executes each workflow line as its own `/usr/bin/sh -c`,
+            # so a variable set on one line is gone on the next (run
+            # 43826211500: `adb pull "$REC_PATH"` got an empty string
+            # even though --gallery-path had printed the path).
+            adb shell content query --uri content://media/external/video/media --projection _data:duration:date_added > /tmp/gallery.txt || (echo 'FILE PROOF #1 FAILED: MediaStore query failed'; exit 1)
+            python3 tools/preview_diff.py --gallery-proof /tmp/gallery.txt --rec-start /tmp/rec-start.txt || (echo 'FILE PROOF #1 FAILED: no gallery row with duration > 0 for this recording (issue #87)'; exit 1)
+            python3 tools/preview_diff.py --gallery-path /tmp/gallery.txt --rec-start /tmp/rec-start.txt > /tmp/rec-path.txt || (echo 'FILE PROOF #1 FAILED: no gallery path for this recording'; exit 1)
+            adb pull "$(cat /tmp/rec-path.txt)" recorded-6s.mp4 || (echo 'FILE PROOF #1 FAILED: could not pull the recording from the gallery'; exit 1)
+            ls -la recorded-6s.mp4
+            python3 tools/preview_diff.py --file-proof recorded-6s.mp4 --min-duration 5 || (echo 'FILE PROOF #1 FAILED: recorded file missing, empty, too short, or unplayable'; exit 1)
+            mv file-proof-frame.png file-proof-6s-frame.png
+            echo 'FILE PROOF #1: 6 s recording exists in the gallery with duration > 0 and plays'
             # #82 BEGIN — wide-zoom proof (issue #82): Bali mock location,
             # Settings Map-section slider dragged to its minimum (2.0),
             # then the map circle at the wide zoom. Uses only main-branch
@@ -289,17 +539,73 @@ jobs:
             adb shell input swipe 275 448 25 448 600
             sleep 2
             adb exec-out screencap -p > 09-zoom-slider-min.png
-            adb shell input keyevent 4
+            adb shell input keyevent 4 || (sleep 2; adb shell input keyevent 4)
             sleep 3
             adb exec-out screencap -p > 10-map-wide-bali.png
             # #82 END
+            # 30 S RECORDING, MAP ON + CAPTIONS ON (issues #79 + #87):
+            # the stop path that can throw in _mapStopCapture BEFORE
+            # Gal.putVideo saves the file (issue #87 H2). Map is on by
+            # default (CameraSettings mapVisible defaults true) — verify
+            # it explicitly. Captions are off by default — turn them
+            # on. The menu taps below open the sheet at the section
+            # (same as the walkthrough above); --ensure-switch-on reads
+            # the Switch state and taps only when off, then re-reads.
+            # _queueCaptions runs fire-and-forget after Stop and never
+            # holds _busy, so the proof steps below can run while it
+            # works. The recording runs 30 s+ to Stop with the app
+            # alive after; FILE PROOF #2 is the same file-exists +
+            # gallery proof as #1 for this take.
+            # RELAUNCH RULE (run 43839237141, see the map-work block
+            # above): the app can die during the 6 s recording + share
+            # too — make sure it is foreground before the gated 30 s
+            # recording.
+            if ! adb shell dumpsys window | grep mCurrentFocus | grep -q app.storycam; then adb shell am start -n app.storycam/.MainActivity; sleep 30; python3 tools/emulator_tap.py 'Open camera' || true; sleep 20; if ! adb shell dumpsys window | grep mCurrentFocus | grep -q app.storycam; then adb logcat -d | grep -i -E "storycam|flutter|fatal|crash" | tail -30; echo 'WALKTHROUGH: app will not come to foreground after relaunch'; exit 1; fi; fi
+            python3 tools/emulator_tap.py 'Map' || (echo '30S RECORDING FAILED: Map menu tap missed'; exit 1)
+            sleep 3
+            python3 tools/emulator_tap.py --ensure-switch-on 'Location circle' || (echo '30S RECORDING FAILED: map (Location circle) is not ON'; exit 1)
+            adb shell input keyevent 4 || (sleep 2; adb shell input keyevent 4)
+            sleep 2
+            python3 tools/emulator_tap.py 'Captions' || (echo '30S RECORDING FAILED: Captions menu tap missed'; exit 1)
+            sleep 3
+            python3 tools/emulator_tap.py --ensure-switch-on 'Auto-captions' || (echo '30S RECORDING FAILED: captions (Auto-captions) are not ON'; exit 1)
+            adb shell input keyevent 4 || (sleep 2; adb shell input keyevent 4)
+            sleep 2
+            date +%s > /tmp/rec-start2.txt
+            python3 tools/emulator_tap.py 'Start recording'
+            sleep 30
+            python3 tools/emulator_tap.py 'Wait' || true
+            sleep 3
+            adb exec-out screencap -p > 29-recording-30s.png
+            python3 tools/emulator_tap.py 'Stop recording'
+            sleep 8
+            adb shell pidof app.storycam || (adb logcat -d | grep -i -E "storycam|flutter|fatal|crash" | tail -30; exit 1)
+            adb exec-out screencap -p > 30-after-30s-recording.png
+            # FILE PROOF #2 (issues #79 + #87): same gallery-driven
+            # proof as #1 for the 30 s take (map ON + captions ON) —
+            # path from MediaStore, never from Session details (see
+            # the #1 comment: _lastFile is in-memory only, run
+            # 43823525690). No sheet is open here, so no Back press:
+            # the pidof below is the app-alive-after proof.
+            adb shell content query --uri content://media/external/video/media --projection _data:duration:date_added > /tmp/gallery2.txt || (echo 'FILE PROOF #2 FAILED: MediaStore query failed'; exit 1)
+            python3 tools/preview_diff.py --gallery-proof /tmp/gallery2.txt --rec-start /tmp/rec-start2.txt || (echo 'FILE PROOF #2 FAILED: no gallery row with duration > 0 for this recording (issue #87)'; exit 1)
+            python3 tools/preview_diff.py --gallery-path /tmp/gallery2.txt --rec-start /tmp/rec-start2.txt > /tmp/rec-path2.txt || (echo 'FILE PROOF #2 FAILED: no gallery path for this recording'; exit 1)
+            adb pull "$(cat /tmp/rec-path2.txt)" recorded-30s.mp4 || (echo 'FILE PROOF #2 FAILED: could not pull the recording from the gallery'; exit 1)
+            ls -la recorded-30s.mp4
+            python3 tools/preview_diff.py --file-proof recorded-30s.mp4 --min-duration 28 || (echo 'FILE PROOF #2 FAILED: recorded file missing, empty, too short, or unplayable'; exit 1)
+            mv file-proof-frame.png file-proof-30s-frame.png
+            echo 'FILE PROOF #2: 30 s recording (map ON + captions ON) exists in the gallery with duration > 0 and plays'
+            adb shell pidof app.storycam || (adb logcat -d | grep -i -E "storycam|flutter|fatal|crash" | tail -30; exit 1)
             adb logcat -d | grep -i -E "storycam|flutter|fatal|crash" | tail -50 || true
-            ls -la *.png
+            ls -la *.png *.mp4
 
       - name: Upload screenshots
         uses: actions/upload-artifact@v4
         if: always()
         with:
           name: emulator-play-screenshots
-          path: '*.png'
+          path: |
+            *.png
+            recorded-*.mp4
+            file-proof-*-frame.png
           retention-days: 14
