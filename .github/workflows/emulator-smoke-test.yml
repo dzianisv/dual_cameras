@@ -267,9 +267,11 @@ jobs:
             adb shell am start -n app.storycam/.MainActivity
             sleep 10
             adb shell pidof app.storycam || (adb logcat -d | grep -i -E "storycam|flutter|fatal|crash" | tail -30; adb logcat -d -b crash | tail -40 || true; exit 1)
+            adb shell rm -f /data/local/tmp/ui.xml; rm -f /tmp/ui-resume.xml
             adb shell uiautomator dump /data/local/tmp/ui.xml
             adb pull /data/local/tmp/ui.xml /tmp/ui-resume.xml
-            grep -q 'Start recording' /tmp/ui-resume.xml || (echo 'NOT ON CAMERA SCREEN AFTER RESUME: no Start recording button - app may have restarted fresh instead of resuming'; exit 1)
+            cp /tmp/ui-resume.xml ui-resume.xml || true
+            grep -q 'Start recording' /tmp/ui-resume.xml || (sleep 5; adb shell rm -f /data/local/tmp/ui.xml; adb shell uiautomator dump /data/local/tmp/ui.xml; adb pull /data/local/tmp/ui.xml /tmp/ui-resume.xml; cp /tmp/ui-resume.xml ui-resume.xml || true; grep -q 'Start recording' /tmp/ui-resume.xml || (echo 'NOT ON CAMERA SCREEN AFTER RESUME: no Start recording button - app may have restarted fresh instead of resuming'; exit 1))
             adb exec-out screencap -p > resume-after-1.png
             sleep 4
             adb exec-out screencap -p > resume-after-2.png
@@ -303,9 +305,11 @@ jobs:
             adb shell am start -n app.storycam/.MainActivity
             sleep 10
             adb shell pidof app.storycam || (adb logcat -d | grep -i -E "storycam|flutter|fatal|crash" | tail -30; adb logcat -d -b crash | tail -40 || true; exit 1)
+            adb shell rm -f /data/local/tmp/ui.xml; rm -f /tmp/ui-resume2.xml
             adb shell uiautomator dump /data/local/tmp/ui.xml
             adb pull /data/local/tmp/ui.xml /tmp/ui-resume2.xml
-            grep -q 'Start recording' /tmp/ui-resume2.xml || (echo 'NOT ON CAMERA SCREEN AFTER RESUME (after recording): no Start recording button - app may have restarted fresh instead of resuming'; exit 1)
+            cp /tmp/ui-resume2.xml ui-resume2.xml || true
+            grep -q 'Start recording' /tmp/ui-resume2.xml || (sleep 5; adb shell rm -f /data/local/tmp/ui.xml; adb shell uiautomator dump /data/local/tmp/ui.xml; adb pull /data/local/tmp/ui.xml /tmp/ui-resume2.xml; cp /tmp/ui-resume2.xml ui-resume2.xml || true; grep -q 'Start recording' /tmp/ui-resume2.xml || (adb shell dumpsys activity activities > dumpsys-activities-resume2.txt || true; echo 'NOT ON CAMERA SCREEN AFTER RESUME (after recording): no Start recording button - app may have restarted fresh instead of resuming'; exit 1))
             adb exec-out screencap -p > resume-after-rec-1.png
             sleep 4
             adb exec-out screencap -p > resume-after-rec-2.png
@@ -325,14 +329,17 @@ jobs:
             # the 6 s take below still burns the map (issue #49).
             python3 tools/emulator_tap.py 'Map'
             sleep 3
+            adb shell rm -f /data/local/tmp/ui.xml; rm -f /tmp/ui-sheet86.xml
             adb shell uiautomator dump /data/local/tmp/ui.xml
             adb pull /data/local/tmp/ui.xml /tmp/ui-sheet86.xml
-            grep -q 'Camera settings' /tmp/ui-sheet86.xml || (echo 'SHEET86 FAILED: Settings sheet did not open (no Camera settings in dump)'; exit 1)
+            cp /tmp/ui-sheet86.xml ui-sheet86.xml || true
+            grep -q 'Camera settings' /tmp/ui-sheet86.xml || (sleep 5; adb shell rm -f /data/local/tmp/ui.xml; adb shell uiautomator dump /data/local/tmp/ui.xml; adb pull /data/local/tmp/ui.xml /tmp/ui-sheet86.xml; cp /tmp/ui-sheet86.xml ui-sheet86.xml || true; grep -q 'Camera settings' /tmp/ui-sheet86.xml || (echo 'SHEET86 FAILED: Settings sheet did not open (no Camera settings in dump)'; exit 1))
             echo 'SHEET86: sheet open at Map section'
             N0=$(adb logcat -d | grep -c 'SHEET86. REBUILD' || true); sleep 30; N1=$(adb logcat -d | grep -c 'SHEET86. REBUILD' || true); echo "SHEET86 REBUILDS before=$N0 after=$N1 idle30s=$((N1-N0))"; test $((N1-N0)) -le 3 || (echo 'SHEET86 FAILED: sheet rebuilt more than 3 times in 30 s idle — stats ticks are still rebuilding it'; exit 1)
             echo 'SHEET86: rebuild rate OK (at most 3 rebuilds in 30 s idle)'
             python3 tools/emulator_tap.py 'Location circle'
             sleep 2
+            adb shell rm -f /data/local/tmp/ui.xml; rm -f /tmp/ui-sheet86-off.xml
             adb shell uiautomator dump /data/local/tmp/ui.xml
             adb pull /data/local/tmp/ui.xml /tmp/ui-sheet86-off.xml
             cp /tmp/ui-sheet86-off.xml ui-sheet86-off.xml || true
@@ -341,6 +348,7 @@ jobs:
             adb exec-out screencap -p > sheet86-map-off.png
             python3 tools/emulator_tap.py 'Location circle'
             sleep 2
+            adb shell rm -f /data/local/tmp/ui.xml; rm -f /tmp/ui-sheet86-on.xml
             adb shell uiautomator dump /data/local/tmp/ui.xml
             adb pull /data/local/tmp/ui.xml /tmp/ui-sheet86-on.xml
             cp /tmp/ui-sheet86-on.xml ui-sheet86-on.xml || true
@@ -386,6 +394,7 @@ jobs:
             python3 tools/emulator_tap.py 'Captions'
             sleep 5
             python3 tools/enable_captions.py || (echo 'CAPTIONS SETUP FAILED (issue #86?): Auto-captions could not be turned on — the long leg cannot run its map+captions stop path'; adb logcat -d | grep -i -E "storycam|flutter|fatal|crash" | tail -30; exit 1)
+            adb shell rm -f /data/local/tmp/ui.xml; rm -f /tmp/ui-preset.xml
             adb shell uiautomator dump /data/local/tmp/ui.xml
             adb pull /data/local/tmp/ui.xml /tmp/ui-preset.xml
             cp /tmp/ui-preset.xml ui-preset.xml || true
@@ -406,20 +415,22 @@ jobs:
             date -u '+LONGREC CHECKPOINT T+30s %Y-%m-%dT%H:%M:%SZ'
             adb shell pidof app.storycam && echo 'T+30: APP ALIVE' || (echo 'T+30: APP DEAD (pidof empty) — issue #81 lock?'; adb logcat -d | grep -i -E "storycam|flutter|fatal|crash" | tail -30; adb logcat -d -b crash | tail -40 || true; exit 1)
             adb exec-out screencap -p > longrec-t30.png
+            adb shell rm -f /data/local/tmp/ui.xml; rm -f /tmp/ui-30s.xml
             adb shell uiautomator dump /data/local/tmp/ui.xml
             adb pull /data/local/tmp/ui.xml /tmp/ui-30s.xml
             cp /tmp/ui-30s.xml ui-30s.xml || true
-            grep -q 'Stop recording' /tmp/ui-30s.xml || (echo 'T+30: NOT RECORDING (no Stop button — take stopped early or UI frozen, issue #81)'; adb logcat -d | grep -i -E "storycam|flutter|fatal|crash" | tail -30; exit 1)
+            grep -q 'Stop recording' /tmp/ui-30s.xml || (sleep 5; adb shell rm -f /data/local/tmp/ui.xml; adb shell uiautomator dump /data/local/tmp/ui.xml; adb pull /data/local/tmp/ui.xml /tmp/ui-30s.xml; cp /tmp/ui-30s.xml ui-30s.xml || true; grep -q 'Stop recording' /tmp/ui-30s.xml || (echo 'T+30: NOT RECORDING (no Stop button — take stopped early or UI frozen, issue #81)'; adb logcat -d | grep -i -E "storycam|flutter|fatal|crash" | tail -30; exit 1))
             echo 'T+30: STILL RECORDING (Stop button present)'
             if grep -q -i 'responding' /tmp/ui-30s.xml; then echo 'T+30: ANR DIALOG PRESENT — app locked (issue #81)'; adb logcat -d | grep -i -E "ANR|not responding" | tail -20; exit 1; fi
             sleep 5
             date -u '+LONGREC CHECKPOINT T+35s %Y-%m-%dT%H:%M:%SZ'
             adb shell pidof app.storycam && echo 'T+35: APP ALIVE' || (echo 'T+35: APP DEAD (pidof empty) — issue #81 lock?'; adb logcat -d | grep -i -E "storycam|flutter|fatal|crash" | tail -30; adb logcat -d -b crash | tail -40 || true; exit 1)
             adb exec-out screencap -p > longrec-t35.png
+            adb shell rm -f /data/local/tmp/ui.xml; rm -f /tmp/ui-35s.xml
             adb shell uiautomator dump /data/local/tmp/ui.xml
             adb pull /data/local/tmp/ui.xml /tmp/ui-35s.xml
             cp /tmp/ui-35s.xml ui-35s.xml || true
-            grep -q 'Stop recording' /tmp/ui-35s.xml || (echo 'T+35: NOT RECORDING (no Stop button — take stopped early or UI frozen, issue #81)'; adb logcat -d | grep -i -E "storycam|flutter|fatal|crash" | tail -30; exit 1)
+            grep -q 'Stop recording' /tmp/ui-35s.xml || (sleep 5; adb shell rm -f /data/local/tmp/ui.xml; adb shell uiautomator dump /data/local/tmp/ui.xml; adb pull /data/local/tmp/ui.xml /tmp/ui-35s.xml; cp /tmp/ui-35s.xml ui-35s.xml || true; grep -q 'Stop recording' /tmp/ui-35s.xml || (echo 'T+35: NOT RECORDING (no Stop button — take stopped early or UI frozen, issue #81)'; adb logcat -d | grep -i -E "storycam|flutter|fatal|crash" | tail -30; exit 1))
             echo 'T+35: STILL RECORDING (Stop button present)'
             if grep -q -i 'responding' /tmp/ui-35s.xml; then echo 'T+35: ANR DIALOG PRESENT — app locked (issue #81)'; adb logcat -d | grep -i -E "ANR|not responding" | tail -20; exit 1; fi
             sleep 5
@@ -429,10 +440,11 @@ jobs:
             sleep 15
             adb shell pidof app.storycam && echo 'AFTER-STOP: APP ALIVE' || (echo 'AFTER-STOP: APP DEAD (pidof empty)'; adb logcat -d | grep -i -E "storycam|flutter|fatal|crash" | tail -30; adb logcat -d -b crash | tail -40 || true; exit 1)
             adb exec-out screencap -p > longrec-after-stop.png
+            adb shell rm -f /data/local/tmp/ui.xml; rm -f /tmp/ui-after-stop.xml
             adb shell uiautomator dump /data/local/tmp/ui.xml
             adb pull /data/local/tmp/ui.xml /tmp/ui-after-stop.xml
             cp /tmp/ui-after-stop.xml ui-after-stop.xml || true
-            grep -q 'Start recording' /tmp/ui-after-stop.xml || (echo 'AFTER-STOP: NOT ON CAMERA SCREEN (no Start recording — UI may be stuck on the stop/burn path)'; exit 1)
+            grep -q 'Start recording' /tmp/ui-after-stop.xml || (sleep 5; adb shell rm -f /data/local/tmp/ui.xml; adb shell uiautomator dump /data/local/tmp/ui.xml; adb pull /data/local/tmp/ui.xml /tmp/ui-after-stop.xml; cp /tmp/ui-after-stop.xml ui-after-stop.xml || true; grep -q 'Start recording' /tmp/ui-after-stop.xml || (echo 'AFTER-STOP: NOT ON CAMERA SCREEN (no Start recording — UI may be stuck on the stop/burn path)'; exit 1))
             echo 'AFTER-STOP: CAMERA SCREEN BACK (Start recording present — UI responsive after stop)'
             python3 tools/preview_diff.py longrec-t10.png longrec-t20.png --min-diff 0.1 || echo 'MOTION T10-T20: 0.00% or below threshold (diagnostic only — 10 s windows score 0.00% on live previews, see header)'
             python3 tools/preview_diff.py longrec-t20.png longrec-t30.png --min-diff 0.1 || echo 'MOTION T20-T30: 0.00% or below threshold (diagnostic only — 10 s windows score 0.00% on live previews, see header)'
@@ -471,6 +483,7 @@ jobs:
             logcat-crash.txt
             meminfo.txt
             dumpsys-activities.txt
+            dumpsys-activities-resume2.txt
             longrec-check-*.log
             longrec-take-*.mp4
             mapburn-6s.log
@@ -478,6 +491,9 @@ jobs:
             ui-35s.xml
             ui-preset.xml
             ui-after-stop.xml
+            ui-resume.xml
+            ui-resume2.xml
+            ui-sheet86.xml
             sheet86-map-off.png
             ui-sheet86-off.xml
             ui-sheet86-on.xml
