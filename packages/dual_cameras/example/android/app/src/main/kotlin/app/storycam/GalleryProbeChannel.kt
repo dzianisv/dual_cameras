@@ -20,13 +20,35 @@ import io.flutter.plugin.common.MethodChannel
  *   DURATION column added to the projection. A row with durationMs == 0
  *   means the MediaStore scanner has not filled DURATION yet — the test
  *   polls until durationMs > 0 instead of failing on it.
- * - `saveScreenshot(name, bytes)`: writes a PNG into
- *   MediaStore.Downloads (DISPLAY_NAME + RELATIVE_PATH "Download/"),
- *   so the file lands at /sdcard/Download/<name>. No storage
- *   permission is needed for the app's own files in MediaStore.Downloads
- *   on API 29+ (official Android docs, "Storage updates in Android 11").
- *   A Dart File write cannot be used here (scoped storage, API 30+)
- *   and Gal inserts into Images/Pictures only, never Download.
+ * - `saveScreenshot(name, bytes)`: writes a PNG in TWO places, and
+ *   succeeds when at least one write lands (throws only when both
+ *   fail — the mid-recording call site in the test guards the throw,
+ *   so a save failure never fails the test):
+ *   1. MediaStore.Downloads (DISPLAY_NAME + RELATIVE_PATH
+ *      "Download/"), so the file lands at /sdcard/Download/<name>.
+ *      No storage permission is needed for the app's own files in
+ *      MediaStore.Downloads on API 29+ (official Android docs,
+ *      "Storage updates in Android 11"). A Dart File write cannot be
+ *      used here (scoped storage, API 30+) and Gal inserts into
+ *      Images/Pictures only, never Download. This copy is the CI
+ *      emulator `adb pull` path — it keeps working unchanged.
+ *   2. A plain File in the app's external-files dir
+ *      (getExternalFilesDir(null)), so the file also lands at
+ *      /sdcard/Android/data/app.storycam/files/<name>. No permission
+ *      needed for the app's own dir. This copy exists because a
+ *      MediaStore-managed path was never verified pullable by
+ *      Firebase Test Lab: the 2026-11-17 Test Lab run's bucket had no
+ *      PNG/JPG at all, and no record shows --directories-to-pull was
+ *      passed on that run. Test Lab pulls NO extra path by default —
+ *      the proof-gate gcloud run must pass
+ *      --directories-to-pull
+ *      /sdcard/Download,/sdcard/Android/data/app.storycam/files
+ *      (gcloud docs: absolute paths under /sdcard, /storage or
+ *      /data/local/tmp; the Console UI has no such field). Either
+ *      copy then lands in the results bucket under
+ *      artifacts/sdcard/.... Flutter's takeScreenshot itself writes
+ *      no file — it returns PNG bytes in memory only — so the probe
+ *      is the only writer.
  */
 object GalleryProbeChannel {
     const val NAME = "app.storycam/gallery_probe"
@@ -91,6 +113,9 @@ object GalleryProbeChannel {
             result.error("BAD_ARGS", "saveScreenshot needs name + bytes", null)
             return
         }
+        // 1. MediaStore.Downloads -> /sdcard/Download/<name> (CI adb pull).
+        var mediaOk = false
+        var mediaError: String? = null
         val values = ContentValues().apply {
             put(MediaStore.MediaColumns.DISPLAY_NAME, name)
             put(MediaStore.MediaColumns.MIME_TYPE, "image/png")
@@ -100,27 +125,54 @@ object GalleryProbeChannel {
             val uri = activity.contentResolver.insert(
                 MediaStore.Downloads.EXTERNAL_CONTENT_URI,
                 values,
-            ) ?: run {
-                result.error(
-                    "INSERT_FAILED",
-                    "MediaStore.Downloads insert returned null",
-                    null,
-                )
-                return
-            }
-            activity.contentResolver.openOutputStream(uri)?.use { it.write(bytes) }
-                ?: run {
-                    result.error(
-                        "WRITE_FAILED",
-                        "could not open output stream for $name",
-                        null,
-                    )
-                    return
+            )
+            if (uri == null) {
+                mediaError = "MediaStore.Downloads insert returned null"
+            } else {
+                val stream = activity.contentResolver.openOutputStream(uri)
+                if (stream == null) {
+                    mediaError = "could not open output stream for $name"
+                } else {
+                    stream.use { it.write(bytes) }
+                    mediaOk = true
                 }
-            result.success(true)
+            }
         } catch (t: Throwable) {
-            Log.e(TAG, "saveScreenshot failed for $name", t)
-            result.error("WRITE_FAILED", t.message, null)
+            Log.e(TAG, "saveScreenshot MediaStore failed for $name", t)
+            mediaError = t.message
+        }
+        // 2. Plain file in the app's own external-files dir ->
+        // /sdcard/Android/data/app.storycam/files/<name> (Test Lab
+        // --directories-to-pull path; no permission needed, and a plain
+        // File write needs no MediaStore round-trip).
+        var fileOk = false
+        var fileError: String? = null
+        try {
+            val dir = activity.getExternalFilesDir(null)
+            if (dir == null) {
+                fileError = "getExternalFilesDir returned null"
+            } else {
+                val outFile = java.io.File(dir, name)
+                outFile.parentFile?.mkdirs()
+                java.io.FileOutputStream(outFile).use { it.write(bytes) }
+                fileOk = true
+                Log.i(TAG, "saveScreenshot wrote ${outFile.absolutePath} (${bytes.size} B)")
+            }
+        } catch (t: Throwable) {
+            Log.e(TAG, "saveScreenshot external-files failed for $name", t)
+            fileError = t.message
+        }
+        if (mediaOk || fileOk) {
+            if (!mediaOk) Log.w(TAG, "saveScreenshot MediaStore failed: $mediaError")
+            if (!fileOk) Log.w(TAG, "saveScreenshot external-files failed: $fileError")
+            result.success(true)
+        } else {
+            result.error(
+                "WRITE_FAILED",
+                "both screenshot writes failed (MediaStore: $mediaError; " +
+                    "external-files: $fileError)",
+                null,
+            )
         }
     }
 }
