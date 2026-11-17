@@ -968,6 +968,28 @@ void main() {
     await tester.pump(const Duration(milliseconds: 500));
     // The restore has now run (model still gated), so the stale error
     // would be showing in this session's slot.
+    // F2: pin the restore-display itself — open Settings while the
+    // load is still gated and assert the stale error IS shown. Both
+    // end-state assertions below are findsNothing, so without this a
+    // deleted restore callback would pass silently. The error Text
+    // sits below the fold of the sheet's lazy ListView, so scroll it
+    // into view first (same pattern as the session-details scroll
+    // below).
+    await tester.tap(find.byKey(const Key('menu-captions')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 500));
+    await tester.scrollUntilVisible(
+        find.text('Caption model download failed: boom'), 100,
+        scrollable: find
+            .descendant(
+                of: find.byType(ListView),
+                matching: find.byType(Scrollable))
+            .last);
+    await tester.pump();
+    expect(find.text('Caption model download failed: boom'), findsOneWidget);
+    await tester.tap(find.byTooltip('Close Camera settings'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 500));
     model.gate!.complete(FakeModelManager.files);
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 500));
