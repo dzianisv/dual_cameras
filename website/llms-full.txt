@@ -23,7 +23,7 @@ Free. No account, no ads, no watermark, no in-app purchase. Price is 0 USD.
 ## Status
 
 Current version: 0.5.16 (ARM64 Android only). In testing on Google Play
-(internal track). The free APK is also on GitHub:
+(internal track), submitted for production review (178 countries). The free APK is also on GitHub:
 https://github.com/dzianisv/dual_cameras/releases/latest
 The newest APK is always at https://dzianisv.github.io/dual_cameras/latest.html
 
@@ -92,7 +92,7 @@ https://dzianisv.github.io/dual_cameras/privacy.html
 
 Q: Is StoryCam on Google Play?
 A: StoryCam is in testing on Google Play now (internal track, version
-0.5.16). Until the public listing goes live, the free APK is on GitHub:
+0.5.16), submitted for production review (178 countries). Until the public listing goes live, the free APK is on GitHub:
 download it, allow install from unknown sources when prompted, and open it.
 
 Q: How do Russian captions work in StoryCam?
