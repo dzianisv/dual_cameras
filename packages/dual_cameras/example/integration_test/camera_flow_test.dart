@@ -117,8 +117,20 @@ void main() {
     // 3. Record. Mid-recording (~15 s) take one dual-preview screenshot
     // via takeScreenshot, after convertFlutterSurfaceToImage() (required
     // on Android before takeScreenshot, or the camera Texture may
-    // capture black). The screenshot is saved via the probe channel so
-    // it lands at /sdcard/Download/storycam-feeds-diff.png.
+    // capture black). takeScreenshot itself writes NO file anywhere —
+    // it returns the PNG bytes in memory only (Flutter SDK
+    // _callback_io.dart: captureScreenshot channel call) — so the PNG
+    // only exists because the probe saves it. saveScreenshot writes
+    // TWO copies (best-effort: a save failure must not fail the test):
+    // MediaStore.Downloads (/sdcard/Download/storycam-feeds-diff.png,
+    // the CI emulator `adb pull` path) and a plain file in the app's
+    // external-files dir
+    // (/sdcard/Android/data/app.storycam/files/storycam-feeds-diff.png).
+    // Firebase Test Lab pulls NEITHER by default: the proof-gate gcloud
+    // run must pass
+    // --directories-to-pull /sdcard/Download,/sdcard/Android/data/app.storycam/files
+    // (the Console UI has no such field). Either copy then lands in the
+    // results bucket under artifacts/sdcard/... .
     await tester.tap(find.byTooltip('Start recording'));
     await tester.pump();
     final DateTime recordStart = DateTime.now();
@@ -127,7 +139,17 @@ void main() {
     await tester.pump();
     final List<int> screenshotBytes =
         await binding.takeScreenshot('feeds-diff');
-    await probe.saveScreenshot('storycam-feeds-diff.png', screenshotBytes);
+    try {
+      await probe.saveScreenshot('storycam-feeds-diff.png', screenshotBytes);
+      // ignore: avoid_print
+      print('FEEDS-DIFF PNG saved: /sdcard/Download/storycam-feeds-diff.png'
+          ' + /sdcard/Android/data/app.storycam/files/storycam-feeds-diff.png');
+    } catch (e) {
+      // Best-effort evidence only: the feeds-differ assertion below runs
+      // on the in-memory bytes, and a save failure must not fail the test.
+      // ignore: avoid_print
+      print('FEEDS-DIFF PNG save failed (best-effort, continuing): $e');
+    }
 
     // Feeds-differ assertion: real-device-only. On the emulator it
     // prints SKIP and the test still passes.
@@ -270,6 +292,10 @@ void _expectFeedsDiffer(List<int> pngBytes) {
   expect(meanDiff, greaterThanOrEqualTo(_minMeanDiff),
       reason: 'front/rear feed regions do not differ '
           '(mean diff $meanDiff < $_minMeanDiff)');
+  // ignore: avoid_print
+  print('FEEDS-DIFFER: PASS (mean diff ${meanDiff.toStringAsFixed(1)}, '
+      'front brightness ${frontBrightness.toStringAsFixed(1)}, '
+      'rear brightness ${rearBrightness.toStringAsFixed(1)})');
 }
 
 /// Mean per-channel colour of the fractional box [frac] =
