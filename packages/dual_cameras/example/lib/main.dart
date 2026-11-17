@@ -20,6 +20,7 @@ import 'captions/caption_jobs.dart';
 import 'captions/caption_job_runner.dart';
 import 'captions/caption_language.dart';
 import 'captions/caption_language_store.dart';
+import 'captions/last_failure_store.dart';
 import 'captions/caption_models.dart';
 import 'captions/caption_pipeline.dart';
 import 'captions/model_download_notifier.dart';
@@ -74,6 +75,7 @@ class DemoApp extends StatelessWidget {
       this.captionJobs,
       this.backgroundCaptions,
       this.captionLanguageStore,
+      this.lastFailureStore,
       this.modelDownloadNotifier,
       this.captionJobNotifier,
       this.cameraCommandTimeout,
@@ -90,6 +92,7 @@ class DemoApp extends StatelessWidget {
   final CaptionJobs? captionJobs;
   final bool? backgroundCaptions;
   final CaptionLanguageStore? captionLanguageStore;
+  final LastFailureStore? lastFailureStore;
   final ModelDownloadNotifier? modelDownloadNotifier;
   final CaptionJobNotifier? captionJobNotifier;
   final Duration? cameraCommandTimeout;
@@ -135,6 +138,7 @@ class DemoApp extends StatelessWidget {
           captionJobs: captionJobs,
           backgroundCaptions: backgroundCaptions,
           captionLanguageStore: captionLanguageStore,
+          lastFailureStore: lastFailureStore,
           modelDownloadNotifier: modelDownloadNotifier,
           captionJobNotifier: captionJobNotifier,
           cameraCommandTimeout: cameraCommandTimeout,
@@ -157,6 +161,7 @@ class DemoScreen extends StatefulWidget {
       this.captionJobs,
       this.backgroundCaptions,
       this.captionLanguageStore,
+      this.lastFailureStore,
       this.modelDownloadNotifier,
       this.captionJobNotifier,
       this.cameraCommandTimeout,
@@ -173,6 +178,7 @@ class DemoScreen extends StatefulWidget {
   final CaptionJobs? captionJobs;
   final bool? backgroundCaptions;
   final CaptionLanguageStore? captionLanguageStore;
+  final LastFailureStore? lastFailureStore;
   final ModelDownloadNotifier? modelDownloadNotifier;
   final CaptionJobNotifier? captionJobNotifier;
   final Duration? cameraCommandTimeout;
@@ -472,6 +478,15 @@ class _DemoScreenState extends State<DemoScreen> with WidgetsBindingObserver {
       widget.captionLanguageStore ?? CaptionLanguageStore();
   CaptionLanguage _captionLanguage = CaptionLanguage.auto;
 
+  // Last failure errors (burndiag): the model-download and caption/map-
+  // burn errors used to live in-memory only (_modelError / _error) and
+  // were lost on restart, so the next phone failure was undiagnosable.
+  // The store persists them to disk; initState restores them into the
+  // same slots, so Settings shows the last failure after a restart.
+  // Same injectable-seam pattern as _languageStore above.
+  late final LastFailureStore _lastFailureStore =
+      widget.lastFailureStore ?? LastFailureStore();
+
   // In-app review prompt (issue #37): at most once per app version, on
   // the first completed recording of that version. The gate persists the
   // prompted version; the facade is the Play call behind an injectable
@@ -528,6 +543,23 @@ class _DemoScreenState extends State<DemoScreen> with WidgetsBindingObserver {
     unawaited(_captionNotifier.clear());
     _languageStore.load().then((stored) {
       if (mounted) _update(() => _captionLanguage = stored);
+    });
+    // Burndiag: restore the last persisted failure errors into the same
+    // slots the live failures use, so Settings shows them after a
+    // restart. Only when the slot is still empty — a live failure in
+    // this session wins over the stored one. The Captions-section
+    // _modelError display is foreground-captions mode only (the
+    // `if (!_usesBackgroundJobs)` block below); Session details always
+    // shows both slots.
+    _lastFailureStore.load(LastFailureKind.model).then((stored) {
+      if (stored != null && mounted && _modelError == null) {
+        _update(() => _modelError = stored);
+      }
+    });
+    _lastFailureStore.load(LastFailureKind.caption).then((stored) {
+      if (stored != null && mounted && _error == null) {
+        _update(() => _error = stored);
+      }
     });
     final settingsFuture = _settingsStore.load().then((stored) {
       if (mounted) {
@@ -827,6 +859,8 @@ class _DemoScreenState extends State<DemoScreen> with WidgetsBindingObserver {
       });
       unawaited(_notifier.showReady());
       Analytics.modelReady(cached: !sawIntermediate);
+      // The model is fine now: drop any failure stored by an earlier run.
+      unawaited(_lastFailureStore.clear(LastFailureKind.model));
       return model;
     } catch (e) {
       _modelFuture =
@@ -839,8 +873,12 @@ class _DemoScreenState extends State<DemoScreen> with WidgetsBindingObserver {
             _modelError = 'Download stopped — tap Retry to start it again.');
         unawaited(_notifier.showStopped());
       } else {
-        _update(
-            () => _modelError = 'Caption model download failed: $e');
+        final message = 'Caption model download failed: $e';
+        _update(() => _modelError = message);
+        // Burndiag: persist the failure so it survives a restart. A
+        // user-initiated stop is NOT a failure and is never persisted
+        // (the cancelled branch above).
+        unawaited(_lastFailureStore.save(LastFailureKind.model, message));
         unawaited(_notifier.showFailed('$e'));
       }
       Analytics.modelDownloadFailed(reason: _modelFailureReason(e));
@@ -2116,6 +2154,9 @@ class _DemoScreenState extends State<DemoScreen> with WidgetsBindingObserver {
         hasCaptions = words.isNotEmpty;
         if (words.isEmpty && mapManifest == null) {
           await _captionNotifier.showNoSpeech();
+          // A clean no-speech run: drop any failure stored by an earlier
+          // run — the job succeeded, the stored error is stale.
+          unawaited(_lastFailureStore.clear(LastFailureKind.caption));
           return;
         }
       } else if (mapManifest == null) {
@@ -2163,6 +2204,8 @@ class _DemoScreenState extends State<DemoScreen> with WidgetsBindingObserver {
       } else {
         await _captionNotifier.showMapDone();
       }
+      // The burn succeeded: drop any failure stored by an earlier run.
+      unawaited(_lastFailureStore.clear(LastFailureKind.caption));
     } catch (e) {
       if (!mounted) return;
       if (_captionAborted(generation) ||
@@ -2183,6 +2226,11 @@ class _DemoScreenState extends State<DemoScreen> with WidgetsBindingObserver {
             'error=$e');
       }
       _update(() => _error = '$e');
+      // Burndiag: persist the failure so it survives a restart. Only
+      // this caption/map-burn failure path persists — no other _error
+      // assignment does. A user-initiated stop returns above and is
+      // never persisted.
+      unawaited(_lastFailureStore.save(LastFailureKind.caption, '$e'));
       // Pre-burn failures are caption-job failures (only reachable with
       // captions on); a burn-phase failure names the job that burned.
       if (!inBurn || hasCaptions) {

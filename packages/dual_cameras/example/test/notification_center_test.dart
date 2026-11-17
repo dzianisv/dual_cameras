@@ -163,6 +163,16 @@ void main() {
       await notifier.showStopped();
       expect(plugin.cancelled, contains(1001));
     });
+
+    test('showFailed body carries the error and the retry guidance',
+        () async {
+      await notifier.showFailed('boom');
+      expect(plugin.shown, hasLength(1));
+      expect(plugin.shown.last.title,
+          contains('Caption model download failed'));
+      expect(plugin.shown.last.body, contains('boom'));
+      expect(plugin.shown.last.body, contains('Open Captions to retry'));
+    });
   });
 
   group('SystemCaptionJobNotifier', () {
@@ -222,6 +232,7 @@ void main() {
       await notifier.showFailed('boom');
       expect(plugin.shown, hasLength(4));
       expect(plugin.shown.last.body, contains('Original video kept'));
+      expect(plugin.shown.last.body, contains('boom'));
     });
 
     test('map-only burn uses its own titles, never the caption label',
@@ -243,6 +254,7 @@ void main() {
       expect(plugin.shown, hasLength(4));
       expect(plugin.shown.last.title, contains('Map burn failed'));
       expect(plugin.shown.last.body, contains('Original video kept'));
+      expect(plugin.shown.last.body, contains('boom'));
     });
   });
 }

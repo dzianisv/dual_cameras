@@ -112,7 +112,7 @@ class SystemModelDownloadNotifier implements ModelDownloadNotifier {
     await _center.show(
       _notificationId,
       'Caption model download failed',
-      'Captions will keep the original video. Open Captions to retry.',
+      '$error\nCaptions will keep the original video. Open Captions to retry.',
       const NotificationDetails(
         android: AndroidNotificationDetails(
           _channelId,

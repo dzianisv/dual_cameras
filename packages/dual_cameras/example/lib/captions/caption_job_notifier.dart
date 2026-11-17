@@ -26,8 +26,9 @@ abstract class CaptionJobNotifier {
   /// progress notification.
   Future<void> showNoSpeech();
 
-  /// Captioning failed: the original video is kept. The error lives in
-  /// settings; the retry lives in the Captions sheet.
+  /// Captioning failed: the original video is kept. The error is in the
+  /// notification body (and in settings); the retry lives in the
+  /// Captions sheet.
   Future<void> showFailed(String error);
 
   /// A map-only burn is in flight (issue #49): [progress] (0..1 within
@@ -39,7 +40,8 @@ abstract class CaptionJobNotifier {
   /// Replaces the progress notification.
   Future<void> showMapDone();
 
-  /// The map burn failed: the original video is kept.
+  /// The map burn failed: the original video is kept. The error is in
+  /// the notification body (and in settings).
   Future<void> showMapFailed(String error);
 
   /// Clear the progress notification (job stopped by the user, or stale
@@ -174,7 +176,7 @@ class SystemCaptionJobNotifier implements CaptionJobNotifier {
     await _center.show(
       _notificationId,
       'Captioning failed',
-      'Original video kept. See settings for details.',
+      'Original video kept. $error',
       _terminalDetails(),
     );
   }
@@ -208,7 +210,7 @@ class SystemCaptionJobNotifier implements CaptionJobNotifier {
     await _center.show(
       _notificationId,
       'Map burn failed',
-      'Original video kept. See settings for details.',
+      'Original video kept. $error',
       _terminalDetails(),
     );
   }

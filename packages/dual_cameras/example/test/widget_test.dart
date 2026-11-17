@@ -6,6 +6,7 @@ import 'dart:ui' as ui;
 import 'package:dual_cameras_example/main.dart';
 import 'package:dual_cameras_example/captions/caption_job_notifier.dart';
 import 'package:dual_cameras_example/captions/caption_language_store.dart';
+import 'package:dual_cameras_example/captions/last_failure_store.dart';
 import 'package:dual_cameras_example/captions/model_download_notifier.dart';
 import 'package:dual_cameras_example/captions/model_manager.dart';
 import 'package:dual_cameras_example/captions/caption_models.dart';
@@ -892,6 +893,43 @@ void main() {
             .widget<ChoiceChip>(find.widgetWithText(ChoiceChip, 'Русский'))
             .selected,
         isTrue);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('persisted model failure restores into Settings on launch',
+      (tester) async {
+    // Synchronous file IO (see the caption-language tests above):
+    // awaiting real async IO hangs inside testWidgets' fake-async
+    // zone, so use the sync dart:io calls.
+    final dir = Directory.systemTemp.createTempSync('last-failure-');
+    addTearDown(() => dir.deleteSync(recursive: true));
+    File('${dir.path}/last_model_error.txt')
+        .writeAsStringSync('Caption model download failed: boom');
+    final store = LastFailureStore(documentsDirectory: () async => dir);
+
+    await tester.pumpWidget(DemoApp(
+        modelManager: model,
+        backgroundCaptions: false,
+        lastFailureStore: store));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 500));
+    await tester.tap(find.byKey(const Key('menu-captions')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 500));
+    // The Captions section is last in the sheet's lazily-built
+    // ListView: scroll the error into view before querying it
+    // (issue #20 fix round 2 / T1).
+    await tester.scrollUntilVisible(
+        find.text('Caption model download failed: boom'), 100,
+        scrollable: find
+            .descendant(
+                of: find.byType(ListView),
+                matching: find.byType(Scrollable))
+            .last);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 500));
+    expect(find.text('Caption model download failed: boom'),
+        findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 
