@@ -896,11 +896,15 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('persisted model failure restores into Settings on launch',
+  testWidgets('stale model failure does not show once the model loads fine',
       (tester) async {
-    // Synchronous file IO (see the caption-language tests above):
-    // awaiting real async IO hangs inside testWidgets' fake-async
-    // zone, so use the sync dart:io calls.
+    // F1: a failure persisted by an earlier run must not display in a
+    // session where the model loads fine. The restore callback runs
+    // after the (immediate) load succeeds in fake-async — its .then is
+    // enqueued behind the load continuation — so this exercises the
+    // restore-after-success ordering: before the fix the callback set
+    // the stale value and it stayed displayed all session.
+    // Synchronous file IO (see the test above).
     final dir = Directory.systemTemp.createTempSync('last-failure-');
     addTearDown(() => dir.deleteSync(recursive: true));
     File('${dir.path}/last_model_error.txt')
@@ -916,20 +920,76 @@ void main() {
     await tester.tap(find.byKey(const Key('menu-captions')));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 500));
-    // The Captions section is last in the sheet's lazily-built
-    // ListView: scroll the error into view before querying it
-    // (issue #20 fix round 2 / T1).
+    // The error renders in two places, both driven by the same
+    // _modelError slot: a Text in the Captions section and a
+    // SelectableText inside the Session details tile. The tile sits
+    // below the Captions section, so scrolling it into view builds
+    // the section above it; expanding it builds the SelectableText.
     await tester.scrollUntilVisible(
-        find.text('Caption model download failed: boom'), 100,
+        find.byKey(const Key('session-details-tile')), 100,
         scrollable: find
             .descendant(
                 of: find.byType(ListView),
                 matching: find.byType(Scrollable))
             .last);
+    await tester.tap(find.text('Session details'));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 500));
-    expect(find.text('Caption model download failed: boom'),
-        findsOneWidget);
+    expect(find.text('Caption model download failed: boom'), findsNothing);
+    expect(
+        find.byWidgetPredicate((w) =>
+            w is SelectableText &&
+            w.data == 'Caption model download failed: boom'),
+        findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets(
+      'stale model failure is wiped when a slow load then succeeds',
+      (tester) async {
+    // F1, the other ordering: the restore fires while the model load
+    // is still in flight (a download takes seconds; the restore takes
+    // milliseconds), so the stale value IS set — then the success path
+    // must wipe it. The gated fake holds the load open until the
+    // restore has run; before the fix the success path only cleared
+    // the file, so the stale error stayed displayed all session.
+    final dir = Directory.systemTemp.createTempSync('last-failure-');
+    addTearDown(() => dir.deleteSync(recursive: true));
+    File('${dir.path}/last_model_error.txt')
+        .writeAsStringSync('Caption model download failed: boom');
+    final store = LastFailureStore(documentsDirectory: () async => dir);
+    model.gate = Completer<WhisperModelFiles>();
+
+    await tester.pumpWidget(DemoApp(
+        modelManager: model,
+        backgroundCaptions: false,
+        lastFailureStore: store));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 500));
+    // The restore has now run (model still gated), so the stale error
+    // would be showing in this session's slot.
+    model.gate!.complete(FakeModelManager.files);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 500));
+    await tester.tap(find.byKey(const Key('menu-captions')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 500));
+    await tester.scrollUntilVisible(
+        find.byKey(const Key('session-details-tile')), 100,
+        scrollable: find
+            .descendant(
+                of: find.byType(ListView),
+                matching: find.byType(Scrollable))
+            .last);
+    await tester.tap(find.text('Session details'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 500));
+    expect(find.text('Caption model download failed: boom'), findsNothing);
+    expect(
+        find.byWidgetPredicate((w) =>
+            w is SelectableText &&
+            w.data == 'Caption model download failed: boom'),
+        findsNothing);
     expect(tester.takeException(), isNull);
   });
 

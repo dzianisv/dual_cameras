@@ -423,6 +423,14 @@ class _DemoScreenState extends State<DemoScreen> with WidgetsBindingObserver {
   late final ModelManager _modelManager = widget.modelManager ?? ModelManager();
   Future<WhisperModelFiles>? _modelFuture;
   String? _modelError;
+  // Burndiag (F1): true once the model has loaded fine in this session.
+  // The initState restore below can fire either before that (a stale
+  // file is restored, then the success path below wipes it) or after it
+  // (the restore must skip). The flag alone covers only the second
+  // ordering; the success-path null below covers only the first — both
+  // are needed. Never reset: _modelFuture is cached once loaded, and a
+  // failed load leaves it false for the retry.
+  bool _modelLoaded = false;
   // Issue #56: injectable so a widget test can force the twin delete to
   // throw; defaults to the real File.delete.
   late final Future<void> Function(File file) _deleteFile =
@@ -552,7 +560,11 @@ class _DemoScreenState extends State<DemoScreen> with WidgetsBindingObserver {
     // `if (!_usesBackgroundJobs)` block below); Session details always
     // shows both slots.
     _lastFailureStore.load(LastFailureKind.model).then((stored) {
-      if (stored != null && mounted && _modelError == null) {
+      // F1: never restore a stale error over a model that already
+      // loaded fine this session — _modelLoaded is set on success
+      // below. (A restore that fired before success is wiped by the
+      // success-path null instead.)
+      if (stored != null && mounted && _modelError == null && !_modelLoaded) {
         _update(() => _modelError = stored);
       }
     });
@@ -860,6 +872,12 @@ class _DemoScreenState extends State<DemoScreen> with WidgetsBindingObserver {
       unawaited(_notifier.showReady());
       Analytics.modelReady(cached: !sawIntermediate);
       // The model is fine now: drop any failure stored by an earlier run.
+      // F1: also wipe the in-memory slot — a restore that already fired
+      // (it runs concurrently with this load) would otherwise leave a
+      // phantom "Caption model download failed" in Settings all session.
+      // The flag above stops a restore that fires after this point.
+      _modelLoaded = true;
+      _update(() => _modelError = null);
       unawaited(_lastFailureStore.clear(LastFailureKind.model));
       return model;
     } catch (e) {
