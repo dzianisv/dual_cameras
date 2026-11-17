@@ -116,14 +116,14 @@ jobs:
 
       - name: Build release APK (arm64)
         working-directory: ${{ env.EXAMPLE_DIR }}
-        run: flutter build apk --release --target-platform android-arm64 --dart-define POSTHOG_API_KEY=${{ secrets.POSTHOG_API_KEY }}
+        run: flutter build apk --release --target-platform android-arm64 --dart-define POSTHOG_API_KEY=${{ secrets.POSTHOG_API_KEY }} --dart-define SENTRY_DSN=${{ secrets.SENTRY_DSN }}
 
       # Play requires AAB for new apps: built alongside the APK (which stays
       # the sideload test artifact). Same debug signing as the APK for now;
       # a production-signed AAB ships with the Play submission.
       - name: Build release app bundle (arm64)
         working-directory: ${{ env.EXAMPLE_DIR }}
-        run: flutter build appbundle --release --target-platform android-arm64 --dart-define POSTHOG_API_KEY=${{ secrets.POSTHOG_API_KEY }}
+        run: flutter build appbundle --release --target-platform android-arm64 --dart-define POSTHOG_API_KEY=${{ secrets.POSTHOG_API_KEY }} --dart-define SENTRY_DSN=${{ secrets.SENTRY_DSN }}
 
       - name: Verify StoryCam APK and test signing
         working-directory: ${{ env.EXAMPLE_DIR }}
@@ -347,11 +347,11 @@ jobs:
 
       - name: Build release app bundle with throwaway keystore
         working-directory: ${{ env.EXAMPLE_DIR }}
-        run: flutter build appbundle --release --target-platform android-arm64 --dart-define POSTHOG_API_KEY=${{ secrets.POSTHOG_API_KEY }}
+        run: flutter build appbundle --release --target-platform android-arm64 --dart-define POSTHOG_API_KEY=${{ secrets.POSTHOG_API_KEY }} --dart-define SENTRY_DSN=${{ secrets.SENTRY_DSN }}
 
       - name: Build release APK with throwaway keystore
         working-directory: ${{ env.EXAMPLE_DIR }}
-        run: flutter build apk --release --target-platform android-arm64 --dart-define POSTHOG_API_KEY=${{ secrets.POSTHOG_API_KEY }}
+        run: flutter build apk --release --target-platform android-arm64 --dart-define POSTHOG_API_KEY=${{ secrets.POSTHOG_API_KEY }} --dart-define SENTRY_DSN=${{ secrets.SENTRY_DSN }}
 
       - name: Verify throwaway-keystore signing
         working-directory: ${{ env.EXAMPLE_DIR }}
