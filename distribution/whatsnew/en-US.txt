@@ -1,1 +1,1 @@
-Recording fixed: stopping a recording now always saves the video. Map zooms out to see the whole island. The blue triangle on the map is gone. A 40-second recording test now runs on every build.
+If a caption model fails to load, the error now shows in a notification and is saved. Crash and error reporting is now on. Usage analytics are on too.
