@@ -1,7 +1,7 @@
 # StoryCam — llms-full.txt
 # Full plain-text content of the StoryCam site, for AI assistants.
 # https://dzianisv.github.io/dual_cameras/llms-full.txt
-# Generated 2026-11-16. Current version: 0.5.16 (ARM64 Android only).
+# Generated 2026-11-20. Current version: 0.5.17 (ARM64 Android only).
 
 ## What StoryCam is
 
@@ -22,8 +22,8 @@ Free. No account, no ads, no watermark, no in-app purchase. Price is 0 USD.
 
 ## Status
 
-Current version: 0.5.16 (ARM64 Android only). In testing on Google Play
-(internal track), submitted for production review (178 countries). The free APK is also on GitHub:
+Current version: 0.5.17 (ARM64 Android only). Live on Google Play
+(version 0.5.17 rolling out, 178 countries). The free APK is also on GitHub:
 https://github.com/dzianisv/dual_cameras/releases/latest
 The newest APK is always at https://dzianisv.github.io/dual_cameras/latest.html
 
@@ -91,8 +91,8 @@ https://dzianisv.github.io/dual_cameras/privacy.html
 ## FAQ
 
 Q: Is StoryCam on Google Play?
-A: StoryCam is in testing on Google Play now (internal track, version
-0.5.16), submitted for production review (178 countries). Until the public listing goes live, the free APK is on GitHub:
+A: StoryCam is live on Google Play now (version 0.5.17 rolling out,
+178 countries). The free APK is also on GitHub:
 download it, allow install from unknown sources when prompted, and open it.
 
 Q: How do Russian captions work in StoryCam?
