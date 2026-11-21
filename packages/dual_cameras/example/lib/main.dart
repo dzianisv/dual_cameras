@@ -43,7 +43,8 @@ import 'ui/story_camera.dart';
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   // Issue #105: explicit edge-to-edge (Android 15 / API 35), matching
-  // the native enableEdgeToEdge() in MainActivity. The camera screen is
+  // the native WindowCompat.setDecorFitsSystemWindows(window, false)
+  // in MainActivity. The camera screen is
   // always dark (Scaffold 0xFF09090D, black preview), so the bars stay
   // transparent with light icons; controls stay inset via the existing
   // SafeArea widgets in story_camera.dart.
