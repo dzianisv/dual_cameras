@@ -58,6 +58,19 @@ No implementation from the PRD until the design is approved
   identical to opaque bars. Bar transparency is being proven by a
   colour-probe build on #105 before the issue closes.
 
+## Menu contrast (issue #110)
+
+- The bottom-menu labels sit directly over the live camera preview,
+  so over a bright preview block white text was unreadable ('Front'
+  on pale yellow nearly invisible; 'Captions' low contrast).
+- Treatment: a subtle vertical gradient scrim behind the menu row
+  (transparent at the top, black45 at the bottom) plus a dark text
+  shadow behind each label glyph. No layout change, no change to the
+  state-by-word styling (bold white = on, white38 not bold = off;
+  Settings stays bold white), and the menu stays one line tall.
+- Verification: API 35 emulator screenshot reviewed by a reviewer
+  agent, post-merge on main (verification-gated).
+
 ## Files
 
 Each version has an `.svg` (source) and a `.png` (render, 2×).
