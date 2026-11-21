@@ -8,6 +8,13 @@ import 'package:flutter/material.dart';
 /// Tapping an item opens the Settings dialog at that section; it never
 /// toggles the feature directly (Den, 2026-11-14).
 ///
+/// Contrast (issue #110): the labels sit directly over the live camera
+/// preview, so each label carries a dark text shadow and the row sits
+/// on a subtle dark gradient scrim — otherwise white text is unreadable
+/// over a bright preview block ('Front' on pale yellow was nearly
+/// invisible). The scrim/shadow change no sizes, no padding, and no
+/// state-by-word styling; the menu stays one line tall.
+///
 /// What "on" means per item: Map = the location circle is shown; Front /
 /// Rear = that camera is the full-frame (primary) one; Captions =
 /// auto-captions are on.
@@ -56,6 +63,18 @@ class CameraBottomMenu extends StatelessWidget {
               color: on ? Colors.white : Colors.white38,
               fontWeight: on ? FontWeight.w800 : FontWeight.w400,
               fontSize: 16,
+              // Contrast (issue #110): a dark halo behind each glyph so
+              // the label stays legible over any preview content —
+              // bright, dark, or mid-tone. Colors/weights above are
+              // unchanged (state-by-word rule, v4).
+              shadows: const [
+                Shadow(
+                  color: Colors.black87,
+                  blurRadius: 4,
+                  offset: Offset(0, 1),
+                ),
+                Shadow(color: Colors.black54, blurRadius: 8),
+              ],
             ),
           ),
         ),
@@ -71,16 +90,30 @@ class CameraBottomMenu extends StatelessWidget {
     // to fit its share on one line (FittedBox, second pass) so the
     // menu stays one line tall at any scale — wrapping the labels
     // instead pushed the record button off-screen on short screens.
-    return Row(
-      key: const Key('bottom-menu'),
-      children: [
-        Expanded(child: _item('Map', mapOn, onMap, 'menu-map')),
-        Expanded(child: _item('Front', frontPrimary, onFront, 'menu-front')),
-        Expanded(child: _item('Rear', !frontPrimary, onRear, 'menu-rear')),
-        Expanded(
-            child: _item('Captions', captionsOn, onCaptions, 'menu-captions')),
-        Expanded(child: _item('Settings', true, onSettings, 'menu-settings')),
-      ],
+    //
+    // Contrast (issue #110): the row sits on a subtle vertical gradient
+    // scrim (transparent at the top, black45 at the bottom) that darkens
+    // the preview strip behind the labels. The Container sizes to the
+    // Row, adds no padding or margin, and changes no layout.
+    return Container(
+      decoration: const BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [Colors.transparent, Colors.black45],
+        ),
+      ),
+      child: Row(
+        key: const Key('bottom-menu'),
+        children: [
+          Expanded(child: _item('Map', mapOn, onMap, 'menu-map')),
+          Expanded(child: _item('Front', frontPrimary, onFront, 'menu-front')),
+          Expanded(child: _item('Rear', !frontPrimary, onRear, 'menu-rear')),
+          Expanded(
+              child: _item('Captions', captionsOn, onCaptions, 'menu-captions')),
+          Expanded(child: _item('Settings', true, onSettings, 'menu-settings')),
+        ],
+      ),
     );
   }
 }
