@@ -8,11 +8,19 @@ import 'package:flutter/material.dart';
 /// Tapping an item opens the Settings dialog at that section; it never
 /// toggles the feature directly (Den, 2026-11-14).
 ///
-/// Contrast (issue #110): the labels sit directly over the live camera
-/// preview, so each label carries a dark text shadow and the row sits
-/// on a subtle dark gradient scrim — otherwise white text is unreadable
-/// over a bright preview block ('Front' on pale yellow was nearly
-/// invisible). The scrim/shadow change no sizes, no padding, and no
+/// Contrast (issue #110, round 2): the labels sit directly over the live
+/// camera preview, so the row sits on a uniform dark scrim and each label
+/// carries a dark outline halo behind its glyphs — otherwise white text is
+/// unreadable over a bright preview block ('Front' on pale yellow was
+/// nearly invisible). Round 1 used a transparent-to-black45 gradient scrim
+/// plus a soft shadow, but post-merge verification FAILED: the gradient's
+/// darkest band fell below the glyph band, so the pale strip behind the
+/// OFF-state labels stayed at luminance ~150-190 and white38 glyphs
+/// (max grey 186 for Front, 123 for Captions) washed out. The uniform
+/// scrim darkens the glyph band itself (a pale strip at ~190 drops to
+/// ~87 under black54), and the outline halo darkens the pixels ringing
+/// each glyph, so even dim white38 off-state glyphs read against the
+/// darkened strip. The scrim/shadow change no sizes, no padding, and no
 /// state-by-word styling; the menu stays one line tall.
 ///
 /// What "on" means per item: Map = the location circle is shown; Front /
@@ -63,17 +71,37 @@ class CameraBottomMenu extends StatelessWidget {
               color: on ? Colors.white : Colors.white38,
               fontWeight: on ? FontWeight.w800 : FontWeight.w400,
               fontSize: 16,
-              // Contrast (issue #110): a dark halo behind each glyph so
-              // the label stays legible over any preview content —
-              // bright, dark, or mid-tone. Colors/weights above are
-              // unchanged (state-by-word rule, v4).
+              // Contrast (issue #110, round 2): a dark outline halo behind
+              // each glyph so the label stays legible over any preview
+              // content — bright, dark, or mid-tone. Four 1px-offset
+              // shadows ring every glyph with solid black (a stroke-like
+              // edge), plus a soft glow; round 1's single soft shadow
+              // (blur 4/8) was too diffuse to save the thin white38
+              // off-state glyphs. Colors/weights above are unchanged
+              // (state-by-word rule, v4): off stays dimmer than on,
+              // just legible now.
               shadows: const [
                 Shadow(
-                  color: Colors.black87,
-                  blurRadius: 4,
+                  color: Colors.black,
+                  blurRadius: 2,
                   offset: Offset(0, 1),
                 ),
-                Shadow(color: Colors.black54, blurRadius: 8),
+                Shadow(
+                  color: Colors.black,
+                  blurRadius: 2,
+                  offset: Offset(0, -1),
+                ),
+                Shadow(
+                  color: Colors.black,
+                  blurRadius: 2,
+                  offset: Offset(1, 0),
+                ),
+                Shadow(
+                  color: Colors.black,
+                  blurRadius: 2,
+                  offset: Offset(-1, 0),
+                ),
+                Shadow(color: Colors.black54, blurRadius: 6),
               ],
             ),
           ),
@@ -91,18 +119,18 @@ class CameraBottomMenu extends StatelessWidget {
     // menu stays one line tall at any scale — wrapping the labels
     // instead pushed the record button off-screen on short screens.
     //
-    // Contrast (issue #110): the row sits on a subtle vertical gradient
-    // scrim (transparent at the top, black45 at the bottom) that darkens
-    // the preview strip behind the labels. The Container sizes to the
-    // Row, adds no padding or margin, and changes no layout.
+    // Contrast (issue #110, round 2): the row sits on a UNIFORM solid
+    // black54 scrim that darkens the whole row height — including the
+    // glyph band itself — behind the labels. Round 1's gradient
+    // (transparent at the top, black45 at the bottom) failed post-merge
+    // verification: at the glyph band it was only ~black20, so the pale
+    // strip behind the OFF-state labels stayed bright and white38
+    // glyphs washed out. A uniform scrim is the fix: the background
+    // behind every glyph is darkened by the same amount, bright or dark
+    // preview alike. The Container sizes to the Row, adds no padding
+    // or margin, and changes no layout.
     return Container(
-      decoration: const BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: [Colors.transparent, Colors.black45],
-        ),
-      ),
+      color: Colors.black54,
       child: Row(
         key: const Key('bottom-menu'),
         children: [
@@ -110,7 +138,8 @@ class CameraBottomMenu extends StatelessWidget {
           Expanded(child: _item('Front', frontPrimary, onFront, 'menu-front')),
           Expanded(child: _item('Rear', !frontPrimary, onRear, 'menu-rear')),
           Expanded(
-              child: _item('Captions', captionsOn, onCaptions, 'menu-captions')),
+              child:
+                  _item('Captions', captionsOn, onCaptions, 'menu-captions')),
           Expanded(child: _item('Settings', true, onSettings, 'menu-settings')),
         ],
       ),
