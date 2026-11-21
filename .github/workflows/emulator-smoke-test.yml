@@ -620,6 +620,12 @@ jobs:
             adb shell am start -n app.storycam/.MainActivity
             sleep 20
             adb shell pidof app.storycam || (adb logcat -d | grep -i -E "storycam|flutter|fatal|crash" | tail -30; exit 1)
+            # The app asks for location at launch (map circle): dismiss
+            # the permission dialog so the launch shot shows the app, not
+            # the dialog. 'While using the app' is the API 35 location
+            # dialog button; 'Allow' covers the camera-permission dialog.
+            python3 tools/emulator_tap.py 'While using the app' || python3 tools/emulator_tap.py 'Allow' || true
+            sleep 3
             adb exec-out screencap -p > edge35-launch.png
             python3 tools/emulator_tap.py 'Wait' || true
             sleep 5
@@ -628,6 +634,10 @@ jobs:
             python3 tools/emulator_tap.py 'Open camera' || true
             sleep 20
             adb shell pidof app.storycam || (adb logcat -d | grep -i -E "storycam|flutter|fatal|crash" | tail -30; exit 1)
+            # Opening the camera can re-ask location: dismiss again so the
+            # camera shot shows the preview + controls, not the dialog.
+            python3 tools/emulator_tap.py 'While using the app' || python3 tools/emulator_tap.py 'Allow' || true
+            sleep 3
             adb exec-out screencap -p > edge35-camera.png
             adb shell rm -f /data/local/tmp/ui35.xml
             adb shell uiautomator dump /data/local/tmp/ui35.xml
