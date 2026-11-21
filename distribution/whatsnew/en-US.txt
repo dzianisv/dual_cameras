@@ -1,1 +1,1 @@
-If a caption model fails to load, the error now shows in a notification and is saved. Crash and error reporting is now on. Usage analytics are on too.
+Edge-to-edge display: the app now draws behind the status and gesture bars. Last-video thumbnails load faster and use less memory. Bottom-menu labels are now readable over any preview.
