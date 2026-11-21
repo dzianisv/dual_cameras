@@ -21,8 +21,17 @@ Every file here is a source or a reviewed copy — nothing is a mockup.
 ## Screenshots
 
 Play needs 2–8 phone screenshots, from real tested flows, never
-mockups. Status at PR time: **none yet — the emulator workflow is
-broken and no screenshot exists.**
+mockups. Status 2026-11-21: **first card bundle built — DRAFT, not for
+the live listing yet.** 10 cards, 1080×1920, EN + RU, in
+`screenshots/2026-11-21/` (see its `README.md` + `CRITIC.md`):
+slots 1–5 are dual recording / live map / captions / filters / share,
+benefit headlines, hook-first per `docs/play-listing.md`. Critic verdict
+FAIL for go-live: slots 1, 2, 4 show the emulator's synthetic
+test-pattern preview, not real footage — they need a real-phone re-shoot
+before upload. Slots 3 (captions sheet) and 5 (share sheet) pass and
+could ship now. Nothing was uploaded to Play Console.
+
+Older notes (kept for the record):
 
 - The first-ever dispatch of `emulator-smoke-test.yml` (run
   43491636991, 2026-11-14) FAILED before installing the APK:
