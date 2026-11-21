@@ -1,11 +1,25 @@
 package app.storycam
 
 import android.content.Intent
+import android.os.Bundle
+import androidx.core.view.WindowCompat
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 
 class MainActivity : FlutterActivity() {
+    // Issue #105: draw edge-to-edge on Android 15 (API 35) — content
+    // behind the status + navigation bars. The Flutter engine already
+    // defaults to edge-to-edge for targetSdk 35+, but Play Console does
+    // not count the implicit default, so make it explicit here.
+    // (androidx.activity's enableEdgeToEdge() does NOT apply:
+    // FlutterActivity extends android.app.Activity, not
+    // ComponentActivity, so use WindowCompat directly.)
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        WindowCompat.setDecorFitsSystemWindows(window, false)
+    }
+
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
         MethodChannel(

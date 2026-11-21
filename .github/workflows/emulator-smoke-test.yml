@@ -558,3 +558,100 @@ jobs:
             longrec-check-camflow.log
             video-proof-t*.png
           retention-days: 7
+
+  # Issue #105: API 35 (Android 15) edge-to-edge verification. The
+  # smoke job above runs API 34 only; Android 15 enforces edge-to-edge,
+  # so this lightweight job launches the release APK on an API 35
+  # emulator and captures the launch + camera screens as the
+  # edge-to-edge evidence (content behind status + nav bars, no clipped
+  # controls, no letterbox). It does NOT repeat the long-recording /
+  # camera-flow legs — those stay API 34 in the smoke job.
+  smoke-api35:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Check out the repo
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: 3.47.7
+          channel: stable
+          cache: true
+
+      - name: Build release APK (x86_64)
+        working-directory: packages/dual_cameras/example
+        env:
+          STORYCAM_ABI: x86_64
+        run: |
+          flutter pub get
+          flutter build apk --release --target-platform android-x64
+
+      - name: Enable KVM for the emulator
+        run: |
+          ls -l /dev/kvm || echo "no /dev/kvm on this runner"
+          sudo chmod 666 /dev/kvm 2>/dev/null || echo "chmod /dev/kvm skipped"
+          ls -l /dev/kvm || true
+
+      - name: Emulator API 35 edge-to-edge check (#105)
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          cores: 4
+          ram-size: 4096
+          heap-size: 1024
+          arch: x86_64
+          target: google_apis
+          emulator-options: -no-snapshot-save -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back emulated -camera-front emulated
+          disable-animations: true
+          disable-linux-hw-accel: false
+          emulator-boot-timeout: 900
+          script: |
+            adb install -r packages/dual_cameras/example/build/app/outputs/flutter-apk/app-release.apk
+            adb shell pm grant app.storycam android.permission.CAMERA || true
+            adb shell pm grant app.storycam android.permission.RECORD_AUDIO || true
+            adb shell am start -n app.storycam/.MainActivity
+            sleep 20
+            adb shell pidof app.storycam || (adb logcat -d | grep -i -E "storycam|flutter|fatal|crash" | tail -30; exit 1)
+            # The app asks for location at launch (map circle): dismiss
+            # the permission dialog so the launch shot shows the app, not
+            # the dialog. 'While using the app' is the API 35 location
+            # dialog button; 'Allow' covers the camera-permission dialog.
+            python3 tools/emulator_tap.py 'While using the app' || python3 tools/emulator_tap.py 'Allow' || true
+            sleep 3
+            adb exec-out screencap -p > edge35-launch.png
+            python3 tools/emulator_tap.py 'Wait' || true
+            sleep 5
+            python3 tools/emulator_tap.py 'Allow' || true
+            sleep 2
+            python3 tools/emulator_tap.py 'Open camera' || true
+            sleep 20
+            adb shell pidof app.storycam || (adb logcat -d | grep -i -E "storycam|flutter|fatal|crash" | tail -30; exit 1)
+            # Opening the camera can re-ask location: dismiss again so the
+            # camera shot shows the preview + controls, not the dialog.
+            python3 tools/emulator_tap.py 'While using the app' || python3 tools/emulator_tap.py 'Allow' || true
+            sleep 3
+            adb exec-out screencap -p > edge35-camera.png
+            adb shell rm -f /data/local/tmp/ui35.xml
+            adb shell uiautomator dump /data/local/tmp/ui35.xml
+            adb pull /data/local/tmp/ui35.xml ui35.xml || true
+            grep -q 'StoryCam' ui35.xml || (echo 'EDGE35 FAILED: StoryCam title not in UI dump - camera screen did not open'; exit 1)
+            echo 'EDGE35: camera screen open on API 35 (screenshots edge35-launch.png / edge35-camera.png)'
+
+      - name: Upload API 35 edge-to-edge evidence
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: emulator-api35-edge-to-edge
+          path: |
+            edge35-launch.png
+            edge35-camera.png
+            ui35.xml
+          retention-days: 30

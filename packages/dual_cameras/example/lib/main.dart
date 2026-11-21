@@ -42,6 +42,19 @@ import 'ui/story_camera.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  // Issue #105: explicit edge-to-edge (Android 15 / API 35), matching
+  // the native WindowCompat.setDecorFitsSystemWindows(window, false)
+  // in MainActivity. The camera screen is
+  // always dark (Scaffold 0xFF09090D, black preview), so the bars stay
+  // transparent with light icons; controls stay inset via the existing
+  // SafeArea widgets in story_camera.dart.
+  SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+  SystemChrome.setSystemUIOverlayStyle(const SystemUiOverlayStyle(
+    statusBarColor: Colors.transparent,
+    systemNavigationBarColor: Colors.transparent,
+    statusBarIconBrightness: Brightness.light,
+    systemNavigationBarIconBrightness: Brightness.light,
+  ));
   // No-op when built without --dart-define SENTRY_DSN: Sentry is never
   // initialized and the app boots exactly as before.
   await CrashReporting.init();
