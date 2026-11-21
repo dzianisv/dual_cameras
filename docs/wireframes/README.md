@@ -39,6 +39,15 @@ No implementation from the PRD until the design is approved
   bold = off); the switch lives in the dialog.
 - The PRD document for this design lives in the StoryCam Notion hub.
 
+## Edge-to-edge (Android 15+)
+
+- The app draws edge-to-edge: video extends behind the status and
+  navigation bars (explicit enablement, PR #108, issue #105 — native
+  `WindowCompat.setDecorFitsSystemWindows(window, false)` plus Dart
+  `SystemUiMode.edgeToEdge` with transparent bars).
+- Controls stay inset via the existing `SafeArea` wrappers; no control
+  is clipped and the full-bleed layout above is unchanged.
+
 ## Files
 
 Each version has an `.svg` (source) and a `.png` (render, 2×).
