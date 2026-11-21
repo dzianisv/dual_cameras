@@ -63,9 +63,9 @@ No implementation from the PRD until the design is approved
 - The bottom-menu labels sit directly over the live camera preview,
   so over a bright preview block white text was unreadable ('Front'
   on pale yellow nearly invisible; 'Captions' low contrast).
-- Treatment: a subtle vertical gradient scrim behind the menu row
-  (transparent at the top, black45 at the bottom) plus a dark text
-  shadow behind each label glyph. No layout change, no change to the
+- Treatment (round 1, superseded): a subtle vertical gradient scrim
+  behind the menu row (transparent at the top, black45 at the bottom)
+  plus a dark text shadow behind each label glyph. No layout change, no change to the
   state-by-word styling (bold white = on, white38 not bold = off;
   Settings stays bold white), and the menu stays one line tall.
 - Round 2 (post-merge verification of round 1 FAILED): the gradient's
