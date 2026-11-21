@@ -68,6 +68,13 @@ No implementation from the PRD until the design is approved
   shadow behind each label glyph. No layout change, no change to the
   state-by-word styling (bold white = on, white38 not bold = off;
   Settings stays bold white), and the menu stays one line tall.
+- Round 2 (post-merge verification of round 1 FAILED): the gradient's
+  darkest band fell below the glyph band, so the OFF-state labels
+  (Front, Captions — white38) stayed illegible over bright preview
+  blocks. Treatment changed to a uniform solid black54 scrim across
+  the full row height (it darkens the glyph band itself) plus a
+  four-way dark outline halo around each glyph. Off-state labels stay
+  dimmer than on-state ones — just legible now.
 - Verification: API 35 emulator screenshot reviewed by a reviewer
   agent, post-merge on main (verification-gated).
 
