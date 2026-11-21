@@ -41,12 +41,22 @@ No implementation from the PRD until the design is approved
 
 ## Edge-to-edge (Android 15+)
 
-- The app draws edge-to-edge: video extends behind the status and
-  navigation bars (explicit enablement, PR #108, issue #105 — native
+- The window draws edge-to-edge: it spans the full display (explicit
+  enablement, PR #108, issue #105 — native
   `WindowCompat.setDecorFitsSystemWindows(window, false)` plus Dart
-  `SystemUiMode.edgeToEdge` with transparent bars).
-- Controls stay inset via the existing `SafeArea` wrappers; no control
-  is clipped and the full-bleed layout above is unchanged.
+  `SystemUiMode.edgeToEdge` with transparent bars). Proof: the API 35
+  UI dump root bounds went from `[0,40][320,599]` (pre-fix, inset) to
+  `[0,0][320,640]` (post-fix, full display).
+- The preview itself stays letterboxed 9:16, centred — it does NOT
+  extend behind the bars. What sits behind the status and navigation
+  bars is the black letterbox background (`ColoredBox`, black), so the
+  bar zones render black. Controls stay inset via the existing
+  `SafeArea` wrappers; no control is clipped.
+- Verification status (2026-11-21): the post-merge API 35 run
+  (44854003833) is green, but its screenshots cannot prove the bars
+  are transparent — black letterbox behind transparent bars looks
+  identical to opaque bars. Bar transparency is being proven by a
+  colour-probe build on #105 before the issue closes.
 
 ## Files
 
