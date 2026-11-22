@@ -29,7 +29,10 @@ import kotlin.math.roundToInt
  * 630 px at 4K) and the padding is w * 16/412 (42 px at 1080p, 84 px
  * at 4K), computed at runtime from the actual frame width. The snapshot
  * itself was rendered at burn diameter at capture time, so it is drawn
- * at its intrinsic size; only the padding is computed here.
+ * at its intrinsic size in the normal case; the decode is downsampled
+ * to (at most) ~2x the drawn diameter and the dest rect is always the
+ * design diameter, so an oversized snapshot is never drawn oversized.
+ * Only the padding is computed here.
  */
 object MapRenderer {
     private const val TAG = "MapRenderer"
@@ -46,14 +49,18 @@ object MapRenderer {
     // 30 fps), so decode once per snapshot change, never once per frame.
     // Valid only within one burn — CaptionBurner calls [reset] first.
     // Burns are serialized on the Dart side (one _captionQueue), so no
-    // concurrent burn can interleave here.
+    // concurrent burn can interleave here. Keyed on (file, target size):
+    // the same file decoded for a different frame width is a different
+    // downsampled bitmap, so a target change re-decodes.
     private var cachedFile: File? = null
+    private var cachedTargetSize: Int = -1
     private var cachedBitmap: Bitmap? = null
 
     fun reset() {
         cachedBitmap?.recycle()
         cachedBitmap = null
         cachedFile = null
+        cachedTargetSize = -1
     }
 
     /**
@@ -82,7 +89,8 @@ object MapRenderer {
             drawFallbackDisc(canvas, w)
             return
         }
-        val bitmap = bitmapFor(file)
+        val d = (w * 120 / 412.0).roundToInt() // burn diameter, design §4
+        val bitmap = bitmapFor(file, d)
         if (bitmap == null) {
             Log.w(TAG, "snapshot unreadable, fallback disc: ${file.path}")
             drawFallbackDisc(canvas, w)
@@ -91,24 +99,48 @@ object MapRenderer {
         val padding = (w * 16 / 412.0).roundToInt()
         canvas.drawBitmap(
             bitmap, null,
-            Rect(padding, padding,
-                padding + bitmap.width, padding + bitmap.height),
+            Rect(padding, padding, padding + d, padding + d),
             null,
         )
     }
 
-    private fun bitmapFor(file: File): Bitmap? {
+    /**
+     * Decode [file] downsampled to (at most) ~2x [targetSize] px, the
+     * diameter the bitmap is drawn at. Bounds pre-decode
+     * (inJustDecodeBounds) + a power-of-2 inSampleSize: the decoded
+     * bitmap is the largest power-of-2 downsample still >= the target
+     * in both dimensions, so it is >= target and < 2x target (per
+     * dimension) whenever the source is larger; a source already at or
+     * below the target decodes at full size (inSampleSize 1, no upscale).
+     * Returns null when the file is unreadable, as before.
+     */
+    private fun bitmapFor(file: File, targetSize: Int): Bitmap? {
+        val target = targetSize.coerceAtLeast(1)
         val cached = cachedBitmap
-        if (cachedFile == file && cached != null && !cached.isRecycled) {
+        if (cachedFile == file && cachedTargetSize == target &&
+            cached != null && !cached.isRecycled
+        ) {
             return cached
         }
         cachedBitmap?.recycle()
         cachedBitmap = null
         cachedFile = null
+        cachedTargetSize = -1
         return try {
-            BitmapFactory.decodeFile(file.path)?.also {
+            val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            BitmapFactory.decodeFile(file.path, bounds)
+            if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
+            var inSampleSize = 1
+            while (bounds.outWidth / (inSampleSize * 2) >= target &&
+                bounds.outHeight / (inSampleSize * 2) >= target
+            ) {
+                inSampleSize *= 2
+            }
+            val opts = BitmapFactory.Options().apply { this.inSampleSize = inSampleSize }
+            BitmapFactory.decodeFile(file.path, opts)?.also {
                 cachedBitmap = it
                 cachedFile = file
+                cachedTargetSize = target
             }
         } catch (t: Throwable) {
             Log.w(TAG, "decode failed: ${file.path}", t)
