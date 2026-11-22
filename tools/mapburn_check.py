@@ -48,7 +48,11 @@ MAX_DURATION_DELTA = 0.5
 
 
 def run(cmd, **kw):
-    return subprocess.run(cmd, capture_output=True, text=True, **kw)
+    # errors="replace": logcat carries non-UTF-8 bytes (binary log
+    # records), and strict decoding crashed this check with
+    # UnicodeDecodeError on run 44986348989 before any gate ran.
+    return subprocess.run(cmd, capture_output=True, text=True,
+                          errors="replace", **kw)
 
 
 def logcat():
