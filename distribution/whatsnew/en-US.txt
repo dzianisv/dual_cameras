@@ -1,1 +1,1 @@
-Edge-to-edge display: the app now draws behind the status and gesture bars. Last-video thumbnails load faster and use less memory. Bottom-menu labels are now readable over any preview.
+Map snapshots use less memory: the map circle now decodes its snapshot at display size instead of full resolution.

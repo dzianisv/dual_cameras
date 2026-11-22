@@ -168,7 +168,7 @@ jobs:
           echo "AAB OK: app.storycam + arm64-v8a, $(du -h "$AAB" | cut -f1)"
 
       # APK asset name is storycam-<version>-arm64.apk (versionName from
-      # pubspec.yaml). The static paths below name 0.5.18 literally — on a
+      # pubspec.yaml). The static paths below name 0.5.19 literally — on a
       # version bump, update them here, in the release files list, and in
       # website/latest.html, exactly as the release checklist already does.
       - name: Prepare APK artifact
@@ -186,9 +186,9 @@ jobs:
       - name: Upload StoryCam APK
         uses: actions/upload-artifact@v4
         with:
-          name: storycam-0.5.18-arm64-${{ github.sha }}
+          name: storycam-0.5.19-arm64-${{ github.sha }}
           path: |
-            packages/dual_cameras/example/storycam-0.5.18-arm64.apk
+            packages/dual_cameras/example/storycam-0.5.19-arm64.apk
             packages/dual_cameras/example/SHA256SUMS
             packages/dual_cameras/example/storycam-play-release.aab
             packages/dual_cameras/example/SHA256SUMS.aab
@@ -207,15 +207,13 @@ jobs:
           prerelease: true
           fail_on_unmatched_files: true
           files: |
-            packages/dual_cameras/example/storycam-0.5.18-arm64.apk
+            packages/dual_cameras/example/storycam-0.5.19-arm64.apk
             packages/dual_cameras/example/SHA256SUMS
             packages/dual_cameras/example/build-info.txt
           body: |
-            ## What's new in 0.5.18
+            ## What's new in 0.5.19
 
-            - Edge-to-edge display: the app now draws behind the status bar and gesture bar, using the full screen (#105).
-            - Bitmap downsampling: the last-video thumbnail is decoded at display size, so it loads faster and uses less memory (#106).
-            - Bottom-menu labels are now legible over any preview: a uniform scrim behind the menu plus an outline halo around each label (#110).
+            - Bitmap downsampling: the map circle now decodes its snapshot at display size, so it loads faster and uses less memory (#114).
 
             ## StoryCam ${{ github.ref_name }}
 
@@ -244,7 +242,7 @@ jobs:
               caption processing.
 
             ### Install
-            1. Download `storycam-0.5.18-arm64.apk` below.
+            1. Download `storycam-0.5.19-arm64.apk` below.
             2. Sideload it (allow "install unknown apps" when prompted).
             3. Open StoryCam, grant Camera and Microphone, then use the shutter
                to open the camera and start or stop recording.
