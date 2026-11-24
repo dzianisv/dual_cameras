@@ -32,6 +32,7 @@ Dual Cameras fills a real gap: as of 2026 no other Flutter plugin records a comp
 - Page: https://dzianisv.github.io/dual_cameras/storycam.html
 - Blog: why I built it — traveling and vlogging for family: https://dzianisv.github.io/dual_cameras/blog/travel-vlog-story.html
 - Blog: how to record the front and back camera at the same time: https://dzianisv.github.io/dual_cameras/blog/dual-camera-recording-guide.html
+- Blog: automatic captions on your videos, offline, in Russian and English: https://dzianisv.github.io/dual_cameras/blog/offline-captions-russian-english.html
 
 ## Links
 - Full content in one plain-text file: https://dzianisv.github.io/dual_cameras/llms-full.txt
