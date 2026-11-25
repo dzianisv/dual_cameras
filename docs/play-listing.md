@@ -1,6 +1,6 @@
 # StoryCam — Google Play listing text
 
-Draft for the Play Console listing. Every claim matches the v0.5.15
+Draft for the Play Console listing. Every claim matches the v0.5.19
 build — nothing invented. Limits: title ≤ 30 characters, short
 description ≤ 80 characters, full description ≤ 4000 characters.
 Keywords (docs/aso-keywords.md) are placed in the text, not submitted
